@@ -6,9 +6,11 @@ import {
     Copy,
     Cpu,
     Download,
+    Eye,
     Gauge,
     Monitor,
     Play,
+    RotateCcw,
     Smartphone,
     Square,
     Timer,
@@ -47,6 +49,32 @@ import {
     projectMetricForTier,
     runFullPerformanceBenchmark,
 } from '@/lib/benchmark/perfBenchmark';
+import {
+    BASELINE_CDP_DESKTOP_REPORT,
+    BASELINE_CDP_MOBILE_REPORT,
+    MEASURED_CDP_4TIER_ROWS,
+} from '@/lib/benchmark/baselineCdpReport';
+
+const BENCHMARK_STORAGE_KEY = 'tp_admin_benchmark_reports_v1';
+
+interface StoredBenchmarkSnapshot {
+    desktop: FullBenchmarkReport | null;
+    mobile: FullBenchmarkReport | null;
+}
+
+const loadStoredReports = (): StoredBenchmarkSnapshot | null => {
+    try {
+        const raw = window.localStorage.getItem(BENCHMARK_STORAGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as StoredBenchmarkSnapshot;
+        if (parsed && (parsed.desktop || parsed.mobile)) {
+            return parsed;
+        }
+    } catch {
+        // ignore corrupted cache
+    }
+    return null;
+};
 
 type RunPreset = 'desktop-and-projections' | 'mobile-and-projections' | 'dual-compare';
 type MetricSortKey = 'severity' | 'totalMs' | 'tbtMs' | 'maxLongTaskMs' | 'minFps' | 'domNodes';
@@ -78,15 +106,21 @@ const AdminBenchmark: React.FC = () => {
     const [includeHeavyRefresh, setIncludeHeavyRefresh] = useState(true);
     const [includeAllSecondary, setIncludeAllSecondary] = useState(true);
     const [includeReader, setIncludeReader] = useState(true);
-    const [showLiveFrame, setShowLiveFrame] = useState(false);
+    const [showLiveFrame, setShowLiveFrame] = useState(true);
 
     const [isRunning, setIsRunning] = useState(false);
     const [progress, setProgress] = useState<BenchmarkProgressEvent | null>(null);
     const [liveRoutes, setLiveRoutes] = useState<RouteBenchmarkMetric[]>([]);
     const [liveMicros, setLiveMicros] = useState<MicroBenchmarkMetric[]>([]);
 
-    const [desktopReport, setDesktopReport] = useState<FullBenchmarkReport | null>(null);
-    const [mobileReport, setMobileReport] = useState<FullBenchmarkReport | null>(null);
+    const initialStored = useMemo(() => loadStoredReports(), []);
+    const [reportSource, setReportSource] = useState<'baseline' | 'live'>(initialStored ? 'live' : 'baseline');
+    const [desktopReport, setDesktopReport] = useState<FullBenchmarkReport | null>(
+        () => initialStored?.desktop ?? BASELINE_CDP_DESKTOP_REPORT,
+    );
+    const [mobileReport, setMobileReport] = useState<FullBenchmarkReport | null>(
+        () => initialStored?.mobile ?? BASELINE_CDP_MOBILE_REPORT,
+    );
     const [activeReportTab, setActiveReportTab] = useState<'desktop' | 'mobile'>('desktop');
     const [sortBy, setSortBy] = useState<MetricSortKey>('tbtMs');
     const [copiedMd, setCopiedMd] = useState(false);
@@ -106,9 +140,22 @@ const AdminBenchmark: React.FC = () => {
         return desktopReport ?? mobileReport;
     }, [activeReportTab, desktopReport, mobileReport]);
 
-    const displayedRoutes = activeReport?.routes ?? liveRoutes;
-    const displayedMicros = activeReport?.micros ?? liveMicros;
-    const displayedBottlenecks = activeReport?.bottlenecks ?? [];
+    const displayedRoutes = isRunning ? liveRoutes : activeReport?.routes ?? liveRoutes;
+    const displayedMicros = isRunning ? liveMicros : activeReport?.micros ?? liveMicros;
+    const displayedBottlenecks = isRunning ? [] : activeReport?.bottlenecks ?? [];
+
+    const restoreBaselineReport = useCallback(() => {
+        try {
+            window.localStorage.removeItem(BENCHMARK_STORAGE_KEY);
+        } catch {
+            // ignore
+        }
+        setDesktopReport(BASELINE_CDP_DESKTOP_REPORT);
+        setMobileReport(BASELINE_CDP_MOBILE_REPORT);
+        setReportSource('baseline');
+        setActiveReportTab('desktop');
+        toast.info('Referans 4 kademeli CDP sonuçlarına dönüldü');
+    }, []);
 
     const stopBenchmark = useCallback(() => {
         abortRef.current?.abort();
@@ -138,6 +185,9 @@ const AdminBenchmark: React.FC = () => {
         setDesktopReport(null);
         setMobileReport(null);
 
+        let nextDesktop: FullBenchmarkReport | null = null;
+        let nextMobile: FullBenchmarkReport | null = null;
+
         try {
             if (runPreset === 'desktop-and-projections' || runPreset === 'dual-compare') {
                 setActiveFrameViewport('desktop');
@@ -154,6 +204,7 @@ const AdminBenchmark: React.FC = () => {
                     onPartialMicro: (m) => setLiveMicros((prev) => [...prev, m]),
                     onPartialRoute: (r) => setLiveRoutes((prev) => [...prev, r]),
                 });
+                nextDesktop = dReport;
                 setDesktopReport(dReport);
             }
 
@@ -179,10 +230,21 @@ const AdminBenchmark: React.FC = () => {
                     onPartialMicro: (m) => setLiveMicros((prev) => [...prev, m]),
                     onPartialRoute: (r) => setLiveRoutes((prev) => [...prev, r]),
                 });
+                nextMobile = mReport;
                 setMobileReport(mReport);
                 if (runPreset === 'mobile-and-projections') {
                     setActiveReportTab('mobile');
                 }
+            }
+
+            setReportSource('live');
+            try {
+                window.localStorage.setItem(
+                    BENCHMARK_STORAGE_KEY,
+                    JSON.stringify({ desktop: nextDesktop, mobile: nextMobile }),
+                );
+            } catch {
+                // ignore storage quota errors
             }
 
             toast.success('Detaylı benchmark testi tamamlandı');
@@ -283,6 +345,20 @@ const AdminBenchmark: React.FC = () => {
     );
 
     const tierComparisonData = useMemo(() => {
+        if (!isRunning && reportSource === 'baseline') {
+            return MEASURED_CDP_4TIER_ROWS.slice(0, 7).map((row) => ({
+                name: shortRouteLabel(row.test),
+                pc1xMs: row.pc1xMs,
+                mobil2xMs: row.mobil2xMs,
+                mobil4xMs: row.mobil4xMs,
+                mobil6xMs: row.mobil6xMs,
+                pcFps: row.pc1xMinFps,
+                mobil2xFps: row.mobil2xMinFps,
+                mobil4xFps: row.mobil4xMinFps,
+                mobil6xFps: row.mobil6xMinFps,
+            }));
+        }
+
         const targets = displayedRoutes.filter((r) =>
             [
                 'route-home',
@@ -312,7 +388,7 @@ const AdminBenchmark: React.FC = () => {
                 mobil6xFps: p6.projectedFps,
             };
         });
-    }, [displayedRoutes]);
+    }, [displayedRoutes, isRunning, reportSource]);
 
     const microChartData = useMemo(
         () =>
@@ -350,6 +426,7 @@ const AdminBenchmark: React.FC = () => {
 
     const frameWidth = activeFrameViewport === 'mobile' ? 390 : 1280;
     const frameHeight = activeFrameViewport === 'mobile' ? 844 : 800;
+    const frameScale = activeFrameViewport === 'mobile' ? 0.56 : 0.48;
     const progressPct = progress && progress.totalSteps > 0
         ? Math.min(100, Math.round((progress.completedSteps / progress.totalSteps) * 100))
         : 0;
@@ -399,12 +476,19 @@ const AdminBenchmark: React.FC = () => {
                         <Download className="h-4 w-4" />
                         JSON İndir
                     </Button>
+
+                    {reportSource === 'live' && !isRunning && (
+                        <Button variant="ghost" onClick={restoreBaselineReport} className="gap-2 text-xs">
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            Referans CDP Sonucuna Dön
+                        </Button>
+                    )}
                 </div>
             </div>
 
             {/* Configuration Card */}
             <Card className="border-border/60 bg-card/70">
-                <CardContent className="grid gap-4 pt-5 md:grid-cols-2 lg:grid-cols-4">
+                <CardContent className="grid gap-4 pt-5 md:grid-cols-2 lg:grid-cols-5">
                     <div className="space-y-2">
                         <label className="text-xs font-medium text-muted-foreground">Cihaz & Ekran Modu</label>
                         <Select
@@ -441,64 +525,129 @@ const AdminBenchmark: React.FC = () => {
 
                     <div className="flex items-center justify-between rounded-lg border border-border/50 bg-background/40 px-3 py-2">
                         <div className="pr-2">
-                            <div className="text-xs font-medium">Okuyucu & Canlı Çerçeve</div>
-                            <div className="text-[11px] text-muted-foreground">Bölüm okuyucu + mini önizleme</div>
+                            <div className="text-xs font-medium">Bölüm Okuyucu</div>
+                            <div className="text-[11px] text-muted-foreground">Okuyucu rotası dahil</div>
                         </div>
-                        <div className="flex items-center gap-3">
-                            <Switch checked={includeReader} onCheckedChange={setIncludeReader} disabled={isRunning} />
-                            <Switch checked={showLiveFrame} onCheckedChange={setShowLiveFrame} />
+                        <Switch checked={includeReader} onCheckedChange={setIncludeReader} disabled={isRunning} />
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-lg border border-border/50 bg-background/40 px-3 py-2">
+                        <div className="pr-2">
+                            <div className="text-xs font-medium">Canlı İzleme Ekranı</div>
+                            <div className="text-[11px] text-muted-foreground">Testi görsel olarak izle</div>
                         </div>
+                        <Switch checked={showLiveFrame} onCheckedChange={setShowLiveFrame} />
                     </div>
                 </CardContent>
             </Card>
 
-            {/* Sandbox Iframe (always composited so Chromium never throttles rAF!) */}
+            {/* Sandbox Iframe + Live Stream (always composited so Chromium never throttles rAF!) */}
             <div
                 className={cn(
                     showLiveFrame
-                        ? 'rounded-xl border border-border/60 bg-background/60 p-3'
+                        ? 'rounded-xl border border-border/60 bg-card/70 p-4'
                         : 'pointer-events-none fixed left-0 top-0 -z-50 h-2 w-2 overflow-hidden opacity-[0.01]',
                 )}
             >
                 {showLiveFrame && (
-                    <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
-                        <span>Canlı Test Alanı ({frameWidth}×{frameHeight})</span>
-                        <span>{isRunning ? 'Ölçüm sürüyor...' : 'Beklemede'}</span>
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-border/40 pb-2.5">
+                        <div className="flex items-center gap-2 text-xs font-medium text-foreground">
+                            <Eye className="h-4 w-4 text-primary" />
+                            <span>
+                                Canlı Tarayıcı İzleme ({frameWidth}×{frameHeight}{' '}
+                                {activeFrameViewport === 'mobile' ? 'Mobil' : 'Masaüstü'})
+                            </span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                            {isRunning ? progress?.currentLabel || 'Ölçüm sürüyor...' : 'Testi Başlat dediğinizde sayfalar ve aksiyonlar burada canlı akar'}
+                        </div>
                     </div>
                 )}
-                <div
-                    className={cn(showLiveFrame && 'overflow-hidden rounded-lg border border-border/50 bg-black')}
-                    style={
-                        showLiveFrame
-                            ? {
-                                  width: Math.round(frameWidth * 0.34),
-                                  height: Math.round(frameHeight * 0.34),
-                              }
-                            : undefined
-                    }
-                >
-                    <iframe
-                        ref={iframeRef}
-                        title="Performans Test Sandbox"
-                        tabIndex={-1}
-                        width={frameWidth}
-                        height={frameHeight}
+
+                <div className={cn(showLiveFrame && 'grid gap-4 xl:grid-cols-[auto_1fr]')}>
+                    <div
+                        className={cn(
+                            showLiveFrame &&
+                                'relative mx-auto overflow-hidden rounded-lg border border-border/60 bg-zinc-950 shadow-lg',
+                        )}
                         style={
                             showLiveFrame
                                 ? {
-                                      width: `${frameWidth}px`,
-                                      height: `${frameHeight}px`,
-                                      transform: 'scale(0.34)',
-                                      transformOrigin: 'top left',
-                                      pointerEvents: 'none',
+                                      width: Math.round(frameWidth * frameScale),
+                                      height: Math.round(frameHeight * frameScale),
                                   }
-                                : {
-                                      width: `${frameWidth}px`,
-                                      height: `${frameHeight}px`,
-                                      border: 0,
-                                  }
+                                : undefined
                         }
-                    />
+                    >
+                        {showLiveFrame && !isRunning && (
+                            <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-background/85 p-4 text-center backdrop-blur-[2px]">
+                                <Monitor className="h-7 w-7 text-primary/80" />
+                                <div className="text-xs font-medium text-foreground">Canlı İzleme Ekranı Hazır</div>
+                                <div className="max-w-[260px] text-[11px] text-muted-foreground">
+                                    Testi Başlat butonuna bastığınızda her rota, SPA geçişi ve filtre aksiyonu burada gerçek zamanlı görünür.
+                                </div>
+                            </div>
+                        )}
+                        <iframe
+                            ref={iframeRef}
+                            title="Performans Test Sandbox"
+                            tabIndex={-1}
+                            width={frameWidth}
+                            height={frameHeight}
+                            style={
+                                showLiveFrame
+                                    ? {
+                                          width: `${frameWidth}px`,
+                                          height: `${frameHeight}px`,
+                                          transform: `scale(${frameScale})`,
+                                          transformOrigin: 'top left',
+                                          pointerEvents: 'none',
+                                      }
+                                    : {
+                                          width: `${frameWidth}px`,
+                                          height: `${frameHeight}px`,
+                                          border: 0,
+                                      }
+                            }
+                        />
+                    </div>
+
+                    {showLiveFrame && (
+                        <div className="flex min-h-[240px] flex-col rounded-lg border border-border/50 bg-background/45 p-3">
+                            <div className="mb-2 flex items-center justify-between text-xs font-medium text-foreground">
+                                <span>Canlı Adım & Darboğaz Akışı</span>
+                                <span className="text-[11px] text-muted-foreground">
+                                    {displayedRoutes.length} ölçüm
+                                </span>
+                            </div>
+                            <div className="max-h-[340px] flex-1 space-y-1.5 overflow-y-auto pr-1 text-xs">
+                                {displayedRoutes.map((step) => (
+                                    <div
+                                        key={`${step.viewportMode}-${step.id}`}
+                                        className="flex items-center justify-between gap-2 rounded border border-border/40 bg-card/60 px-2.5 py-1.5"
+                                    >
+                                        <div className="min-w-0 truncate font-medium text-foreground">{step.name}</div>
+                                        <div className="flex shrink-0 items-center gap-3 text-[11px]">
+                                            <span>{formatMs(step.totalMs)}</span>
+                                            <span
+                                                className={cn(
+                                                    'font-semibold',
+                                                    step.maxLongTaskMs >= 200
+                                                        ? 'text-red-400'
+                                                        : step.maxLongTaskMs >= 60
+                                                            ? 'text-amber-400'
+                                                            : 'text-emerald-400',
+                                                )}
+                                            >
+                                                Blok: {formatMs(step.maxLongTaskMs)}
+                                            </span>
+                                            <span className="text-muted-foreground">{step.minFps} min FPS</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -517,10 +666,10 @@ const AdminBenchmark: React.FC = () => {
                 </Card>
             )}
 
-            {/* Desktop vs Mobile Report Switcher if dual run completed */}
-            {(desktopReport || mobileReport) && (
+            {/* Desktop vs Mobile Report Switcher */}
+            {(desktopReport || mobileReport) && !isRunning && (
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         {desktopReport && (
                             <Button
                                 size="sm"
@@ -529,7 +678,7 @@ const AdminBenchmark: React.FC = () => {
                                 className="gap-1.5"
                             >
                                 <Monitor className="h-3.5 w-3.5" />
-                                Masaüstü Ölçümü ({desktopReport.durationSec}s)
+                                Masaüstü ({desktopReport.durationSec}s)
                             </Button>
                         )}
                         {mobileReport && (
@@ -546,8 +695,16 @@ const AdminBenchmark: React.FC = () => {
                     </div>
                     {activeReport && (
                         <div className="text-xs text-muted-foreground">
-                            Katalog: <span className="font-medium text-foreground">{activeReport.catalogSize} seri</span> · Çekirdek:{' '}
-                            <span className="font-medium text-foreground">{activeReport.hardwareConcurrency} CPU</span>
+                            Kaynak:{' '}
+                            <span className="font-medium text-foreground">
+                                {reportSource === 'baseline' ? '4 Kademeli CDP Referans Ölçümü (1x/2x/4x/6x)' : 'Canlı Tarayıcı Testiniz'}
+                            </span>
+                            {activeReport.catalogSize > 0 && (
+                                <>
+                                    {' · '}Katalog: <span className="font-medium text-foreground">{activeReport.catalogSize} seri</span>
+                                </>
+                            )}
+                            {' · '}Çekirdek: <span className="font-medium text-foreground">{activeReport.hardwareConcurrency} CPU</span>
                             {activeReport.deviceMemoryGb ? ` · ${activeReport.deviceMemoryGb} GB RAM` : ''}
                         </div>
                     )}
