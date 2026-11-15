@@ -45,6 +45,8 @@ export const getMangaTypeLabel = (type?: Manga['type'] | string | null) => {
       return 'Hentai';
     case 'webtoon_hentai':
       return 'Webtoon Hentai';
+    case 'light_novel':
+      return 'Light Novel';
     case 'manga':
     case undefined:
     case null:
@@ -55,5 +57,29 @@ export const getMangaTypeLabel = (type?: Manga['type'] | string | null) => {
         .replace(/[_-]+/g, ' ')
         .trim()
         .replace(/\b\w/g, (char) => char.toUpperCase()) || 'Manga';
+  }
+};
+
+export const getCompactMangaTypeLabel = (type?: Manga['type'] | string | null) => {
+  switch (type) {
+    case 'manhwa':
+      return 'Manhwa';
+    case 'manhua':
+      return 'Manhua';
+    case 'webtoon':
+      return 'Webtoon';
+    case 'hentai':
+      return '18+ Manga';
+    case 'webtoon_hentai':
+      return '18+ Webtoon';
+    case 'light_novel':
+      return 'Light Novel';
+    case 'manga':
+    case undefined:
+    case null:
+    case '':
+      return 'Manga';
+    default:
+      return getMangaTypeLabel(type);
   }
 };

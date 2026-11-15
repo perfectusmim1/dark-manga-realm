@@ -103,7 +103,7 @@ import {
   Edit3
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { getMangaTypeLabel } from '@/lib/mangaType';
+import { getCompactMangaTypeLabel } from '@/lib/mangaType';
 import {
   getChapterLanguageInfo,
   getLanguageInfoByCode,
@@ -3295,7 +3295,7 @@ const MangaDetail: React.FC = () => {
                           'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
                       }`}
                   >
-                    {getMangaTypeLabel(manga.type)}
+                    {getCompactMangaTypeLabel(manga.type)}
                   </Badge>
                   <Badge variant="outline">
                     {formatMangaStatusLabel(manga.status)}
@@ -3645,49 +3645,49 @@ const MangaDetail: React.FC = () => {
         {/* Tabs System */}
         <div className="container py-8">
           <Tabs value={activeTab} className="w-full" onValueChange={handleActiveTabChange}>
-            <div className="-mx-4 mb-5 overflow-x-auto scrollbar-hide px-4 pb-2 sm:mx-0 sm:mb-8 sm:px-0">
-              <TabsList className="h-auto min-w-full w-max justify-start gap-3 rounded-none border-b bg-transparent p-0 sm:gap-8">
+            <div className="mb-6 sm:mb-8">
+              <TabsList className="flex h-auto w-full justify-start gap-1.5 overflow-x-auto scrollbar-hide rounded-xl border border-border/60 bg-card/70 p-1.5">
                 <TabsTrigger
                   value="overview"
-                  className="whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-colors duration-150 motion-reduce:transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
+                  className="shrink-0 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
                 >
-                  GENEL BAKIŞ
+                  Genel Bakış
                 </TabsTrigger>
                 <TabsTrigger
                   value="preview"
-                  className="whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-colors duration-150 motion-reduce:transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
+                  className="shrink-0 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
                 >
-                  ÖNİZLEME
+                  Önizleme
                 </TabsTrigger>
                 <TabsTrigger
                   value="bookmarks"
-                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-colors duration-150 motion-reduce:transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
+                  className="group flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
                 >
-                  YER İMLERİ
+                  Yer İmleri
                   {seriesBookmarks.length > 0 && (
-                    <Badge variant="secondary" className="h-5 border-none bg-primary/10 px-2 text-[10px] text-primary hover:bg-primary/20">
+                    <Badge variant="secondary" className="h-5 border-none bg-primary/15 px-1.5 text-[10px] text-primary transition-colors group-data-[state=active]:bg-primary-foreground/20 group-data-[state=active]:text-primary-foreground">
                       {seriesBookmarks.length}
                     </Badge>
                   )}
                 </TabsTrigger>
                 <TabsTrigger
                   value="reviews"
-                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-colors duration-150 motion-reduce:transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
+                  className="group flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
                 >
-                  İNCELEMELER
+                  İncelemeler
                   {reviewCount > 0 && (
-                    <Badge variant="secondary" className="h-5 border-none bg-primary/10 px-2 text-[10px] text-primary hover:bg-primary/20">
+                    <Badge variant="secondary" className="h-5 border-none bg-primary/15 px-1.5 text-[10px] text-primary transition-colors group-data-[state=active]:bg-primary-foreground/20 group-data-[state=active]:text-primary-foreground">
                       {reviewCount}
                     </Badge>
                   )}
                 </TabsTrigger>
                 <TabsTrigger
                   value="characters"
-                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-colors duration-150 motion-reduce:transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
+                  className="group flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
                 >
-                  KARAKTERLER
+                  Karakterler
                   {characterCount > 0 && (
-                    <Badge variant="secondary" className="h-5 border-none bg-primary/10 px-2 text-[10px] text-primary hover:bg-primary/20">
+                    <Badge variant="secondary" className="h-5 border-none bg-primary/15 px-1.5 text-[10px] text-primary transition-colors group-data-[state=active]:bg-primary-foreground/20 group-data-[state=active]:text-primary-foreground">
                       {characterCount}
                     </Badge>
                   )}
@@ -3695,19 +3695,19 @@ const MangaDetail: React.FC = () => {
                 {seriesGalleryImages.length > 0 && (
                   <TabsTrigger
                     value="gallery"
-                    className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-colors duration-150 motion-reduce:transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
+                    className="group flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
                   >
-                    GALERİ
-                    <Badge variant="secondary" className="h-5 border-none bg-primary/10 px-2 text-[10px] text-primary hover:bg-primary/20">
+                    Galeri
+                    <Badge variant="secondary" className="h-5 border-none bg-primary/15 px-1.5 text-[10px] text-primary transition-colors group-data-[state=active]:bg-primary-foreground/20 group-data-[state=active]:text-primary-foreground">
                       {seriesGalleryImages.length}
                     </Badge>
                   </TabsTrigger>
                 )}
                 <TabsTrigger
                   value="discover"
-                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-colors duration-150 motion-reduce:transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
+                  className="shrink-0 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
                 >
-                  KEŞFET
+                  Keşfet
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -3895,7 +3895,7 @@ const MangaDetail: React.FC = () => {
                                       {relation.relatedManga.title}
                                     </p>
                                     <p className="mt-2 text-sm text-muted-foreground">
-                                      {getMangaTypeLabel(relation.relatedManga.type)}{relation.relatedManga.releaseYear ? ` • ${relation.relatedManga.releaseYear}` : ''}
+                                      {getCompactMangaTypeLabel(relation.relatedManga.type)}{relation.relatedManga.releaseYear ? ` • ${relation.relatedManga.releaseYear}` : ''}
                                     </p>
                                   </div>
                                 </Link>
@@ -4694,7 +4694,7 @@ const MangaDetail: React.FC = () => {
                                 <div className="mb-6">
                                   <div
                                     className={cn(
-                                      'relative overflow-hidden transition-[max-height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                                      'relative overflow-hidden transition-[max-height] duration-200 ease-out-smooth motion-reduce:transition-none',
                                       isReviewExpandable && !isReviewExpanded ? 'max-h-48' : 'max-h-[120rem]',
                                     )}
                                   >

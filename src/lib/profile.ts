@@ -1092,59 +1092,6 @@ export const updatePrivacySettings = async (userId: string, visibility: 'public'
     if (error) throw error;
 };
 
-// Evaluate and sync achievements
-export const syncAchievements = async (userId: string, stats: { totalSeries: number, totalChapters: number, totalComments: number }) => {
-    const { totalSeries, totalChapters, totalComments } = stats;
-
-    const currentProgress: Record<string, number> = {
-        'first_blood': totalChapters,
-        'manga_worm': totalChapters,
-        'veteran': totalChapters,
-        'critic': totalComments,
-        'explorer': totalSeries,
-    };
-
-    const { data: existingAchievements } = await supabase
-        .from('user_achievements')
-        .select('achievement_id, unlocked_at')
-        .eq('user_id', userId);
-
-    const unlockedIds = new Set(existingAchievements?.filter(a => a.unlocked_at).map(a => a.achievement_id) || []);
-    
-    // We only care about unlocking new ones
-    const toInsert = [];
-    const now = new Date().toISOString();
-
-    for (const [id, value] of Object.entries(currentProgress)) {
-        let maxNeeded = 1;
-        if (id === 'manga_worm') maxNeeded = 100;
-        if (id === 'critic') maxNeeded = 50;
-        if (id === 'explorer') maxNeeded = 10;
-        if (id === 'veteran') maxNeeded = 1000;
-
-        if (value >= maxNeeded && !unlockedIds.has(id)) {
-            toInsert.push({
-                user_id: userId,
-                achievement_id: id,
-                progress: maxNeeded,
-                unlocked_at: now
-            });
-        }
-    }
-
-    if (toInsert.length > 0) {
-        const { error } = await supabase.from('user_achievements').upsert(toInsert, { onConflict: 'user_id, achievement_id' });
-        if (error) console.error('Achievements upsert error:', error);
-    }
-    
-    // Return all unlocked with their timestamps
-    return await supabase
-        .from('user_achievements')
-        .select('*')
-        .eq('user_id', userId)
-        .not('unlocked_at', 'is', null);
-};
-
 // Social Functions
 export const followUser = async (followerId: string, followedId: string) => {
     if (followerId === followedId) return { error: 'Kendinizi takip edemezsiniz.' };

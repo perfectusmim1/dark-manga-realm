@@ -69,7 +69,7 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
-import { getMangaTypeLabel } from '@/lib/mangaType';
+import { getCompactMangaTypeLabel } from '@/lib/mangaType';
 import {
   rankTopMangaMatches,
   takeTopEntityMatches,
@@ -493,7 +493,7 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
                         <div className="flex-1 min-w-0">
                           <h4 className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{manga.title}</h4>
                           <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-[10px] text-muted-foreground">{getMangaTypeLabel(manga.type)}</span>
+                            <span className="text-[10px] text-muted-foreground">{getCompactMangaTypeLabel(manga.type)}</span>
                             <span className="h-1 w-1 rounded-full bg-border" />
                             <div className="flex items-center gap-1 text-[10px] text-primary font-medium">
                               <Star className="h-2.5 w-2.5 fill-current" />
@@ -1109,7 +1109,7 @@ const HeaderContent: React.FC = () => {
                   <div
                     aria-hidden={!isCharactersDesktopMenuOpen}
                     inert={isCharactersDesktopMenuOpen ? undefined : true}
-                    className={`absolute left-1/2 top-full z-50 w-[14rem] -translate-x-1/2 pt-2 transition-[opacity,transform,visibility] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${
+                    className={`absolute left-1/2 top-full z-50 w-[14rem] -translate-x-1/2 pt-2 transition-[opacity,transform,visibility] duration-200 ease-out-smooth motion-reduce:transition-none ${
                       isCharactersDesktopMenuOpen
                         ? 'visible pointer-events-auto translate-y-0 opacity-100'
                         : 'invisible pointer-events-none -translate-y-1 opacity-0'
@@ -1567,8 +1567,8 @@ const HeaderContent: React.FC = () => {
                             {manga.title}
                           </p>
                           <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-                            <span className="shrink-0 font-medium uppercase tracking-wide">
-                              {getMangaTypeLabel(manga.type)}
+                            <span className="shrink-0 font-medium tracking-wide">
+                              {getCompactMangaTypeLabel(manga.type)}
                             </span>
                             {authorText && (
                               <>

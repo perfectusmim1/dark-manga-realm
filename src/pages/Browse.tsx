@@ -447,8 +447,11 @@ const Browse: React.FC = () => {
       <Header />
 
       <main className="container pb-12 pt-16">
-        <div className="py-6 sm:py-8">
+        <div className="flex flex-wrap items-center gap-3 py-6 sm:py-8">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Keşfet</h1>
+          <span className="rounded-full border border-border/60 bg-secondary/40 px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+            {resultsLabel}
+          </span>
         </div>
 
         {/* Filters Bar */}
@@ -677,10 +680,6 @@ const Browse: React.FC = () => {
             }}
           />
         </div>
-
-        <p className="mb-4 text-xs sm:text-sm text-muted-foreground">
-          {resultsLabel}
-        </p>
 
         {/* Manga Grid */}
         {isInitialResultsPending ? (

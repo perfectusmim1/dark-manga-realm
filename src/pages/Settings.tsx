@@ -1189,36 +1189,36 @@ const Settings: React.FC = () => {
                 </div>
 
                 <Tabs value={activeSettingsTab} onValueChange={setActiveSettingsTab} className="space-y-6">
-                    <TabsList className="grid h-auto w-full grid-cols-2 justify-start gap-2 rounded-2xl bg-secondary/50 p-1 md:flex md:flex-wrap md:justify-start">
-                        <TabsTrigger value="profile" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:shrink-0 md:text-sm">
+                    <TabsList className="flex h-auto w-full justify-start gap-1.5 overflow-x-auto scrollbar-hide rounded-xl border border-border/60 bg-card/70 p-1.5 md:flex-wrap">
+                        <TabsTrigger value="profile" className="shrink-0 gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">
                             <User className="h-4 w-4" />
                             Profil
                         </TabsTrigger>
-                        <TabsTrigger value="security" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:shrink-0 md:text-sm">
+                        <TabsTrigger value="security" className="shrink-0 gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">
                             <ShieldCheck className="h-4 w-4" />
                             Güvenlik
                         </TabsTrigger>
-                        <TabsTrigger value="notifications" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:shrink-0 md:text-sm">
+                        <TabsTrigger value="notifications" className="shrink-0 gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">
                             <Bell className="h-4 w-4" />
                             Bildirimler
                         </TabsTrigger>
-                        <TabsTrigger value="privacy" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:shrink-0 md:text-sm">
+                        <TabsTrigger value="privacy" className="shrink-0 gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">
                             <EyeOff className="h-4 w-4" />
                             Gizlilik
                         </TabsTrigger>
-                        <TabsTrigger value="sync" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:shrink-0 md:text-sm">
+                        <TabsTrigger value="sync" className="shrink-0 gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">
                             <Link2 className="h-4 w-4" />
                             Senkronizasyon
                         </TabsTrigger>
-                        <TabsTrigger value="devices" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:shrink-0 md:text-sm" onClick={() => { if (!isSessionsLoading) void loadSessions(); }}>
+                        <TabsTrigger value="devices" className="shrink-0 gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm" onClick={() => { if (!isSessionsLoading) void loadSessions(); }}>
                             <Monitor className="h-4 w-4" />
                             Cihazlar
                         </TabsTrigger>
-                        <TabsTrigger value="preferences" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:shrink-0 md:text-sm">
+                        <TabsTrigger value="preferences" className="shrink-0 gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">
                             <SlidersHorizontal className="h-4 w-4" />
                             Tercihler
                         </TabsTrigger>
-                        <TabsTrigger value="blocked" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:shrink-0 md:text-sm">
+                        <TabsTrigger value="blocked" className="shrink-0 gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm">
                             <ShieldAlert className="h-4 w-4" />
                             Engellenenler
                         </TabsTrigger>

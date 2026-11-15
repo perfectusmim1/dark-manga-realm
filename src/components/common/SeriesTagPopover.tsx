@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BookOpen, Loader2 } from 'lucide-react';
 import { searchMangaMentions, MangaMentionResult } from '@/lib/database';
-import { getMangaTypeLabel } from '@/lib/mangaType';
+import { getCompactMangaTypeLabel } from '@/lib/mangaType';
 import { cn } from '@/lib/utils';
 
 interface SeriesTagPopoverProps {
@@ -182,7 +182,7 @@ export const SeriesTagPopover: React.FC<SeriesTagPopoverProps> = ({
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-xs font-semibold leading-snug">{item.title}</p>
                   <p className="truncate text-[11px] text-muted-foreground">
-                    {getMangaTypeLabel(item.type)}
+                    {getCompactMangaTypeLabel(item.type)}
                   </p>
                 </div>
               </button>

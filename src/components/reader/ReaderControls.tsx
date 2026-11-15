@@ -826,7 +826,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
       <div
         aria-hidden={!visible}
         inert={!visible && !chapterPanelOpen && !translationPanelOpen && !settingsPanelOpen ? true : undefined}
-        className={`fixed left-0 right-0 top-0 z-50 w-full max-w-[100vw] overflow-x-clip border-b border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${visible ? 'translate-y-0' : '-translate-y-full'}`}
+        className={`fixed left-0 right-0 top-0 z-50 w-full max-w-[100vw] overflow-x-clip border-b border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-200 ease-out-smooth motion-reduce:transition-none ${visible ? 'translate-y-0' : '-translate-y-full'}`}
         style={{ paddingTop: READER_TOP_SAFE_AREA }}
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
@@ -1129,7 +1129,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
       <div
         aria-hidden={!visible}
         inert={!visible ? true : undefined}
-        className={`fixed bottom-0 left-0 right-0 z-50 w-full max-w-[100vw] overflow-x-clip border-t border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${visible ? 'translate-y-0' : 'translate-y-full'}`}
+        className={`fixed bottom-0 left-0 right-0 z-50 w-full max-w-[100vw] overflow-x-clip border-t border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-200 ease-out-smooth motion-reduce:transition-none ${visible ? 'translate-y-0' : 'translate-y-full'}`}
         style={{ paddingBottom: READER_BOTTOM_SAFE_AREA }}
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}

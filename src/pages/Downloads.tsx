@@ -28,7 +28,7 @@ import { isDownloadAuthRequiredError, offlineDownloadManager } from '@/lib/offli
 import { getOfflineDownloadStatusLabel } from '@/lib/offline/statusLabels';
 import { formatBytes, formatSpeed } from '@/lib/offline/utils';
 import { Manga, Chapter } from '@/lib/types';
-import { getMangaTypeLabel } from '@/lib/mangaType';
+import { getCompactMangaTypeLabel } from '@/lib/mangaType';
 import { toast } from 'sonner';
 
 const FILTERS = ['Tümü', 'İndiriliyor', 'Tamamlanan', 'Hatalı'] as const;
@@ -396,7 +396,7 @@ const Downloads: React.FC = () => {
 
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <Badge variant="secondary">{getMangaTypeLabel(entry.manga.type)}</Badge>
+                            <Badge variant="secondary">{getCompactMangaTypeLabel(entry.manga.type)}</Badge>
                             {primaryJob && (
                               <Badge variant="outline">
                                 {getOfflineDownloadStatusLabel(primaryJob.status)}

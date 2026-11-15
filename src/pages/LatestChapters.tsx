@@ -15,7 +15,7 @@ import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import AppPagination from '@/components/ui/AppPagination';
 import OptimizedImage from '@/components/media/OptimizedImage';
-import { getMangaTypeLabel } from '@/lib/mangaType';
+import { getCompactMangaTypeLabel } from '@/lib/mangaType';
 import { getLanguageInfoByCode, getSeriesLanguageInfo } from '@/lib/seriesLanguage';
 import { normalizeComparableText, normalizeLooseComparableText } from '@/lib/textMatching';
 import { useAuth } from '@/contexts/AuthContext';
@@ -439,7 +439,7 @@ const LatestChapters: React.FC = () => {
                                                 {chapter.mangaType ? (
                                                     <>
                                                         <span className="shrink-0 font-medium text-foreground/75">
-                                                            {getMangaTypeLabel(chapter.mangaType)}
+                                                            {getCompactMangaTypeLabel(chapter.mangaType)}
                                                         </span>
                                                         <span aria-hidden>•</span>
                                                     </>

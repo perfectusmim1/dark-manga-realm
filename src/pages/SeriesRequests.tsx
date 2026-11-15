@@ -14,6 +14,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import useDocumentTitle from '@/hooks/useDocumentTitle';
 import Header from '@/components/layout/Header';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useAuth } from '@/contexts/AuthContext';
@@ -97,6 +98,7 @@ const StatusBadge = ({ status }: { status: SeriesRequestStatus }) => {
 };
 
 const SeriesRequests: React.FC = () => {
+  useDocumentTitle('Seri İstekleri');
   const { user, isLoading: authLoading } = useAuth();
   const { isOnline } = useEffectiveOnlineStatus();
   const [requests, setRequests] = useState<SeriesRequest[]>([]);
@@ -280,38 +282,38 @@ const SeriesRequests: React.FC = () => {
       <Header />
       <main className="container pb-10 pt-20 sm:pt-24">
         <div className="space-y-6 pt-4 sm:pt-6">
-          <section className="rounded-[1.8rem] border border-border bg-card p-5 shadow-sm sm:p-6">
+          <section className="rounded-2xl border border-border/60 bg-card/65 p-5 shadow-sm sm:p-6">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <h1 className="text-2xl font-black tracking-tight sm:text-3xl">
+                <h1 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">
                   Seri İstekleri
                 </h1>
               </div>
 
               <div className="grid grid-cols-3 gap-2 sm:min-w-[20rem]">
-                <div className="rounded-2xl border border-border bg-background px-3 py-3">
+                <div className="rounded-xl border border-border/60 bg-background/60 px-3 py-3">
                   <p className="text-xs font-medium text-muted-foreground">Toplam</p>
-                  <p className="mt-1 text-xl font-bold">{stats.total}</p>
+                  <p className="mt-1 text-xl font-bold tabular-nums">{stats.total}</p>
                 </div>
-                <div className="rounded-2xl border border-border bg-background px-3 py-3">
+                <div className="rounded-xl border border-border/60 bg-background/60 px-3 py-3">
                   <p className="text-xs font-medium text-muted-foreground">Bekleyen</p>
-                  <p className="mt-1 text-xl font-bold">{stats.pending}</p>
+                  <p className="mt-1 text-xl font-bold tabular-nums">{stats.pending}</p>
                 </div>
-                <div className="rounded-2xl border border-border bg-background px-3 py-3">
+                <div className="rounded-xl border border-border/60 bg-background/60 px-3 py-3">
                   <p className="text-xs font-medium text-muted-foreground">Onay</p>
-                  <p className="mt-1 text-xl font-bold">{stats.approved}</p>
+                  <p className="mt-1 text-xl font-bold tabular-nums">{stats.approved}</p>
                 </div>
               </div>
             </div>
           </section>
 
           {authLoading ? (
-            <section className="rounded-[1.8rem] border border-border bg-card p-8 text-center shadow-sm">
+            <section className="rounded-2xl border border-border/60 bg-card/65 p-8 text-center shadow-sm">
               <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
               <p className="mt-3 text-sm text-muted-foreground">Hesap bilgileri hazırlanıyor.</p>
             </section>
           ) : !user ? (
-            <section className="rounded-[1.8rem] border border-border bg-card p-6 shadow-sm animate-fade-up">
+            <section className="rounded-2xl border border-border/60 bg-card/65 p-6 shadow-sm animate-fade-up">
               <h2 className="text-xl font-semibold">Bu alan sadece kayıtlı kullanıcılar için açık.</h2>
               <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">
                 Seri isteği göndermek ve durumunu takip etmek için giriş yapmalısın.
@@ -322,7 +324,7 @@ const SeriesRequests: React.FC = () => {
             </section>
           ) : (
             <>
-              <section className="rounded-[1.8rem] border border-border bg-card p-5 shadow-sm sm:p-6 animate-fade-up">
+              <section className="rounded-2xl border border-border/60 bg-card/65 p-5 shadow-sm sm:p-6 animate-fade-up">
                 <h2 className="text-lg font-semibold">Yeni istek</h2>
                   <div className="mt-5 grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
@@ -453,7 +455,7 @@ const SeriesRequests: React.FC = () => {
                   </div>
               </section>
 
-              <section className="rounded-[1.8rem] border border-border bg-card p-5 shadow-sm sm:p-6">
+              <section className="rounded-2xl border border-border/60 bg-card/65 p-5 shadow-sm sm:p-6">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h2 className="text-lg font-semibold">Gönderdiğin istekler</h2>
@@ -552,7 +554,7 @@ const SeriesRequests: React.FC = () => {
                   ))}
 
                   {!isLoadingRequests && requests.length === 0 ? (
-                    <div className="rounded-[1.4rem] border border-dashed border-border bg-background/50 p-10 text-center">
+                    <div className="rounded-2xl border border-dashed border-border/60 bg-background/50 p-10 text-center">
                       <p className="text-base font-medium">Henüz seri isteği göndermedin.</p>
                       <p className="mt-2 text-sm text-muted-foreground">İlk kaydı yukarıdaki formdan bırakabilirsin.</p>
                     </div>

@@ -3033,7 +3033,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                         aria-hidden={!expandedReplies[comment.id]}
                                                         inert={expandedReplies[comment.id] ? undefined : true}
                                                         className={cn(
-                                                            'grid transition-[grid-template-rows,opacity,visibility] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                                                            'grid transition-[grid-template-rows,opacity,visibility] duration-200 ease-out-smooth motion-reduce:transition-none',
                                                             expandedReplies[comment.id] ? 'visible mt-3 grid-rows-[1fr] opacity-100 sm:mt-4' : 'invisible grid-rows-[0fr] opacity-0'
                                                         )}
                                                     >
