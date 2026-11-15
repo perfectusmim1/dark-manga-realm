@@ -142,10 +142,10 @@ const AdminTags: React.FC = () => {
     }`;
 
   const filteredTags = tags.filter(t => {
-    const normalizedQuery = searchQuery.toLowerCase();
+    const normalizedQuery = searchQuery.toLocaleLowerCase('tr-TR');
     const matchesSearch =
-      t.name.toLowerCase().includes(normalizedQuery) ||
-      (t.description?.toLowerCase().includes(normalizedQuery) ?? false);
+      t.name.toLocaleLowerCase('tr-TR').includes(normalizedQuery) ||
+      (t.description?.toLocaleLowerCase('tr-TR').includes(normalizedQuery) ?? false);
     const matchesCategory = filterCategory === 'all' || t.category === filterCategory;
     const matchesSource =
       filterSource === 'all' ||
@@ -203,35 +203,28 @@ const AdminTags: React.FC = () => {
       </div>
 
       <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="space-y-1">
-            <p className="text-sm font-semibold">Resmi etiket kataloğu hazır</p>
-            <p className="text-sm text-muted-foreground">
-              Listelenen 355 etiketi tek işlemde resmi ve onaylı olarak sisteme ekler.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2 text-xs">
-            <Badge variant="outline">Katalog: {OFFICIAL_TAG_CATALOG.length}</Badge>
-            <Badge variant="outline">Mevcut resmi: {tagStats.official}</Badge>
-            <Badge variant={missingOfficialCatalogCount > 0 ? 'secondary' : 'default'}>
-              Eksik: {missingOfficialCatalogCount}
-            </Badge>
-          </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            Resmi katalogdaki <span className="font-semibold text-foreground">{OFFICIAL_TAG_CATALOG.length}</span> etiketi tek işlemde resmi ve onaylı olarak sisteme ekler.
+          </p>
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">
+            {missingOfficialCatalogCount > 0 ? `${missingOfficialCatalogCount} eksik etiket` : 'Katalog güncel'}
+          </span>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
-        <div className="rounded-xl border border-border bg-card/50 p-4 text-center">
-          <p className="text-3xl font-bold text-primary">{tagStats.total}</p>
-          <p className="text-xs text-muted-foreground mt-1">Toplam Etiket</p>
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
+        <div className="rounded-xl border border-border bg-card/50 p-3 text-center sm:p-4">
+          <p className="text-2xl font-bold text-primary sm:text-3xl">{tagStats.total}</p>
+          <p className="mt-1 text-xs text-muted-foreground">Toplam Etiket</p>
         </div>
-        <div className="rounded-xl border border-border bg-card/50 p-4 text-center">
-          <p className="text-3xl font-bold text-green-500">{tagStats.official}</p>
-          <p className="text-xs text-muted-foreground mt-1">Resmi</p>
+        <div className="rounded-xl border border-border bg-card/50 p-3 text-center sm:p-4">
+          <p className="text-2xl font-bold text-green-500 sm:text-3xl">{tagStats.official}</p>
+          <p className="mt-1 text-xs text-muted-foreground">Resmi</p>
         </div>
-        <div className="rounded-xl border border-border bg-card/50 p-4 text-center">
-          <p className="text-3xl font-bold text-blue-500">{tagStats.community}</p>
-          <p className="text-xs text-muted-foreground mt-1">Topluluk</p>
+        <div className="rounded-xl border border-border bg-card/50 p-3 text-center sm:p-4">
+          <p className="text-2xl font-bold text-blue-500 sm:text-3xl">{tagStats.community}</p>
+          <p className="mt-1 text-xs text-muted-foreground">Topluluk</p>
         </div>
       </div>
 
@@ -255,6 +248,7 @@ const AdminTags: React.FC = () => {
           <div className="flex flex-wrap gap-2">
             {(Object.entries(categoryLabels) as [TagCategory, string][]).map(([key, label]) => (
               <button
+                type="button"
                 key={key}
                 className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
                   newTag.category === key
@@ -292,6 +286,7 @@ const AdminTags: React.FC = () => {
           </div>
           <div className="flex flex-wrap gap-1.5">
             <button
+              type="button"
               className={getFilterChipClassName(filterCategory === 'all')}
               onClick={() => setFilterCategory('all')}
             >
@@ -299,6 +294,7 @@ const AdminTags: React.FC = () => {
             </button>
             {(Object.entries(categoryLabels) as [TagCategory, string][]).map(([key, label]) => (
               <button
+                type="button"
                 key={key}
                 className={getFilterChipClassName(filterCategory === key)}
                 onClick={() => setFilterCategory(key)}
@@ -315,18 +311,21 @@ const AdminTags: React.FC = () => {
               Kaynak
             </span>
             <button
+              type="button"
               className={getFilterChipClassName(filterSource === 'all')}
               onClick={() => setFilterSource('all')}
             >
               Tümü
             </button>
             <button
+              type="button"
               className={getFilterChipClassName(filterSource === 'official')}
               onClick={() => setFilterSource('official')}
             >
               Resmi
             </button>
             <button
+              type="button"
               className={getFilterChipClassName(filterSource === 'community')}
               onClick={() => setFilterSource('community')}
             >
@@ -339,18 +338,21 @@ const AdminTags: React.FC = () => {
               Onay
             </span>
             <button
+              type="button"
               className={getFilterChipClassName(filterApproval === 'all')}
               onClick={() => setFilterApproval('all')}
             >
               Tümü
             </button>
             <button
+              type="button"
               className={getFilterChipClassName(filterApproval === 'approved')}
               onClick={() => setFilterApproval('approved')}
             >
               Onaylı
             </button>
             <button
+              type="button"
               className={getFilterChipClassName(filterApproval === 'pending')}
               onClick={() => setFilterApproval('pending')}
             >
@@ -439,7 +441,7 @@ const AdminTags: React.FC = () => {
                     </div>
                     <div>
                       <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Kaynak</p>
-                      <button onClick={() => toggleOfficial(tag)} className="text-left">
+                      <button type="button" onClick={() => toggleOfficial(tag)} className="text-left">
                         {tag.isOfficial ? (
                           <Badge className="bg-green-500/10 text-green-400 border-green-500/20 text-[10px] gap-1">
                             <Shield className="h-3 w-3" /> Resmi
@@ -516,7 +518,7 @@ const AdminTags: React.FC = () => {
                       className="h-8 text-sm"
                     />
                   ) : (
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
                       <TagBadge tag={tag} size="sm" />
                       {tag.description && (
                         <span className="text-[11px] text-muted-foreground truncate max-w-[200px]">{tag.description}</span>
@@ -530,7 +532,7 @@ const AdminTags: React.FC = () => {
                   </div>
                   <div className="w-16 text-center text-sm font-mono">{tag.usageCount}</div>
                   <div className="w-20 text-center">
-                    <button onClick={() => toggleOfficial(tag)}>
+                    <button type="button" onClick={() => toggleOfficial(tag)}>
                       {tag.isOfficial ? (
                         <Badge className="bg-green-500/10 text-green-400 border-green-500/20 text-[10px] gap-1">
                           <Shield className="h-3 w-3" /> Resmi
@@ -556,19 +558,19 @@ const AdminTags: React.FC = () => {
                   <div className="w-24 flex items-center justify-center gap-1">
                     {editingTag?.id === tag.id ? (
                       <>
-                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={handleUpdate} disabled={saving}>
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={handleUpdate} disabled={saving} aria-label="Kaydet">
                           <CheckCircle className="h-3.5 w-3.5 text-green-500" />
                         </Button>
-                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setEditingTag(null)}>
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setEditingTag(null)} aria-label="Vazgeç">
                           <X className="h-3.5 w-3.5" />
                         </Button>
                       </>
                     ) : (
                       <>
-                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setEditingTag({ ...tag })}>
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setEditingTag({ ...tag })} aria-label="Düzenle">
                           <Edit2 className="h-3.5 w-3.5" />
                         </Button>
-                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive" onClick={() => setTagToDelete(tag)}>
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive" onClick={() => setTagToDelete(tag)} aria-label="Sil">
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </>

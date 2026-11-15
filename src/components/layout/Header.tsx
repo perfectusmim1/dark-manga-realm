@@ -792,7 +792,7 @@ const HeaderContent: React.FC = () => {
     setIsCharactersMobileMenuOpen((previous) => !previous);
   };
 
-  const renderCharacterMenuLinks = (onNavigate?: () => void) => (
+  const renderCharacterMenuLinks = (onNavigate?: () => void, isInteractive = true) => (
     <>
       {characterMenuItems.map((item) => {
         const isItemActive = item.path === '/characters'
@@ -806,6 +806,7 @@ const HeaderContent: React.FC = () => {
             key={item.path}
             to={item.path}
             onClick={onNavigate}
+            tabIndex={isInteractive ? undefined : -1}
             className={`block rounded-xl px-4 py-2.5 transition-colors ${
               isItemActive
                 ? 'bg-primary/12 text-primary'
@@ -1090,6 +1091,7 @@ const HeaderContent: React.FC = () => {
                     to={link.path}
                     onPointerEnter={() => prefetchRouteForPathname(link.path)}
                     onFocus={() => prefetchRouteForPathname(link.path)}
+                    aria-expanded={isCharactersDesktopMenuOpen}
                     className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
                       isCharactersSectionActive
                         ? 'text-primary'
@@ -1098,22 +1100,24 @@ const HeaderContent: React.FC = () => {
                   >
                     {link.label}
                     <ChevronDown
-                      className={`h-4 w-4 transition-transform duration-200 ${
+                      className={`h-4 w-4 transition-transform duration-200 motion-reduce:transition-none ${
                         isCharactersDesktopMenuOpen ? 'rotate-180' : ''
                       }`}
                     />
                   </Link>
 
                   <div
-                    className={`absolute left-1/2 top-full z-50 w-[14rem] -translate-x-1/2 pt-2 transition-all duration-150 ${
+                    aria-hidden={!isCharactersDesktopMenuOpen}
+                    inert={isCharactersDesktopMenuOpen ? undefined : true}
+                    className={`absolute left-1/2 top-full z-50 w-[14rem] -translate-x-1/2 pt-2 transition-[opacity,transform,visibility] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${
                       isCharactersDesktopMenuOpen
-                        ? 'pointer-events-auto translate-y-0 opacity-100'
-                        : 'pointer-events-none -translate-y-1 opacity-0'
+                        ? 'visible pointer-events-auto translate-y-0 opacity-100'
+                        : 'invisible pointer-events-none -translate-y-1 opacity-0'
                     }`}
                   >
                     <div className="rounded-2xl border border-border/70 bg-background/95 p-2 shadow-2xl backdrop-blur-xl">
                       <div className="space-y-1">
-                        {renderCharacterMenuLinks()}
+                        {renderCharacterMenuLinks(undefined, isCharactersDesktopMenuOpen)}
                       </div>
                     </div>
                   </div>
@@ -1162,12 +1166,12 @@ const HeaderContent: React.FC = () => {
 
         {/* User Actions */}
         <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-          {/* Admin Link */}
+          {/* Yönetim Link */}
           {isAdmin && displayUser && (
             <Button asChild variant="ghost" size="sm" className="hidden md:flex">
               <Link to="/admin">
                 <Shield className="mr-2 h-4 w-4" />
-                Admin
+                Yönetim
               </Link>
             </Button>
           )}
@@ -1317,7 +1321,7 @@ const HeaderContent: React.FC = () => {
                     <DropdownMenuItem asChild>
                       <Link to="/admin" className="flex items-center gap-2">
                         <Shield className="h-4 w-4" />
-                        Admin Paneli
+                        Yönetim Paneli
                       </Link>
                     </DropdownMenuItem>
                   </>
@@ -1352,7 +1356,7 @@ const HeaderContent: React.FC = () => {
 
       {/* Mobile Menu */}
       {isMenuOpen && (
-        <div className="max-h-[calc(100dvh-4rem)] overflow-y-auto border-t border-border/60 bg-background/95 p-3.5 backdrop-blur-md animate-fade-in sm:p-4 lg:hidden">
+        <div className="max-h-[calc(100dvh-4rem)] overflow-y-auto border-t border-border/60 bg-background/95 p-3.5 backdrop-blur-md animate-fade-in motion-reduce:animate-none sm:p-4 lg:hidden">
           <div className="mb-3 md:hidden">
             <HeaderQuickSearch
               isOnline={isOnline}
@@ -1410,7 +1414,7 @@ const HeaderContent: React.FC = () => {
                       >
                         <ChevronDown
                           className={cn(
-                            'h-4 w-4 transition-transform duration-200',
+                            'h-4 w-4 transition-transform duration-200 motion-reduce:transition-none',
                             isCharactersMobileMenuOpen && 'rotate-180',
                           )}
                         />
@@ -1420,7 +1424,7 @@ const HeaderContent: React.FC = () => {
                     {isCharactersMobileMenuOpen && (
                       <div
                         ref={mobileCharactersSubmenuRef}
-                        className="col-span-2 grid grid-cols-3 gap-1.5 rounded-xl border border-border/50 bg-secondary/20 p-1.5"
+                        className="col-span-2 grid grid-cols-3 gap-1.5 rounded-xl border border-border/50 bg-secondary/20 p-1.5 animate-card-reveal-fast motion-reduce:animate-none"
                       >
                         {characterMenuItems.map((item) => {
                           const isItemActive = item.path === '/characters'

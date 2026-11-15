@@ -152,7 +152,7 @@ const StatusTabs = ({
     value: ReportStatus;
     onValueChange: (next: ReportStatus) => void;
 }) => (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-1.5 sm:gap-2">
         {statusOrder.map((status) => {
             const Icon = statusMeta[status].icon;
             const isActive = value === status;
@@ -165,15 +165,15 @@ const StatusTabs = ({
                     size="sm"
                     onClick={() => onValueChange(status)}
                     className={cn(
-                        'h-auto rounded-2xl border px-3 py-2 transition-colors',
+                        'h-auto rounded-2xl border px-2.5 py-1.5 text-xs transition-colors sm:px-3 sm:py-2 sm:text-sm',
                         isActive
                             ? statusToneClassNames[status].tabActive
                             : 'border-border/60 bg-card/30 text-muted-foreground',
                         statusToneClassNames[status].tab,
                     )}
                 >
-                    <Icon className="h-4 w-4" />
-                    <span className="hidden sm:inline">{statusMeta[status].label}</span>
+                    <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                    <span>{statusMeta[status].label}</span>
                     <Badge className={cn('ml-1 h-5 min-w-5 px-1.5', statusToneClassNames[status].badge)}>
                         {counts[status] || 0}
                     </Badge>
@@ -192,7 +192,7 @@ const StatusActionButtons = ({
     onChange: (next: ReportStatus) => void;
     isBusy: boolean;
 }) => (
-    <div className="flex flex-wrap justify-end gap-2">
+    <div className="flex flex-wrap justify-start gap-2 xl:justify-end">
         {statusOrder.filter((status) => status !== currentStatus).map((status) => {
             const Icon = statusMeta[status].icon;
 
@@ -202,12 +202,12 @@ const StatusActionButtons = ({
                     type="button"
                     variant="outline"
                     size="sm"
-                    className={cn('rounded-full px-3', statusToneClassNames[status].action)}
+                    className={cn('rounded-full px-2.5 text-xs sm:px-3 sm:text-sm', statusToneClassNames[status].action)}
                     onClick={() => onChange(status)}
                     disabled={isBusy}
                 >
-                    {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4" />}
-                    <span className="hidden sm:inline">{statusMeta[status].label}</span>
+                    {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin sm:h-4 sm:w-4" /> : <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />}
+                    <span>{statusMeta[status].label}</span>
                 </Button>
             );
         })}
@@ -271,7 +271,7 @@ const AdminReports: React.FC = () => {
             setForumReports(forumData);
         } catch (error) {
             console.error('Admin reports load error:', error);
-            toast.error('Raporlar yüklenemedi');
+            toast.error('Bildirimler yüklenemedi');
         } finally {
             setIsLoading(false);
         }
@@ -439,21 +439,15 @@ const AdminReports: React.FC = () => {
 
     return (
         <div className="space-y-6 lg:space-y-8">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                    <h1 className="flex items-center gap-3 text-2xl font-bold sm:text-3xl">
-                        <Flag className="h-8 w-8 text-primary" />
-                        Bildirilenler
-                    </h1>
-                </div>
-
-                <Badge variant="outline" className="w-fit px-3 py-1 text-sm">
-                    {mangaReports.length + commentReports.length + reviewReports.length + profileReports.length + forumReports.length} toplam rapor
-                </Badge>
+            <div>
+                <h1 className="flex items-center gap-3 text-2xl font-bold sm:text-3xl">
+                    <Flag className="h-7 w-7 text-primary sm:h-8 sm:w-8" />
+                    Bildirilenler
+                </h1>
             </div>
 
             {isLoading ? (
-                <LoadingPanel label="Raporlar yükleniyor..." />
+                <LoadingPanel label="Bildirimler yükleniyor..." />
             ) : (
                 <Tabs
                     value={activeTab}
@@ -511,38 +505,38 @@ const AdminReports: React.FC = () => {
                                         className={cn('rounded-2xl border p-4 sm:p-6', statusToneClassNames[report.status].card)}
                                     >
                                         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-                                            <div className="flex min-w-0 gap-4">
+                                            <div className="flex min-w-0 flex-1 gap-3 sm:gap-4">
                                                 <div className="shrink-0">
                                                     <MangaThumb cover={report.mangaCover} title={report.mangaTitle} />
                                                 </div>
-                                                <div className="min-w-0 space-y-3">
+                                                <div className="min-w-0 flex-1 space-y-3">
                                                     <div className="flex flex-wrap items-center gap-2">
-                                                        <h2 className="text-lg font-semibold sm:text-xl">{report.mangaTitle}</h2>
+                                                        <h2 className="break-words text-lg font-semibold sm:text-xl">{report.mangaTitle}</h2>
                                                         <StatusBadge status={report.status} />
                                                     </div>
 
                                                     <ReportMetaRow
                                                         items={[
-                                                            `bildiren: ${report.reporterUsername || report.reporterId}`,
+                                                            `Bildiren: ${report.reporterUsername || report.reporterId}`,
                                                             formatDate(report.createdAt),
-                                                            `güncellendi: ${formatDate(report.updatedAt)}`,
+                                                            `Güncellendi: ${formatDate(report.updatedAt)}`,
                                                         ]}
                                                     />
 
-                                                    <div className="rounded-2xl border border-border/60 bg-background/40 p-4">
+                                                    <div className="rounded-2xl border border-border/60 bg-background/40 p-3.5 sm:p-4">
                                                         <p className="text-sm font-medium">Neden</p>
-                                                        <p className="mt-1 text-sm text-foreground/90">{report.reason}</p>
+                                                        <p className="mt-1 break-words text-sm text-foreground/90">{report.reason}</p>
                                                         {report.details ? (
                                                             <>
                                                                 <p className="mt-4 text-sm font-medium">Detay</p>
-                                                                <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{report.details}</p>
+                                                                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground">{report.details}</p>
                                                             </>
                                                         ) : null}
                                                     </div>
                                                 </div>
                                             </div>
 
-                                            <div className="flex flex-col gap-3 xl:w-[320px] xl:items-end">
+                                            <div className="flex flex-col items-start gap-3 xl:w-[320px] xl:items-end">
                                                 {report.mangaId ? (
                                                     <Button asChild variant="outline" size="sm" className="gap-2">
                                                         <Link to={`/manga/${report.mangaId}`}>
@@ -577,9 +571,9 @@ const AdminReports: React.FC = () => {
                                         className={cn('rounded-2xl border p-4 sm:p-6', statusToneClassNames[report.status].card)}
                                     >
                                         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-                                            <div className="min-w-0 space-y-3">
+                                            <div className="min-w-0 flex-1 space-y-3">
                                                 <div className="flex flex-wrap items-center gap-2">
-                                                    <h2 className="text-lg font-semibold sm:text-xl">
+                                                    <h2 className="break-words text-lg font-semibold sm:text-xl">
                                                         {report.targetTitle || 'Bilinmeyen hedef'}
                                                     </h2>
                                                     <Badge variant="outline">
@@ -590,36 +584,36 @@ const AdminReports: React.FC = () => {
 
                                                 <ReportMetaRow
                                                     items={[
-                                                        `bildiren: ${report.reporterUsername || report.reporterId}`,
-                                                        `yorum sahibi: ${report.reportedUsername || report.reportedUserId}`,
+                                                        `Bildiren: ${report.reporterUsername || report.reporterId}`,
+                                                        `Yorum sahibi: ${report.reportedUsername || report.reportedUserId}`,
                                                         formatDate(report.createdAt),
-                                                        `güncellendi: ${formatDate(report.updatedAt)}`,
+                                                        `Güncellendi: ${formatDate(report.updatedAt)}`,
                                                     ]}
                                                 />
 
-                                                <div className="rounded-2xl border border-border/60 bg-background/40 p-4">
+                                                <div className="rounded-2xl border border-border/60 bg-background/40 p-3.5 sm:p-4">
                                                     <p className="text-sm font-medium">Yorum</p>
-                                                    <p className="mt-1 whitespace-pre-wrap text-sm text-foreground/90">
+                                                    <p className="mt-1 whitespace-pre-wrap break-words text-sm text-foreground/90">
                                                         {report.commentPreview || 'Yorum bulunamadı veya silinmiş.'}
                                                     </p>
                                                     {report.commentCreatedAt ? (
                                                         <p className="mt-2 text-xs text-muted-foreground">
-                                                            yorum tarihi: {formatDate(report.commentCreatedAt)}
+                                                            Yorum tarihi: {formatDate(report.commentCreatedAt)}
                                                         </p>
                                                     ) : null}
 
                                                     <p className="mt-4 text-sm font-medium">Neden</p>
-                                                    <p className="mt-1 text-sm text-foreground/90">{report.reason}</p>
+                                                    <p className="mt-1 break-words text-sm text-foreground/90">{report.reason}</p>
                                                     {report.details ? (
                                                         <>
                                                             <p className="mt-4 text-sm font-medium">Detay</p>
-                                                            <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{report.details}</p>
+                                                            <p className="mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground">{report.details}</p>
                                                         </>
                                                     ) : null}
                                                 </div>
                                             </div>
 
-                                            <div className="flex flex-col gap-3 xl:w-[320px] xl:items-end">
+                                            <div className="flex flex-col items-start gap-3 xl:w-[320px] xl:items-end">
                                                 {report.commentEntityType === 'manga' && report.targetEntityId ? (
                                                     <Button asChild variant="outline" size="sm" className="gap-2">
                                                         <Link to={`/manga/${report.targetEntityId}`}>
@@ -654,13 +648,13 @@ const AdminReports: React.FC = () => {
                                         className={cn('rounded-2xl border p-4 sm:p-6', statusToneClassNames[report.status].card)}
                                     >
                                         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-                                            <div className="flex min-w-0 gap-4">
+                                            <div className="flex min-w-0 flex-1 gap-3 sm:gap-4">
                                                 <div className="shrink-0">
                                                     <MangaThumb cover={report.mangaCover} title={report.mangaTitle} />
                                                 </div>
-                                                <div className="min-w-0 space-y-3">
+                                                <div className="min-w-0 flex-1 space-y-3">
                                                     <div className="flex flex-wrap items-center gap-2">
-                                                        <h2 className="text-lg font-semibold sm:text-xl">{report.mangaTitle}</h2>
+                                                        <h2 className="break-words text-lg font-semibold sm:text-xl">{report.mangaTitle}</h2>
                                                         <Badge className="gap-1 rounded-full border-yellow-500/20 bg-yellow-500/10 text-yellow-200">
                                                             <Star className="h-3.5 w-3.5 fill-current" />
                                                             {report.ratingAverage.toFixed(1)}
@@ -670,37 +664,37 @@ const AdminReports: React.FC = () => {
 
                                                     <ReportMetaRow
                                                         items={[
-                                                            `bildiren: ${report.reporterUsername || report.reporterId}`,
-                                                            `inceleme sahibi: ${report.reportedUsername || report.reportedUserId}`,
+                                                            `Bildiren: ${report.reporterUsername || report.reporterId}`,
+                                                            `İnceleme sahibi: ${report.reportedUsername || report.reportedUserId}`,
                                                             formatDate(report.createdAt),
-                                                            `güncellendi: ${formatDate(report.updatedAt)}`,
+                                                            `Güncellendi: ${formatDate(report.updatedAt)}`,
                                                         ]}
                                                     />
 
-                                                    <div className="rounded-2xl border border-border/60 bg-background/40 p-4">
+                                                    <div className="rounded-2xl border border-border/60 bg-background/40 p-3.5 sm:p-4">
                                                         <p className="text-sm font-medium">İnceleme</p>
-                                                        <p className="mt-1 whitespace-pre-wrap text-sm text-foreground/90">
+                                                        <p className="mt-1 whitespace-pre-wrap break-words text-sm text-foreground/90">
                                                             {report.reviewPreview || 'İnceleme bulunamadı veya silinmiş.'}
                                                         </p>
                                                         {report.reviewCreatedAt ? (
                                                             <p className="mt-2 text-xs text-muted-foreground">
-                                                                inceleme tarihi: {formatDate(report.reviewCreatedAt)}
+                                                                İnceleme tarihi: {formatDate(report.reviewCreatedAt)}
                                                             </p>
                                                         ) : null}
 
                                                         <p className="mt-4 text-sm font-medium">Neden</p>
-                                                        <p className="mt-1 text-sm text-foreground/90">{report.reason}</p>
+                                                        <p className="mt-1 break-words text-sm text-foreground/90">{report.reason}</p>
                                                         {report.details ? (
                                                             <>
                                                                 <p className="mt-4 text-sm font-medium">Detay</p>
-                                                                <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{report.details}</p>
+                                                                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground">{report.details}</p>
                                                             </>
                                                         ) : null}
                                                     </div>
                                                 </div>
                                             </div>
 
-                                            <div className="flex flex-col gap-3 xl:w-[320px] xl:items-end">
+                                            <div className="flex flex-col items-start gap-3 xl:w-[320px] xl:items-end">
                                                 <div className="flex flex-wrap gap-2 xl:justify-end">
                                                     {report.mangaId ? (
                                                         <Button asChild variant="outline" size="sm" className="gap-2">
@@ -745,16 +739,16 @@ const AdminReports: React.FC = () => {
                                         className={cn('rounded-2xl border p-4 sm:p-6', statusToneClassNames[report.status].card)}
                                     >
                                         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-                                            <div className="flex min-w-0 gap-4">
+                                            <div className="flex min-w-0 flex-1 gap-3 sm:gap-4">
                                                 <div className="shrink-0">
                                                     <ProfileThumb
                                                         username={report.reportedUsername || report.reportedUserId}
                                                         avatar={report.reportedUserAvatar}
                                                     />
                                                 </div>
-                                                <div className="min-w-0 space-y-3">
+                                                <div className="min-w-0 flex-1 space-y-3">
                                                     <div className="flex flex-wrap items-center gap-2">
-                                                        <h2 className="text-lg font-semibold sm:text-xl">
+                                                        <h2 className="break-words text-lg font-semibold sm:text-xl">
                                                             {report.reportedUsername || report.reportedUserId}
                                                         </h2>
                                                         <Badge variant="outline">Profil</Badge>
@@ -763,27 +757,27 @@ const AdminReports: React.FC = () => {
 
                                                     <ReportMetaRow
                                                         items={[
-                                                            `bildiren: ${report.reporterUsername || report.reporterId}`,
-                                                            `hedef: ${report.reportedUsername || report.reportedUserId}`,
+                                                            `Bildiren: ${report.reporterUsername || report.reporterId}`,
+                                                            `Hedef: ${report.reportedUsername || report.reportedUserId}`,
                                                             formatDate(report.createdAt),
-                                                            `güncellendi: ${formatDate(report.updatedAt)}`,
+                                                            `Güncellendi: ${formatDate(report.updatedAt)}`,
                                                         ]}
                                                     />
 
-                                                    <div className="rounded-2xl border border-border/60 bg-background/40 p-4">
+                                                    <div className="rounded-2xl border border-border/60 bg-background/40 p-3.5 sm:p-4">
                                                         <p className="text-sm font-medium">Neden</p>
-                                                        <p className="mt-1 text-sm text-foreground/90">{report.reason}</p>
+                                                        <p className="mt-1 break-words text-sm text-foreground/90">{report.reason}</p>
                                                         {report.details ? (
                                                             <>
                                                                 <p className="mt-4 text-sm font-medium">Detay</p>
-                                                                <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{report.details}</p>
+                                                                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground">{report.details}</p>
                                                             </>
                                                         ) : null}
                                                     </div>
                                                 </div>
                                             </div>
 
-                                            <div className="flex flex-col gap-3 xl:w-[320px] xl:items-end">
+                                            <div className="flex flex-col items-start gap-3 xl:w-[320px] xl:items-end">
                                                 {report.reportedUserId ? (
                                                     <Button asChild variant="outline" size="sm" className="gap-2">
                                                         <Link to={`/profile/${report.reportedUserId}`}>
@@ -836,23 +830,23 @@ const AdminReports: React.FC = () => {
 
                                                     <ReportMetaRow
                                                         items={[
-                                                            `bildiren: ${report.reporterUsername || report.reporterId}`,
-                                                            `hedef: ${report.reportedUsername || report.reportedUserId}`,
+                                                            `Bildiren: ${report.reporterUsername || report.reporterId}`,
+                                                            `Hedef: ${report.reportedUsername || report.reportedUserId}`,
                                                             formatDate(report.createdAt),
-                                                            `güncellendi: ${formatDate(report.updatedAt)}`,
+                                                            `Güncellendi: ${formatDate(report.updatedAt)}`,
                                                         ]}
                                                     />
 
-                                                    <div className="rounded-2xl border border-border/60 bg-background/40 p-4 space-y-3">
+                                                    <div className="rounded-2xl border border-border/60 bg-background/40 p-3.5 space-y-3 sm:p-4">
                                                         <div>
                                                             <p className="text-sm font-medium">Neden</p>
-                                                            <p className="mt-1 text-sm text-foreground/90">{report.reason}</p>
+                                                            <p className="mt-1 break-words text-sm text-foreground/90">{report.reason}</p>
                                                         </div>
 
                                                         {report.details ? (
                                                             <div>
                                                                 <p className="text-sm font-medium">Detay</p>
-                                                                <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{report.details}</p>
+                                                                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-muted-foreground">{report.details}</p>
                                                             </div>
                                                         ) : null}
 
@@ -867,7 +861,7 @@ const AdminReports: React.FC = () => {
                                                     </div>
                                                 </div>
 
-                                                <div className="flex flex-col gap-3 xl:w-[320px] xl:items-end">
+                                                <div className="flex flex-col items-start gap-3 xl:w-[320px] xl:items-end">
                                                     {report.topicId ? (
                                                         <Button asChild variant="outline" size="sm" className="gap-2">
                                                             <Link to={targetPath}>

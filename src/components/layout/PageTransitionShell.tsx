@@ -98,8 +98,8 @@ export const DelayedRouteFallback = () => {
     <div
       className={
         visible
-          ? 'min-h-screen bg-background text-foreground opacity-100 transition-opacity duration-150'
-          : 'pointer-events-none min-h-screen bg-background text-foreground opacity-0'
+          ? 'min-h-screen bg-background text-foreground opacity-100 transition-opacity duration-150 motion-reduce:transition-none'
+          : 'pointer-events-none min-h-screen bg-background text-foreground opacity-0 motion-reduce:transition-none'
       }
       aria-hidden={!visible}
       aria-busy={visible}

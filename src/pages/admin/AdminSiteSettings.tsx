@@ -3,7 +3,6 @@ import { Download, FileJson, Loader2, Settings, Shield, ShieldOff, TriangleAlert
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import {
     getSiteSecuritySettings,
     setAdblockWarningEnabled,
@@ -216,10 +215,10 @@ const AdminSiteSettings: React.FC = () => {
             </div>
 
             <div className="grid gap-4 xl:grid-cols-2 xl:gap-5">
-                <section className="rounded-2xl border border-border bg-card p-4 sm:p-6">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="space-y-3">
-                            <div className={`inline-flex rounded-xl p-3 ${securitySettings.devtoolsProtectionEnabled ? 'bg-amber-500/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
+                <section className="rounded-2xl border border-border bg-card p-4 transition-colors hover:border-border/80 sm:p-6">
+                    <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0 space-y-3">
+                            <div className={`inline-flex rounded-xl p-3 transition-colors ${securitySettings.devtoolsProtectionEnabled ? 'bg-amber-500/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
                                 {securitySettings.devtoolsProtectionEnabled ? (
                                     <Shield className="h-6 w-6" />
                                 ) : (
@@ -227,7 +226,7 @@ const AdminSiteSettings: React.FC = () => {
                                 )}
                             </div>
                             <div>
-                                <h2 className="text-xl font-semibold">Geliştirici Aracı Koruması</h2>
+                                <h2 className="text-lg font-semibold sm:text-xl">Geliştirici Aracı Koruması</h2>
                             </div>
                         </div>
                         <Switch
@@ -242,14 +241,14 @@ const AdminSiteSettings: React.FC = () => {
                     </p>
                 </section>
 
-                <section className="rounded-2xl border border-border bg-card p-4 sm:p-6">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="space-y-3">
-                            <div className={`inline-flex rounded-xl p-3 ${securitySettings.adblockWarningEnabled ? 'bg-amber-500/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
+                <section className="rounded-2xl border border-border bg-card p-4 transition-colors hover:border-border/80 sm:p-6">
+                    <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0 space-y-3">
+                            <div className={`inline-flex rounded-xl p-3 transition-colors ${securitySettings.adblockWarningEnabled ? 'bg-amber-500/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
                                 <TriangleAlert className="h-6 w-6" />
                             </div>
                             <div>
-                                <h2 className="text-xl font-semibold">Adblock Uyarısı</h2>
+                                <h2 className="text-lg font-semibold sm:text-xl">Adblock Uyarısı</h2>
                             </div>
                         </div>
                         <Switch
@@ -265,27 +264,22 @@ const AdminSiteSettings: React.FC = () => {
                 </section>
             </div>
 
-            <section className="rounded-2xl border border-border bg-card p-4 sm:p-6">
+            <section className="rounded-2xl border border-border bg-card p-4 transition-colors hover:border-border/80 sm:p-6">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="space-y-2">
+                    <div className="min-w-0 space-y-2">
                         <div className="inline-flex rounded-xl bg-primary/10 p-3 text-primary">
                             <FileJson className="h-6 w-6" />
                         </div>
                         <div>
-                            <div className="flex items-center gap-2">
-                                <h2 className="text-xl font-semibold">Site Verisi Yedekleme</h2>
-                                <Badge variant="outline" className="border-sky-500/30 bg-sky-500/10 text-sky-300">
-                                    Cloudflare R2 + Supabase
-                                </Badge>
-                            </div>
+                            <h2 className="text-lg font-semibold sm:text-xl">Site Verisi Yedekleme</h2>
                             <p className="mt-1 text-xs text-muted-foreground">
                                 Manga kataloğu, bölüm sayfaları ve katalog verileri tam yedek olarak dışa aktarılır ve geri yüklenir.
                             </p>
                         </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-3">
-                        <Button onClick={() => void handleExportBackup()} disabled={isExportingBackup || isImportingBackup}>
+                    <div className="flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center">
+                        <Button onClick={() => void handleExportBackup()} disabled={isExportingBackup || isImportingBackup} className="w-full sm:w-auto">
                             {isExportingBackup ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
                             Yedeği İndir (JSON)
                         </Button>
@@ -294,6 +288,7 @@ const AdminSiteSettings: React.FC = () => {
                             variant="outline"
                             onClick={() => fileInputRef.current?.click()}
                             disabled={isExportingBackup || isImportingBackup}
+                            className="w-full sm:w-auto"
                         >
                             <Upload className="mr-2 h-4 w-4" />
                             {pendingBackupFileName ? 'Farklı Dosya Seç' : 'Yedek Dosyası Seç'}
@@ -310,7 +305,7 @@ const AdminSiteSettings: React.FC = () => {
                             <Button
                                 onClick={() => void handleImportBackup()}
                                 disabled={isImportingBackup || isExportingBackup}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                                className="w-full bg-emerald-600 text-white hover:bg-emerald-700 sm:w-auto"
                             >
                                 {isImportingBackup ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
                                 Yedeği Geri Yükle
@@ -320,22 +315,22 @@ const AdminSiteSettings: React.FC = () => {
                 </div>
 
                 {pendingManifest && (
-                    <div className="mt-4 grid gap-3 sm:grid-cols-4 rounded-2xl border border-border bg-background/50 p-4">
-                        <div>
+                    <div className="mt-4 grid gap-3 rounded-2xl border border-border bg-background/50 p-4 sm:grid-cols-2 lg:grid-cols-4">
+                        <div className="min-w-0">
                             <p className="text-[10px] uppercase text-muted-foreground">Dosya</p>
-                            <p className="mt-1 font-semibold text-sm truncate">{pendingBackupFileName}</p>
+                            <p className="mt-1 truncate text-sm font-semibold">{pendingBackupFileName}</p>
                         </div>
-                        <div>
+                        <div className="min-w-0">
                             <p className="text-[10px] uppercase text-muted-foreground">Dışa Aktarım Tarihi</p>
-                            <p className="mt-1 font-semibold text-sm">{new Date(pendingManifest.exportedAt).toLocaleDateString('tr-TR')}</p>
+                            <p className="mt-1 text-sm font-semibold">{new Date(pendingManifest.exportedAt).toLocaleDateString('tr-TR')}</p>
                         </div>
-                        <div>
+                        <div className="min-w-0">
                             <p className="text-[10px] uppercase text-muted-foreground">Tablo Sayısı</p>
-                            <p className="mt-1 font-semibold text-sm">{pendingManifestTableCount} tablo</p>
+                            <p className="mt-1 text-sm font-semibold">{pendingManifestTableCount} tablo</p>
                         </div>
-                        <div>
+                        <div className="min-w-0">
                             <p className="text-[10px] uppercase text-muted-foreground">Toplam Satır</p>
-                            <p className="mt-1 font-semibold text-sm">{pendingManifestRowCount} kayıt</p>
+                            <p className="mt-1 text-sm font-semibold">{pendingManifestRowCount} kayıt</p>
                         </div>
                     </div>
                 )}

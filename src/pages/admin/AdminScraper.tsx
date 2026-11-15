@@ -5,7 +5,6 @@ import {
     Download,
     ArrowRight,
     Loader2,
-    Globe,
     ExternalLink,
     Plus,
     Sparkles,
@@ -28,7 +27,7 @@ import {
     saveManga,
 } from '@/lib/database';
 import { Manga, Chapter } from '@/lib/types';
-import { normalizeGenres } from '@/lib/mockData';
+import { formatGenreDisplayName, normalizeGenres } from '@/lib/mockData';
 import { getAdultContentFormatLabel } from '@/lib/adultContentFormat';
 import { getMangaTypeLabel } from '@/lib/mangaType';
 import {
@@ -204,7 +203,7 @@ const AdminScraper: React.FC = () => {
     const handleScraperProviderChange = (nextProvider: ScraperProvider) => {
         writePreferredScraperProvider(nextProvider);
         setScraperProvider(nextProvider);
-        toast.success(`Scraper sağlayıcısı: ${getScraperProviderLabel(nextProvider)}`);
+        toast.success(`Proxy sağlayıcısı: ${getScraperProviderLabel(nextProvider)}`);
     };
 
     const handleScrapeSourceChange = (nextSource: ScrapeSource) => {
@@ -229,9 +228,9 @@ const AdminScraper: React.FC = () => {
                 handleScrapeSourceChange(detectedSource);
             }
 
-            toast.info('Direkt link algılandı, detaylar getiriliyor...');
+            toast.info('Doğrudan bağlantı algılandı, detaylar getiriliyor...');
             fetchMangaDetails({
-                title: 'Linkten Çekilen Manga',
+                title: 'Bağlantıdan Çekilen Manga',
                 link: normalizeScrapeSeriesUrl(sourceToUse, rawQuery),
                 cover: '',
                 genres: [],
@@ -535,11 +534,11 @@ const AdminScraper: React.FC = () => {
         <div className="space-y-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold sm:text-3xl">İçerik Çekici (Scraper)</h1>
+                    <h1 className="text-2xl font-bold sm:text-3xl">İçerik Çekici</h1>
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                     <Select value={scrapeSource} onValueChange={(value) => handleScrapeSourceChange(value as ScrapeSource)}>
-                        <SelectTrigger className="h-8 w-full border-primary/20 bg-primary/5 text-xs text-primary sm:w-[190px]">
+                        <SelectTrigger className="h-9 w-full border-primary/20 bg-primary/5 text-xs text-primary sm:h-8 sm:w-[190px]">
                             <SelectValue placeholder="Kaynak site seç" />
                         </SelectTrigger>
                         <SelectContent>
@@ -551,7 +550,7 @@ const AdminScraper: React.FC = () => {
                         </SelectContent>
                     </Select>
                     <Select value={scraperProvider} onValueChange={(value) => handleScraperProviderChange(value as ScraperProvider)}>
-                        <SelectTrigger className="h-8 w-full border-primary/20 bg-primary/5 text-xs text-primary sm:w-[170px]">
+                        <SelectTrigger className="h-9 w-full border-primary/20 bg-primary/5 text-xs text-primary sm:h-8 sm:w-[170px]">
                             <SelectValue placeholder="Proxy seç" />
                         </SelectTrigger>
                         <SelectContent>
@@ -562,16 +561,12 @@ const AdminScraper: React.FC = () => {
                             ))}
                         </SelectContent>
                     </Select>
-                    <Badge variant="outline" className="h-8 gap-1 border-primary/20 bg-primary/5 text-primary transition-colors hover:bg-primary/10">
-                        <Globe className="h-4 w-4" />
-                        {getScrapeSourceLabel(scrapeSource)}
-                    </Badge>
                 </div>
             </div>
 
             <Card>
                 <CardHeader>
-                    <CardTitle>Manga Ara veya Link Yapıştır</CardTitle>
+                    <CardTitle>Manga Ara veya Bağlantı Yapıştır</CardTitle>
                     <CardDescription>
                         {getScrapeSourceLabel(scrapeSource)} üzerinden arama yapın veya doğrudan seri bağlantısını yapıştırın.
                     </CardDescription>
@@ -579,26 +574,26 @@ const AdminScraper: React.FC = () => {
                 <CardContent className="space-y-4">
                     <form onSubmit={handleSearch} className="flex flex-col gap-2 sm:flex-row">
                         <div className="relative flex-1">
-                            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                             <Input
-                                placeholder={`Manga adı yazın veya ${getScrapeSourceLabel(scrapeSource)} seri linkini yapıştırın`}
+                                placeholder={`Manga adı yazın veya ${getScrapeSourceLabel(scrapeSource)} seri bağlantısını yapıştırın`}
                                 className="pl-10"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                             />
                         </div>
-                        <Button type="submit" disabled={loading}>
+                        <Button type="submit" disabled={loading} className="w-full sm:w-auto">
                             {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
-                            {searchQuery.startsWith('http') ? 'Linki Çek' : 'Ara'}
+                            {searchQuery.startsWith('http') ? 'Bağlantıyı Çek' : 'Ara'}
                         </Button>
                     </form>
 
-                    <div className="flex items-center justify-between rounded-xl border border-border bg-secondary/30 px-4 py-3">
-                        <div className="flex items-center gap-3">
-                            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <div className="flex flex-col gap-3 rounded-xl border border-border bg-secondary/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-start gap-3 sm:items-center">
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                                 <Sparkles className="h-4 w-4" />
                             </div>
-                            <div>
+                            <div className="min-w-0">
                                 <p className="text-sm font-medium">Bozuk Bölümleri Yedek Kaynaklardan Tamamla</p>
                                 <p className="text-xs text-muted-foreground">
                                     Seçilen kaynakta görsel eksik veya bozuksa diğer 4 kaynaktan (OkuToon, MangaCix, Gölge Bahçesi, DxDFansub) otomatik tamamlanır.
@@ -609,6 +604,7 @@ const AdminScraper: React.FC = () => {
                             checked={autoRecoverFromFallbacks}
                             onCheckedChange={setAutoRecoverFromFallbacks}
                             aria-label="Bozuk bölümleri yedek kaynaklardan tamamla"
+                            className="shrink-0 self-end sm:self-auto"
                         />
                     </div>
                 </CardContent>
@@ -630,7 +626,7 @@ const AdminScraper: React.FC = () => {
                                             }`}
                                         onClick={() => fetchMangaDetails(item)}
                                     >
-                                        <div className="h-20 w-16 overflow-hidden rounded bg-muted">
+                                        <div className="h-20 w-16 shrink-0 overflow-hidden rounded bg-muted">
                                             <img
                                                 src={item.cover}
                                                 alt={item.title}
@@ -638,21 +634,21 @@ const AdminScraper: React.FC = () => {
                                                 onError={(e) => (e.currentTarget.src = 'https://placehold.co/150x200?text=Kapak+Yok')}
                                             />
                                         </div>
-                                        <div className="flex-1 space-y-1">
+                                        <div className="min-w-0 flex-1 space-y-1">
                                             <h3 className="font-semibold line-clamp-1">{item.title}</h3>
                                             <div className="flex flex-wrap gap-1">
                                                 {item.genres.slice(0, 3).map((g, gi) => (
-                                                    <Badge key={gi} variant="secondary" className="text-[10px] px-1 h-4">
-                                                        {g}
+                                                    <Badge key={gi} variant="secondary" className="h-4 px-1 text-[10px]">
+                                                        {formatGenreDisplayName(g)}
                                                     </Badge>
                                                 ))}
                                             </div>
                                             <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                                                <ExternalLink className="h-3 w-3" />
-                                                {new URL(item.link).hostname}
+                                                <ExternalLink className="h-3 w-3 shrink-0" />
+                                                <span className="truncate">{new URL(item.link).hostname}</span>
                                             </div>
                                         </div>
-                                        <ArrowRight className={`h-5 w-5 transition-transform ${selectedManga?.link === item.link ? 'translate-x-1 text-primary' : 'text-muted-foreground'}`} />
+                                        <ArrowRight className={`h-5 w-5 shrink-0 transition-transform ${selectedManga?.link === item.link ? 'translate-x-1 text-primary' : 'text-muted-foreground'}`} />
                                     </div>
                                 ))}
                                 {results.length === 0 && !loading && (
@@ -685,9 +681,9 @@ const AdminScraper: React.FC = () => {
                                 <div className="space-y-6 pb-4">
                                     <div className="flex flex-col gap-4 sm:flex-row">
                                         <div className="w-32 shrink-0 overflow-hidden rounded-lg border border-border">
-                                            <img src={fetchedData.cover} alt="Cover" className="w-full object-cover" />
+                                            <img src={fetchedData.cover} alt={fetchedData.title || 'Kapak'} className="w-full object-cover" />
                                         </div>
-                                        <div className="space-y-2">
+                                        <div className="min-w-0 space-y-2">
                                             <h2 className="text-xl font-bold">{fetchedData.title}</h2>
                                             <p className="text-sm text-muted-foreground">Yazar: {fetchedData.author || 'Belirtilmedi'}</p>
                                             <div className="flex flex-wrap gap-2">
@@ -722,7 +718,7 @@ const AdminScraper: React.FC = () => {
                                         <h4 className="text-sm font-semibold">Türler</h4>
                                         <div className="flex flex-wrap gap-1">
                                             {fetchedData.genres?.map((g, i) => (
-                                                <Badge key={i} variant="secondary" className="hover:bg-secondary/70 transition-colors">{g}</Badge>
+                                                <Badge key={i} variant="secondary" className="hover:bg-secondary/70 transition-colors">{formatGenreDisplayName(g)}</Badge>
                                             ))}
                                         </div>
                                     </div>
@@ -734,7 +730,7 @@ const AdminScraper: React.FC = () => {
 
                                     <div className="space-y-2 text-sm">
                                         <div className="flex items-center justify-between border-b pb-1">
-                                            <div className="flex items-center gap-4">
+                                            <div className="flex flex-wrap items-center gap-3">
                                                 <span className="font-semibold text-muted-foreground">
                                                     Bölüm Sayısı: <span className="text-foreground">{fetchedData._rawChapters.length}</span>
                                                 </span>

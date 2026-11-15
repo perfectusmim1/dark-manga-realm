@@ -9,7 +9,7 @@ export const allGenres = [
   'Fantastik',
   'Korku',
   'Gizem',
-  'Romantik',
+  'Romantizm',
   'Bilim Kurgu',
   'Gündelik Yaşam',
   'Spor',
@@ -89,8 +89,10 @@ const genreAliasMap: Record<string, string> = {
   fantasy: 'Fantastik',
   horror: 'Korku',
   mystery: 'Gizem',
-  romance: 'Romantik',
-  romantic: 'Romantik',
+  romance: 'Romantizm',
+  romantic: 'Romantizm',
+  romantik: 'Romantizm',
+  romantizm: 'Romantizm',
   'sci-fi': 'Bilim Kurgu',
   'sci fi': 'Bilim Kurgu',
   'science fiction': 'Bilim Kurgu',
@@ -102,6 +104,7 @@ const genreAliasMap: Record<string, string> = {
   thriller: 'Gerilim',
   historical: 'Tarihî',
   tarihi: 'Tarihî',
+  'tarihî': 'Tarihî',
   psychological: 'Psikolojik',
   school: 'Okul Hayatı',
   'school life': 'Okul Hayatı',
@@ -217,7 +220,9 @@ const genreAliasMap: Record<string, string> = {
   teacher: 'Öğretmen',
   maids: 'Hizmetçiler',
   demon: 'İblis',
-  demons: 'İblisler',
+  demons: 'İblis',
+  iblis: 'İblis',
+  iblisler: 'İblis',
   ghost: 'Hayalet',
   angels: 'Melekler',
   animals: 'Hayvanlar',
@@ -376,11 +381,12 @@ export const formatGenreDisplayName = (genre?: string | null): string => {
   }
 
   const normalized = normalizeGenreName(decoded);
-  if (normalized) {
-    return normalized === decoded ? getTagDisplayName(decoded, decoded) : normalized;
+  if (normalized && normalized !== decoded) {
+    return normalized;
   }
 
-  return getTagDisplayName(decoded, decoded);
+  const translated = getTagDisplayName(decoded, decoded);
+  return genreAliasMap[toGenreKey(translated)] || translated;
 };
 
 export const formatMangaStatusLabel = (status?: string | null): string => {
@@ -439,13 +445,19 @@ export const normalizeGenres = (genres?: readonly string[] | null): string[] => 
     return [];
   }
 
-  return Array.from(
-    new Set(
-      genres
-        .map((genre) => normalizeGenreName(genre))
-        .filter((genre) => genre.length > 0)
-    )
-  );
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const genre of genres) {
+    const normalized = normalizeGenreName(genre);
+    if (!normalized) continue;
+    const key = toGenreKey(normalized);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(normalized);
+  }
+
+  return result;
 };
 
 // Initialize database on import (no mock data)

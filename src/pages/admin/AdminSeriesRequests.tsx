@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/contexts/AuthContext';
+import { useDeviceProfile } from '@/hooks/use-device-profile';
 import { getAllUsers } from '@/lib/database';
 import {
   listSeriesRequests,
@@ -95,6 +96,7 @@ const SeriesRequestBadge = ({ status }: { status: SeriesRequestStatus }) => {
 
 const AdminSeriesRequests: React.FC = () => {
   const { user, isLoading: authLoading } = useAuth();
+  const { prefersReducedMotion } = useDeviceProfile();
   const [requests, setRequests] = useState<SeriesRequest[]>([]);
   const [selectedRequestId, setSelectedRequestId] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all');
@@ -261,13 +263,13 @@ const AdminSeriesRequests: React.FC = () => {
   return (
     <div className="space-y-6 lg:space-y-8">
       {/* Header Bar */}
-      <div className="overflow-hidden rounded-[2rem] border border-border bg-card/80 p-5 shadow-xl sm:p-6">
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-          <div className="space-y-2">
-            <Badge variant="outline" className="w-fit gap-1.5 border-primary/20 bg-primary/10 text-primary">
-              <Send className="h-3.5 w-3.5" /> Seri İstekleri
-            </Badge>
-            <h1 className="text-3xl font-black tracking-tight sm:text-4xl">Seri İstekleri</h1>
+      <div className="overflow-hidden rounded-2xl border border-border bg-card/80 p-4 shadow-xl sm:rounded-[2rem] sm:p-6">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div>
+            <h1 className="flex items-center gap-2.5 text-2xl font-bold tracking-tight sm:text-3xl">
+              <Send className="h-6 w-6 text-primary sm:h-7 sm:w-7" />
+              Seri İstekleri
+            </h1>
           </div>
 
           <div className="flex items-center gap-3 w-full xl:w-auto">
@@ -286,78 +288,78 @@ const AdminSeriesRequests: React.FC = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-5">
         <button
           type="button"
           onClick={() => setStatusFilter('all')}
           className={cn(
-            'rounded-3xl border p-5 text-left transition-all shadow-sm',
+            'rounded-2xl border p-4 text-left transition-[border-color,background-color] duration-150 shadow-sm sm:rounded-3xl sm:p-5',
             statusFilter === 'all' ? 'border-primary/40 bg-primary/10' : 'border-border bg-card hover:bg-secondary/40'
           )}
         >
           <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Toplam</p>
-          <p className="mt-2 text-3xl font-black">{counts.all}</p>
+          <p className="mt-2 text-2xl font-black sm:text-3xl">{counts.all}</p>
         </button>
 
         <button
           type="button"
           onClick={() => setStatusFilter('pending')}
           className={cn(
-            'rounded-3xl border p-5 text-left transition-all shadow-sm',
+            'rounded-2xl border p-4 text-left transition-[border-color,background-color] duration-150 shadow-sm sm:rounded-3xl sm:p-5',
             statusFilter === 'pending' ? 'border-amber-500/40 bg-amber-500/10' : 'border-border bg-card hover:bg-secondary/40'
           )}
         >
           <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Bekleyen</p>
-          <p className="mt-2 text-3xl font-black text-amber-300">{counts.pending}</p>
+          <p className="mt-2 text-2xl font-black text-amber-300 sm:text-3xl">{counts.pending}</p>
         </button>
 
         <button
           type="button"
           onClick={() => setStatusFilter('in_review')}
           className={cn(
-            'rounded-3xl border p-5 text-left transition-all shadow-sm',
+            'rounded-2xl border p-4 text-left transition-[border-color,background-color] duration-150 shadow-sm sm:rounded-3xl sm:p-5',
             statusFilter === 'in_review' ? 'border-sky-500/40 bg-sky-500/10' : 'border-border bg-card hover:bg-secondary/40'
           )}
         >
           <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">İncelenen</p>
-          <p className="mt-2 text-3xl font-black text-sky-300">{counts.in_review}</p>
+          <p className="mt-2 text-2xl font-black text-sky-300 sm:text-3xl">{counts.in_review}</p>
         </button>
 
         <button
           type="button"
           onClick={() => setStatusFilter('approved')}
           className={cn(
-            'rounded-3xl border p-5 text-left transition-all shadow-sm',
+            'rounded-2xl border p-4 text-left transition-[border-color,background-color] duration-150 shadow-sm sm:rounded-3xl sm:p-5',
             statusFilter === 'approved' ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-border bg-card hover:bg-secondary/40'
           )}
         >
           <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Onaylanan</p>
-          <p className="mt-2 text-3xl font-black text-emerald-300">{counts.approved}</p>
+          <p className="mt-2 text-2xl font-black text-emerald-300 sm:text-3xl">{counts.approved}</p>
         </button>
 
         <button
           type="button"
           onClick={() => setStatusFilter('rejected')}
           className={cn(
-            'rounded-3xl border p-5 text-left transition-all shadow-sm',
+            'col-span-2 sm:col-span-1 rounded-2xl border p-4 text-left transition-[border-color,background-color] duration-150 shadow-sm sm:rounded-3xl sm:p-5',
             statusFilter === 'rejected' ? 'border-rose-500/40 bg-rose-500/10' : 'border-border bg-card hover:bg-secondary/40'
           )}
         >
           <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Reddedilen</p>
-          <p className="mt-2 text-3xl font-black text-rose-300">{counts.rejected}</p>
+          <p className="mt-2 text-2xl font-black text-rose-300 sm:text-3xl">{counts.rejected}</p>
         </button>
       </div>
 
       {/* Main 2-Column Split */}
       <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
         {/* Left List */}
-        <section className="rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-5">
+        <section className="min-w-0 rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="text-lg font-semibold">İstek Listesi</h2>
             <Badge variant="outline">{filteredRequests.length} kayıt</Badge>
           </div>
 
-          <ScrollArea className="h-[620px] pr-2">
+          <ScrollArea className="h-[340px] pr-2 sm:h-[440px] xl:h-[620px]">
             <div className="space-y-3">
               {filteredRequests.map((request) => {
                 const isSelected = selectedRequest?.id === request.id;
@@ -367,7 +369,7 @@ const AdminSeriesRequests: React.FC = () => {
                     type="button"
                     onClick={() => setSelectedRequestId(request.id)}
                     className={cn(
-                      'w-full rounded-2xl border p-3.5 text-left transition-colors',
+                      'w-full rounded-2xl border p-3.5 text-left transition-[border-color,background-color,box-shadow] duration-150',
                       isSelected
                         ? 'border-primary/40 bg-primary/10 shadow-sm'
                         : 'border-border bg-background/60 hover:bg-secondary/60'
@@ -380,7 +382,7 @@ const AdminSeriesRequests: React.FC = () => {
 
                     <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
                       <span className="truncate max-w-[170px]">{request.userName}</span>
-                      <span>{formatRequestTime(request.createdAt)}</span>
+                      <span className="shrink-0">{formatRequestTime(request.createdAt)}</span>
                     </div>
 
                     <div className="mt-1 text-[11px] text-muted-foreground/80 truncate">
@@ -400,43 +402,43 @@ const AdminSeriesRequests: React.FC = () => {
         </section>
 
         {/* Right Detail Panel */}
-        <section className="rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-6">
+        <section className="min-w-0 rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-6">
           {selectedRequest ? (
-            <div className="space-y-6">
+            <div key={selectedRequest.id} className={cn('space-y-6', !prefersReducedMotion && 'animate-route-fade')}>
               {/* Header Box */}
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between border-b border-border pb-5">
-                <div className="space-y-2">
+                <div className="min-w-0 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-2xl font-bold">{selectedRequest.seriesTitle}</h2>
+                    <h2 className="break-words text-xl font-bold sm:text-2xl">{selectedRequest.seriesTitle}</h2>
                     <SeriesRequestBadge status={selectedRequest.status} />
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Gönderim: {formatRequestTime(selectedRequest.createdAt)} • ID: #{selectedRequest.id.slice(0, 8)}
+                    Gönderim: {formatRequestTime(selectedRequest.createdAt)} • Kayıt No: #{selectedRequest.id.slice(0, 8)}
                   </p>
                 </div>
               </div>
 
               {/* Info Badges Grid */}
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="rounded-2xl border border-border bg-background/50 p-3.5">
+                <div className="min-w-0 rounded-2xl border border-border bg-background/50 p-3.5">
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Kullanıcı</p>
                   <p className="mt-1 font-semibold text-sm truncate">{selectedRequest.userName}</p>
                   <p className="text-xs text-muted-foreground truncate">{selectedRequest.userEmail}</p>
                 </div>
 
-                <div className="rounded-2xl border border-border bg-background/50 p-3.5">
+                <div className="min-w-0 rounded-2xl border border-border bg-background/50 p-3.5">
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Kaynak</p>
                   <p className="mt-1 font-semibold text-sm truncate">{selectedRequest.referenceHost}</p>
                 </div>
 
-                <div className="rounded-2xl border border-border bg-background/50 p-3.5">
+                <div className="min-w-0 rounded-2xl border border-border bg-background/50 p-3.5">
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Tarih</p>
                   <p className="mt-1 font-semibold text-sm">{new Date(selectedRequest.createdAt).toLocaleDateString('tr-TR')}</p>
                 </div>
 
-                <div className="rounded-2xl border border-border bg-background/50 p-3.5">
+                <div className="min-w-0 rounded-2xl border border-border bg-background/50 p-3.5">
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground">İnceleyen</p>
-                  <p className="mt-1 font-semibold text-sm">{selectedRequest.reviewedByName || 'Henüz Yok'}</p>
+                  <p className="mt-1 font-semibold text-sm truncate">{selectedRequest.reviewedByName || 'Henüz yok'}</p>
                 </div>
               </div>
 
@@ -444,7 +446,7 @@ const AdminSeriesRequests: React.FC = () => {
               <div className="rounded-2xl border border-border bg-background/50 p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <p className="text-xs font-semibold text-muted-foreground">Kaynak Bağlantısı</p>
                       {(() => {
                         const detected = detectSeriesSource(selectedRequest.referenceUrl);
@@ -468,7 +470,7 @@ const AdminSeriesRequests: React.FC = () => {
                     <p className="mt-1 break-all text-sm">{selectedRequest.referenceUrl}</p>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
                     <Button
                       variant="outline"
                       size="sm"
@@ -489,12 +491,12 @@ const AdminSeriesRequests: React.FC = () => {
               {selectedRequest.note && (
                 <div className="rounded-2xl border border-border bg-background/50 p-4">
                   <p className="text-xs font-semibold text-muted-foreground">Kullanıcı Notu</p>
-                  <p className="mt-2 text-sm leading-6 whitespace-pre-wrap">{selectedRequest.note}</p>
+                  <p className="mt-2 text-sm leading-6 whitespace-pre-wrap break-words">{selectedRequest.note}</p>
                 </div>
               )}
 
               {/* Admin Review Action Area */}
-              <div className="rounded-2xl border border-border bg-background/70 p-5 space-y-4">
+              <div className="rounded-2xl border border-border bg-background/70 p-4 space-y-4 sm:p-5">
                 <div className="grid gap-4 sm:grid-cols-[200px_minmax(0,1fr)]">
                   <div className="space-y-2">
                     <Label>Durum Değiştir</Label>
@@ -513,7 +515,7 @@ const AdminSeriesRequests: React.FC = () => {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="admin-note">Admin Notu</Label>
+                    <Label htmlFor="admin-note">Yönetici Notu</Label>
                     <Textarea
                       id="admin-note"
                       value={reviewNote}
@@ -525,7 +527,7 @@ const AdminSeriesRequests: React.FC = () => {
                 </div>
 
                 <div className="flex justify-end pt-2">
-                  <Button onClick={() => void handleSaveReview()} disabled={isSaving}>
+                  <Button onClick={() => void handleSaveReview()} disabled={isSaving} className="w-full sm:w-auto">
                     {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                     Durumu Kaydet
                   </Button>

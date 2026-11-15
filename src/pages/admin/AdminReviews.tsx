@@ -224,22 +224,20 @@ const AdminReviews: React.FC = () => {
                         <Star className="h-7 w-7 text-primary" />
                         İncelemeler
                     </h1>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                        {totalReviews.toLocaleString('tr-TR')} toplam inceleme
+                        {loadedCount > 0 && loadedCount < totalReviews ? ` • ${loadedCount.toLocaleString('tr-TR')} yüklendi` : ''}
+                    </p>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
-                    <Badge variant="outline" className="px-3 py-1">
-                        {totalReviews} toplam inceleme
-                    </Badge>
-                    <Badge variant="outline" className="px-3 py-1">
-                        {loadedCount} yüklü
-                    </Badge>
-                    {selectedReviews.size > 0 && canDeleteReviews && (
+                {selectedReviews.size > 0 && canDeleteReviews && (
+                    <div className="flex flex-wrap gap-2">
                         <Button variant="destructive" onClick={() => setBulkDeleteConfirm(true)} className="w-full sm:w-auto">
                             <Trash2 className="mr-2 h-4 w-4" />
                             {selectedReviews.size} İnceleme Sil
                         </Button>
-                    )}
-                </div>
+                    </div>
+                )}
             </div>
 
             <div className="rounded-2xl border border-border bg-card/60 p-4">
@@ -301,7 +299,7 @@ const AdminReviews: React.FC = () => {
                             tabIndex={0}
                         >
                             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                                <div className="flex gap-4">
+                                <div className="flex min-w-0 gap-3 sm:gap-4">
                                     <div className="pt-1">
                                         <Checkbox
                                             checked={selectedReviews.has(review.id)}
@@ -318,14 +316,14 @@ const AdminReviews: React.FC = () => {
                                                         to={`/profile/${review.userId}`}
                                                         className="flex items-center gap-3 transition-colors hover:text-primary"
                                                     >
-                                                        <Avatar className="h-11 w-11 border border-primary/20">
+                                                        <Avatar className="h-10 w-10 border border-primary/20 sm:h-11 sm:w-11">
                                                             <AvatarImage src={review.userAvatar} alt={review.username} />
                                                             <AvatarFallback>{review.username.slice(0, 2).toUpperCase()}</AvatarFallback>
                                                         </Avatar>
                                                         <span className="font-semibold">{review.username}</span>
                                                     </Link>
                                                     <StaffBadge role={review.userRole} compact />
-                                                    <Badge variant="outline">{review.mangaTitle}</Badge>
+                                                    <Badge variant="outline" className="max-w-full truncate">{review.mangaTitle}</Badge>
                                                     <Badge className="gap-1 border-yellow-500/20 bg-yellow-500/10 text-yellow-200">
                                                         <Star className="h-3.5 w-3.5 fill-current" />
                                                         {review.averageScore.toFixed(1)}
@@ -335,7 +333,7 @@ const AdminReviews: React.FC = () => {
                                                 <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                                                     <span>{formatDistanceToNow(new Date(review.createdAt), { addSuffix: true, locale: tr })}</span>
                                                     <span>{review.likes} beğeni</span>
-                                                    <span>{review.dislikes} dislike</span>
+                                                    <span>{review.dislikes} beğenmeme</span>
                                                 </div>
                                             </div>
 
@@ -363,7 +361,7 @@ const AdminReviews: React.FC = () => {
                                             </div>
                                         </div>
 
-                                        <div className="rounded-2xl border border-border/60 bg-background/30 p-4">
+                                        <div className="rounded-2xl border border-border/60 bg-background/30 p-3 sm:p-4">
                                             <p
                                                 className={cn(
                                                     'whitespace-pre-wrap break-words text-sm text-foreground/90',
@@ -398,7 +396,7 @@ const AdminReviews: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <div className="flex shrink-0 items-center gap-2 lg:pl-4">
+                                <div className="flex flex-wrap shrink-0 items-center justify-end gap-2 lg:pl-4">
                                     <Button asChild variant="outline" size="sm" className="gap-2" data-prevent-card-toggle="true">
                                         <Link to={review.targetHref}>
                                             <ArrowUpRight className="h-4 w-4" />
@@ -411,6 +409,7 @@ const AdminReviews: React.FC = () => {
                                             size="icon"
                                             className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                                             onClick={() => setDeleteId(review.id)}
+                                            aria-label="İncelemeyi sil"
                                             data-prevent-card-toggle="true"
                                         >
                                             <Trash2 className="h-4 w-4" />

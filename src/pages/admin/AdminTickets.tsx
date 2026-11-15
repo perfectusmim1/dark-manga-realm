@@ -28,6 +28,7 @@ import { SupportTicket, SupportTicketCategory, SupportTicketMessage, SupportTick
 import { listSupportTickets, replyToSupportTicket, updateSupportTicketStatus } from '@/lib/supportTickets';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
+import { useDeviceProfile } from '@/hooks/use-device-profile';
 import { toast } from 'sonner';
 
 type StatusFilterValue = SupportTicketStatus | 'all';
@@ -114,6 +115,7 @@ const TicketStatusBadge = ({
 
 const AdminTickets: React.FC = () => {
   const { user, session, mfaState, isLoading: authLoading } = useAuth();
+  const { prefersReducedMotion } = useDeviceProfile();
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [selectedTicketId, setSelectedTicketId] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all');
@@ -159,7 +161,7 @@ const AdminTickets: React.FC = () => {
       } catch (error) {
         if (!silent) {
           console.error('Admin tickets load failed:', error);
-          toast.error(error instanceof Error ? error.message : 'Destek biletleri yüklenemedi');
+          toast.error(error instanceof Error ? error.message : 'Destek talepleri yüklenemedi');
         }
       } finally {
         if (!silent) {
@@ -261,7 +263,7 @@ const AdminTickets: React.FC = () => {
     }
 
     if (selectedTicket.status === 'closed') {
-      toast.error('Kapalı bilete yanıt gönderilemez');
+      toast.error('Kapalı talebe yanıt gönderilemez');
       return;
     }
 
@@ -301,10 +303,10 @@ const AdminTickets: React.FC = () => {
       setTickets((current) => current.map((ticket) => (
         ticket.id === updatedTicket.id ? updatedTicket : ticket
       )));
-      toast.success('Destek bileti kapatıldı');
+      toast.success('Destek talebi kapatıldı');
     } catch (error) {
       console.error('Admin ticket close failed:', error);
-      toast.error(error instanceof Error ? error.message : 'Bilet kapatılamadı');
+      toast.error(error instanceof Error ? error.message : 'Talep kapatılamadı');
     } finally {
       setIsUpdatingStatus(false);
     }
@@ -324,10 +326,10 @@ const AdminTickets: React.FC = () => {
       setTickets((current) => current.map((ticket) => (
         ticket.id === updatedTicket.id ? updatedTicket : ticket
       )));
-      toast.success('Destek bileti yeniden açıldı');
+      toast.success('Destek talebi yeniden açıldı');
     } catch (error) {
       console.error('Admin ticket reopen failed:', error);
-      toast.error(error instanceof Error ? error.message : 'Bilet yeniden açılamadı');
+      toast.error(error instanceof Error ? error.message : 'Talep yeniden açılamadı');
     } finally {
       setIsUpdatingStatus(false);
     }
@@ -336,13 +338,13 @@ const AdminTickets: React.FC = () => {
   return (
     <div className="space-y-6 lg:space-y-8">
       {/* Top Header Card */}
-      <div className="overflow-hidden rounded-[2rem] border border-border bg-card/80 p-5 shadow-xl sm:p-6">
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-          <div className="space-y-2">
-            <Badge variant="outline" className="w-fit gap-1.5 border-primary/20 bg-primary/10 text-primary">
-              <LifeBuoy className="h-3.5 w-3.5" /> Destek Talepleri
-            </Badge>
-            <h1 className="text-3xl font-black tracking-tight sm:text-4xl">Destek Talepleri</h1>
+      <div className="overflow-hidden rounded-2xl border border-border bg-card/80 p-4 shadow-xl sm:rounded-[2rem] sm:p-6">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div>
+            <h1 className="flex items-center gap-2.5 text-2xl font-bold tracking-tight sm:text-3xl">
+              <LifeBuoy className="h-6 w-6 text-primary sm:h-7 sm:w-7" />
+              Destek Talepleri
+            </h1>
           </div>
 
           <div className="flex items-center gap-3 w-full xl:w-auto">
@@ -361,78 +363,78 @@ const AdminTickets: React.FC = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-5">
         <button
           type="button"
           onClick={() => setStatusFilter('all')}
           className={cn(
-            'rounded-3xl border p-5 text-left transition-all shadow-sm',
+            'rounded-2xl border p-4 text-left transition-[border-color,background-color] duration-150 shadow-sm sm:rounded-3xl sm:p-5',
             statusFilter === 'all' ? 'border-primary/40 bg-primary/10' : 'border-border bg-card hover:bg-secondary/40'
           )}
         >
           <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Toplam</p>
-          <p className="mt-2 text-3xl font-black">{counts.all}</p>
+          <p className="mt-2 text-2xl font-black sm:text-3xl">{counts.all}</p>
         </button>
 
         <button
           type="button"
           onClick={() => setStatusFilter('open')}
           className={cn(
-            'rounded-3xl border p-5 text-left transition-all shadow-sm',
+            'rounded-2xl border p-4 text-left transition-[border-color,background-color] duration-150 shadow-sm sm:rounded-3xl sm:p-5',
             statusFilter === 'open' ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-border bg-card hover:bg-secondary/40'
           )}
         >
           <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Açık</p>
-          <p className="mt-2 text-3xl font-black text-emerald-300">{counts.open}</p>
+          <p className="mt-2 text-2xl font-black text-emerald-300 sm:text-3xl">{counts.open}</p>
         </button>
 
         <button
           type="button"
           onClick={() => setStatusFilter('waiting_staff')}
           className={cn(
-            'rounded-3xl border p-5 text-left transition-all shadow-sm',
+            'rounded-2xl border p-4 text-left transition-[border-color,background-color] duration-150 shadow-sm sm:rounded-3xl sm:p-5',
             statusFilter === 'waiting_staff' ? 'border-sky-500/40 bg-sky-500/10' : 'border-border bg-card hover:bg-secondary/40'
           )}
         >
           <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Yetkili Bekliyor</p>
-          <p className="mt-2 text-3xl font-black text-sky-300">{counts.waiting_staff}</p>
+          <p className="mt-2 text-2xl font-black text-sky-300 sm:text-3xl">{counts.waiting_staff}</p>
         </button>
 
         <button
           type="button"
           onClick={() => setStatusFilter('waiting_user')}
           className={cn(
-            'rounded-3xl border p-5 text-left transition-all shadow-sm',
+            'rounded-2xl border p-4 text-left transition-[border-color,background-color] duration-150 shadow-sm sm:rounded-3xl sm:p-5',
             statusFilter === 'waiting_user' ? 'border-amber-500/40 bg-amber-500/10' : 'border-border bg-card hover:bg-secondary/40'
           )}
         >
           <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Kullanıcı Bekliyor</p>
-          <p className="mt-2 text-3xl font-black text-amber-300">{counts.waiting_user}</p>
+          <p className="mt-2 text-2xl font-black text-amber-300 sm:text-3xl">{counts.waiting_user}</p>
         </button>
 
         <button
           type="button"
           onClick={() => setStatusFilter('closed')}
           className={cn(
-            'rounded-3xl border p-5 text-left transition-all shadow-sm',
+            'col-span-2 sm:col-span-1 rounded-2xl border p-4 text-left transition-[border-color,background-color] duration-150 shadow-sm sm:rounded-3xl sm:p-5',
             statusFilter === 'closed' ? 'border-rose-500/40 bg-rose-500/10' : 'border-border bg-card hover:bg-secondary/40'
           )}
         >
           <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Kapalı</p>
-          <p className="mt-2 text-3xl font-black text-rose-300">{counts.closed}</p>
+          <p className="mt-2 text-2xl font-black text-rose-300 sm:text-3xl">{counts.closed}</p>
         </button>
       </div>
 
       {/* 2-Column Split */}
       <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
         {/* Left Ticket List */}
-        <section className="rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-5">
+        <section className="min-w-0 rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold">Bilet Listesi</h2>
+            <h2 className="text-lg font-semibold">Talep Listesi</h2>
             <Badge variant="outline">{filteredTickets.length} kayıt</Badge>
           </div>
 
-          <ScrollArea className="h-[620px] pr-2">
+          <ScrollArea className="h-[340px] pr-2 sm:h-[440px] xl:h-[620px]">
             <div className="space-y-3">
               {filteredTickets.map((ticket) => {
                 const isSelected = selectedTicket?.id === ticket.id;
@@ -444,7 +446,7 @@ const AdminTickets: React.FC = () => {
                     type="button"
                     onClick={() => setSelectedTicketId(ticket.id)}
                     className={cn(
-                      'w-full rounded-2xl border p-3.5 text-left transition-colors',
+                      'w-full rounded-2xl border p-3.5 text-left transition-[border-color,background-color,box-shadow] duration-150',
                       isSelected
                         ? 'border-primary/40 bg-primary/10 shadow-sm'
                         : 'border-border bg-background/60 hover:bg-secondary/60'
@@ -461,7 +463,7 @@ const AdminTickets: React.FC = () => {
 
                     <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
                       <span className="truncate max-w-[170px]">{ticket.userName}</span>
-                      <span>{formatTicketTime(ticket.lastMessageAt)}</span>
+                      <span className="shrink-0">{formatTicketTime(ticket.lastMessageAt)}</span>
                     </div>
                   </button>
                 );
@@ -469,7 +471,7 @@ const AdminTickets: React.FC = () => {
 
               {filteredTickets.length === 0 && (
                 <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-                  Destek bileti bulunamadı.
+                  Destek talebi bulunamadı.
                 </div>
               )}
             </div>
@@ -477,14 +479,14 @@ const AdminTickets: React.FC = () => {
         </section>
 
         {/* Right Detail & Chat Panel */}
-        <section className="rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-6">
+        <section className="min-w-0 rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-6">
           {selectedTicket ? (
-            <div className="space-y-6">
+            <div key={selectedTicket.id} className={cn('space-y-6', !prefersReducedMotion && 'animate-route-fade')}>
               {/* Header Box */}
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between border-b border-border pb-5">
-                <div className="space-y-2">
+                <div className="min-w-0 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-2xl font-bold">{selectedTicket.subject}</h2>
+                    <h2 className="break-words text-xl font-bold sm:text-2xl">{selectedTicket.subject}</h2>
                     <TicketStatusBadge status={selectedTicket.status} />
                     {selectedTicket.isGuestTicket && (
                       <Badge variant="outline" className="border-primary/20 bg-primary/10 text-primary text-xs">
@@ -493,7 +495,7 @@ const AdminTickets: React.FC = () => {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Kategori: {categoryLabels[selectedTicket.category]} • Başlangıç: {formatTicketTime(selectedTicket.createdAt)} • ID: #{selectedTicket.id.slice(0, 8)}
+                    Kategori: {categoryLabels[selectedTicket.category]} • Başlangıç: {formatTicketTime(selectedTicket.createdAt)} • Kayıt No: #{selectedTicket.id.slice(0, 8)}
                   </p>
                 </div>
 
@@ -507,7 +509,7 @@ const AdminTickets: React.FC = () => {
                       className="border-rose-500/30 text-rose-300 hover:bg-rose-500/10"
                     >
                       {isUpdatingStatus ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <XCircle className="mr-1.5 h-3.5 w-3.5" />}
-                      Bileti Kapat
+                      Talebi Kapat
                     </Button>
                   ) : (
                     <Button
@@ -525,12 +527,13 @@ const AdminTickets: React.FC = () => {
 
               {/* Info Chips */}
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <div className="rounded-2xl border border-border bg-background/50 p-3.5">
+                <div className="min-w-0 rounded-2xl border border-border bg-background/50 p-3.5">
                   <div className="flex items-center justify-between">
                     <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Kullanıcı</p>
                     <button
                       type="button"
                       onClick={() => void handleCopy(selectedTicket.userName, 'Kullanıcı adı')}
+                      aria-label="Kullanıcı adını kopyala"
                       className="text-muted-foreground hover:text-foreground"
                     >
                       <Copy className="h-3.5 w-3.5" />
@@ -539,12 +542,13 @@ const AdminTickets: React.FC = () => {
                   <p className="mt-1 font-semibold text-sm truncate">{selectedTicket.userName}</p>
                 </div>
 
-                <div className="rounded-2xl border border-border bg-background/50 p-3.5">
+                <div className="min-w-0 rounded-2xl border border-border bg-background/50 p-3.5">
                   <div className="flex items-center justify-between">
                     <p className="text-[10px] uppercase tracking-wider text-muted-foreground">E-Posta</p>
                     <button
                       type="button"
                       onClick={() => void handleCopy(selectedTicket.userEmail, 'E-posta')}
+                      aria-label="E-postayı kopyala"
                       className="text-muted-foreground hover:text-foreground"
                     >
                       <Copy className="h-3.5 w-3.5" />
@@ -554,12 +558,12 @@ const AdminTickets: React.FC = () => {
                 </div>
 
                 {selectedTicket.appealAccountEmail ? (
-                  <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-3.5">
+                  <div className="min-w-0 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-3.5">
                     <p className="text-[10px] uppercase tracking-wider text-amber-200">Ban İtirazı Hesabı</p>
                     <p className="mt-1 font-semibold text-sm truncate text-amber-100">{selectedTicket.appealAccountEmail}</p>
                   </div>
                 ) : (
-                  <div className="rounded-2xl border border-border bg-background/50 p-3.5">
+                  <div className="min-w-0 rounded-2xl border border-border bg-background/50 p-3.5">
                     <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Mesaj Sayısı</p>
                     <p className="mt-1 font-semibold text-sm">{selectedTicket.messages.length} mesaj</p>
                   </div>
@@ -593,7 +597,7 @@ const AdminTickets: React.FC = () => {
                         >
                           <div
                             className={cn(
-                              'max-w-[85%] rounded-2xl p-3 text-sm shadow-sm',
+                              'max-w-[90%] sm:max-w-[85%] rounded-2xl p-3 text-sm shadow-sm',
                               isOwnMessage
                                 ? 'bg-primary text-primary-foreground rounded-tr-sm'
                                 : 'bg-card border border-border rounded-tl-sm'
@@ -614,7 +618,7 @@ const AdminTickets: React.FC = () => {
                               </Badge>
                             </div>
 
-                            <p className="whitespace-pre-wrap leading-relaxed">{item.content}</p>
+                            <p className="whitespace-pre-wrap break-words leading-relaxed">{item.content}</p>
 
                             {item.imageUrl && (
                               <div className="mt-2">
@@ -651,15 +655,15 @@ const AdminTickets: React.FC = () => {
                       <Input
                         value={replyImageUrl}
                         onChange={(e) => setReplyImageUrl(e.target.value)}
-                        placeholder="Görsel linki (isteğe bağlı)..."
-                        className="rounded-xl text-xs h-9 sm:max-w-xs"
+                        placeholder="Görsel bağlantısı (isteğe bağlı)..."
+                        className="rounded-xl text-xs h-9 w-full sm:max-w-xs"
                       />
 
                       <Button
                         size="sm"
                         onClick={() => void handleReply()}
                         disabled={isSubmitting || !reply.trim()}
-                        className="rounded-xl px-4"
+                        className="w-full rounded-xl px-4 sm:w-auto"
                       >
                         {isSubmitting ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1.5 h-3.5 w-3.5" />}
                         Yanıtla
@@ -668,7 +672,7 @@ const AdminTickets: React.FC = () => {
                   </div>
                 ) : (
                   <div className="rounded-xl border border-border bg-muted/40 p-3 text-center text-xs text-muted-foreground">
-                    Bu destek bileti kapatılmıştır. Yanıt yazmak için yukarıdan yeniden açabilirsiniz.
+                    Bu destek talebi kapatılmıştır. Yanıt yazmak için yukarıdan yeniden açabilirsiniz.
                   </div>
                 )}
               </div>
@@ -676,8 +680,8 @@ const AdminTickets: React.FC = () => {
           ) : (
             <div className="flex min-h-[460px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-background/40 p-8 text-center">
               <LifeBuoy className="h-12 w-12 text-muted-foreground/40" />
-              <h3 className="mt-4 text-xl font-semibold">Bilet Seçilmedi</h3>
-              <p className="mt-2 text-sm text-muted-foreground">Listeden bir bilet seçerek mesaj geçmişini ve yanıtları görüntüleyebilirsiniz.</p>
+              <h3 className="mt-4 text-xl font-semibold">Talep Seçilmedi</h3>
+              <p className="mt-2 text-sm text-muted-foreground">Listeden bir talep seçerek mesaj geçmişini ve yanıtları görüntüleyebilirsiniz.</p>
             </div>
           )}
         </section>

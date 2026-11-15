@@ -19,6 +19,7 @@ import {
   ArrowUp,
   MessageCircle,
   Heart,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ReaderSettings, Chapter, ResolvedReaderPage } from '@/lib/types';
@@ -219,6 +220,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   const [selectedReaderLang, setSelectedReaderLang] = useState<string>('all');
   const [chapterPanelOpen, setChapterPanelOpen] = useState(false);
   const [translationPanelOpen, setTranslationPanelOpen] = useState(false);
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const activeChapterItemRef = useRef<HTMLButtonElement | null>(null);
 
   const availableReaderLanguages = useMemo(() => {
@@ -538,8 +540,18 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
           onChange={(event) => setChapterSearch(event.target.value)}
           placeholder="Bölüm ara..."
           aria-label="Bölüm ara"
-          className="h-9 rounded-xl border-border bg-secondary/40 pl-9 text-sm text-foreground placeholder:text-muted-foreground/70 focus-visible:border-primary/50 focus-visible:bg-secondary/70 focus-visible:ring-1 focus-visible:ring-primary/30 focus-visible:ring-offset-0"
+          className="h-9 rounded-xl border-border bg-secondary/40 pl-9 pr-8 text-sm text-foreground placeholder:text-muted-foreground/70 focus-visible:border-primary/50 focus-visible:bg-secondary/70 focus-visible:ring-1 focus-visible:ring-primary/30 focus-visible:ring-offset-0 [&::-webkit-search-cancel-button]:hidden"
         />
+        {chapterSearch.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setChapterSearch('')}
+            aria-label="Bölüm aramasını temizle"
+            className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
       <div
@@ -654,11 +666,167 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
     />
   );
 
+  const readerSettingsBody = (
+    <div className="flex flex-col gap-3 sm:gap-4">
+      {isMobile && (
+        <div className={cn('grid gap-1.5 border-b border-border/60 pb-3', onToggleChapterLike ? 'grid-cols-3' : 'grid-cols-2')}>
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="h-9 gap-1.5 rounded-xl px-2 text-xs font-medium"
+            onClick={() => setSettingsPanelOpen(false)}
+          >
+            <Link to="/">
+              <Home className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">Ana Sayfa</span>
+            </Link>
+          </Button>
+          {onToggleChapterLike && (
+            <Button
+              type="button"
+              variant={isChapterLiked ? 'secondary' : 'outline'}
+              size="sm"
+              disabled={chapterLikeLoading}
+              onClick={onToggleChapterLike}
+              aria-pressed={isChapterLiked}
+              className={cn(
+                'h-9 gap-1.5 rounded-xl px-2 text-xs font-medium',
+                isChapterLiked && 'border-rose-500/40 bg-rose-500/15 text-rose-400 hover:bg-rose-500/20',
+              )}
+            >
+              <Heart className={cn('h-3.5 w-3.5 shrink-0', isChapterLiked && 'fill-current')} />
+              <span className="truncate">{chapterLikeCount > 0 ? `Beğen (${chapterLikeCount})` : 'Beğen'}</span>
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setSettingsPanelOpen(false);
+              onAddBookmark();
+            }}
+            className="h-9 gap-1.5 rounded-xl px-2 text-xs font-medium"
+          >
+            <BookmarkPlus className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">Yer İmi</span>
+          </Button>
+        </div>
+      )}
+      <div className="flex items-center justify-between">
+        <Label className="text-sm">Okuma Modu</Label>
+        <div className="flex gap-1">
+          <Button
+            type="button"
+            variant={settings.mode === 'vertical' ? 'default' : 'ghost'}
+            size="icon"
+            className="h-8 w-8"
+            aria-label="Dikey okuma modu"
+            aria-pressed={settings.mode === 'vertical'}
+            onClick={() => onSettingsChange({ ...settings, mode: 'vertical' })}
+          >
+            <Rows className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant={settings.mode === 'horizontal' ? 'default' : 'ghost'}
+            size="icon"
+            className="h-8 w-8"
+            aria-label="Yatay okuma modu"
+            aria-pressed={settings.mode === 'horizontal'}
+            onClick={() => onSettingsChange({ ...settings, mode: 'horizontal' })}
+          >
+            <Columns className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <Label className="text-sm">Yakınlaştırma (%{settings.zoom || 100})</Label>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-[10px]"
+            onClick={() => onSettingsChange({ ...settings, zoom: 100 })}
+          >
+            Sıfırla
+          </Button>
+        </div>
+        <Slider
+          value={[settings.zoom || 100]}
+          min={10}
+          max={300}
+          step={5}
+          aria-label="Yakınlaştırma oranı"
+          onValueChange={([val]) => onSettingsChange({ ...settings, zoom: val })}
+        />
+      </div>
+      <div className="flex items-center justify-between">
+        <Label htmlFor="reader-fit-width" className="text-sm">Genişliğe Sığdır</Label>
+        <Switch
+          id="reader-fit-width"
+          checked={settings.fitWidth}
+          onCheckedChange={(checked) => onSettingsChange({ ...settings, fitWidth: checked })}
+        />
+      </div>
+      <div className="flex items-center justify-between">
+        <Label htmlFor="reader-show-progress" className="text-sm">İlerleme Göster</Label>
+        <Switch
+          id="reader-show-progress"
+          checked={settings.showProgress}
+          onCheckedChange={(checked) => onSettingsChange({ ...settings, showProgress: checked })}
+        />
+      </div>
+      {isOnline && (
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-0.5">
+            <Label htmlFor="reader-incognito" className="text-sm">Gizli Mod</Label>
+            <p className="text-[11px] text-muted-foreground">
+              Okuma verileri kaydedilmez.
+            </p>
+          </div>
+          <Switch id="reader-incognito" checked={isIncognito} onCheckedChange={onIncognitoToggle} />
+        </div>
+      )}
+      {!isMobile && (
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-0.5">
+            <Label htmlFor="reader-page-comments" className="text-sm">Sayfa Yorumlarını Göster</Label>
+            <p className="text-[11px] text-muted-foreground">
+              Mevcut sayfanın yorumlarını kenar boşluklarında gösterir.
+            </p>
+          </div>
+          <Switch
+            id="reader-page-comments"
+            checked={settings.showPageComments}
+            onCheckedChange={(checked) =>
+              onSettingsChange({ ...settings, showPageComments: checked })
+            }
+          />
+        </div>
+      )}
+      <div className="flex items-center justify-between gap-4">
+        <Label htmlFor="reader-prefetch-next" className="text-sm">Sonraki Bölümü Önbelleğe Al</Label>
+        <Switch
+          id="reader-prefetch-next"
+          checked={settings.prefetchNextChapter}
+          onCheckedChange={(checked) =>
+            onSettingsChange({ ...settings, prefetchNextChapter: checked })
+          }
+        />
+      </div>
+    </div>
+  );
+
   return (
     <>
       {/* Top Bar */}
       <div
-        className={`fixed left-0 right-0 top-0 z-50 w-full max-w-[100vw] overflow-x-clip border-b border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-300 ${visible ? 'translate-y-0' : '-translate-y-full'}`}
+        aria-hidden={!visible}
+        inert={!visible && !chapterPanelOpen && !translationPanelOpen && !settingsPanelOpen ? true : undefined}
+        className={`fixed left-0 right-0 top-0 z-50 w-full max-w-[100vw] overflow-x-clip border-b border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${visible ? 'translate-y-0' : '-translate-y-full'}`}
         style={{ paddingTop: READER_TOP_SAFE_AREA }}
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
@@ -887,165 +1055,90 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
               </Popover>
             )}
 
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 sm:h-10 sm:w-10" aria-label="Okuyucu ayarları">
-                  <Settings className="h-4 w-4 sm:h-5 sm:w-5" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                align="end"
-                onOpenAutoFocus={(event) => event.preventDefault()}
-                className="max-h-[min(80svh,36rem)] w-[min(20rem,calc(100vw-1rem))] overflow-y-auto rounded-2xl border-border bg-popover p-3 shadow-2xl sm:w-72 sm:p-4"
+            {isMobile ? (
+              <Drawer
+                open={settingsPanelOpen}
+                onOpenChange={setSettingsPanelOpen}
+                modal
+                dismissible
+                shouldScaleBackground={false}
+                autoFocus={false}
               >
-                <h4 className="mb-3 text-sm font-semibold sm:mb-4 sm:text-base">Okuyucu Ayarları</h4>
-                <div className="flex flex-col gap-3 sm:gap-4">
-                  {isMobile && (
-                    <div className={cn('grid gap-1.5 border-b border-border/60 pb-3', onToggleChapterLike ? 'grid-cols-3' : 'grid-cols-2')}>
-                      <Button asChild variant="outline" size="sm" className="h-9 gap-1.5 rounded-xl px-2 text-xs font-medium">
-                        <Link to="/">
-                          <Home className="h-3.5 w-3.5 shrink-0" />
-                          <span className="truncate">Ana Sayfa</span>
-                        </Link>
-                      </Button>
-                      {onToggleChapterLike && (
-                        <Button
-                          type="button"
-                          variant={isChapterLiked ? 'secondary' : 'outline'}
-                          size="sm"
-                          disabled={chapterLikeLoading}
-                          onClick={onToggleChapterLike}
-                          aria-pressed={isChapterLiked}
-                          className={cn(
-                            'h-9 gap-1.5 rounded-xl px-2 text-xs font-medium',
-                            isChapterLiked && 'border-rose-500/40 bg-rose-500/15 text-rose-400 hover:bg-rose-500/20',
-                          )}
-                        >
-                          <Heart className={cn('h-3.5 w-3.5 shrink-0', isChapterLiked && 'fill-current')} />
-                          <span className="truncate">{chapterLikeCount > 0 ? `Beğen (${chapterLikeCount})` : 'Beğen'}</span>
-                        </Button>
-                      )}
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={onAddBookmark}
-                        className="h-9 gap-1.5 rounded-xl px-2 text-xs font-medium"
-                      >
-                        <BookmarkPlus className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate">Yer İmi</span>
-                      </Button>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between">
-                    <Label className="text-sm">Okuma Modu</Label>
-                    <div className="flex gap-1">
-                      <Button
-                        variant={settings.mode === 'vertical' ? 'default' : 'ghost'}
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => onSettingsChange({ ...settings, mode: 'vertical' })}
-                      >
-                        <Rows className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant={settings.mode === 'horizontal' ? 'default' : 'ghost'}
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => onSettingsChange({ ...settings, mode: 'horizontal' })}
-                      >
-                        <Columns className="h-4 w-4" />
-                      </Button>
-                    </div>
+                <DrawerTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      'h-8 w-8 shrink-0 sm:h-10 sm:w-10',
+                      settingsPanelOpen && 'bg-primary/15 text-primary',
+                    )}
+                    aria-label="Okuyucu ayarları"
+                  >
+                    <Settings className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </Button>
+                </DrawerTrigger>
+                <DrawerContent
+                  onOpenAutoFocus={(event) => event.preventDefault()}
+                  onPointerDownOutside={() => setSettingsPanelOpen(false)}
+                  onInteractOutside={() => setSettingsPanelOpen(false)}
+                  className="max-h-[min(82svh,38rem)] rounded-t-[1.75rem] border-border/70 bg-popover px-0 shadow-2xl pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+                >
+                  <DrawerHeader className="px-4 pb-2 pt-2 text-left">
+                    <DrawerTitle className="text-base font-semibold">Okuyucu Ayarları</DrawerTitle>
+                    <DrawerDescription className="sr-only">
+                      Okuma modu, yakınlaştırma ve görüntüleme ayarları.
+                    </DrawerDescription>
+                  </DrawerHeader>
+                  <div className="reader-scroll-thin overflow-y-auto px-4 pb-3">
+                    {readerSettingsBody}
                   </div>
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-sm">Zoom (%{settings.zoom || 100})</Label>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-2 text-[10px]"
-                        onClick={() => onSettingsChange({ ...settings, zoom: 100 })}
-                      >
-                        Sıfırla
-                      </Button>
-                    </div>
-                    <Slider
-                      value={[settings.zoom || 100]}
-                      min={10}
-                      max={300}
-                      step={5}
-                      onValueChange={([val]) => onSettingsChange({ ...settings, zoom: val })}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <Label className="text-sm">Genişliğe Sığdır</Label>
-                    <Switch
-                      checked={settings.fitWidth}
-                      onCheckedChange={(checked) => onSettingsChange({ ...settings, fitWidth: checked })}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <Label className="text-sm">İlerleme Göster</Label>
-                    <Switch
-                      checked={settings.showProgress}
-                      onCheckedChange={(checked) => onSettingsChange({ ...settings, showProgress: checked })}
-                    />
-                  </div>
-                  {isOnline && (
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="space-y-0.5">
-                        <Label className="text-sm">Gizli Mod</Label>
-                        <p className="text-[11px] text-muted-foreground">
-                          Okuma verileri kaydedilmez.
-                        </p>
-                      </div>
-                      <Switch checked={isIncognito} onCheckedChange={onIncognitoToggle} />
-                    </div>
-                  )}
-                  {!isMobile && (
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="space-y-0.5">
-                        <Label className="text-sm">Sayfa Yorumlarını Göster</Label>
-                        <p className="text-[11px] text-muted-foreground">
-                          Mevcut sayfanın yorumlarını kenar boşluklarında gösterir.
-                        </p>
-                      </div>
-                      <Switch
-                        checked={settings.showPageComments}
-                        onCheckedChange={(checked) =>
-                          onSettingsChange({ ...settings, showPageComments: checked })
-                        }
-                      />
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between gap-4">
-                    <Label className="text-sm">Sonraki Bölümü Önbelleğe Al</Label>
-                    <Switch
-                      checked={settings.prefetchNextChapter}
-                      onCheckedChange={(checked) =>
-                        onSettingsChange({ ...settings, prefetchNextChapter: checked })
-                      }
-                    />
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
+                </DrawerContent>
+              </Drawer>
+            ) : (
+              <Popover open={settingsPanelOpen} onOpenChange={setSettingsPanelOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      'h-8 w-8 shrink-0 sm:h-10 sm:w-10',
+                      settingsPanelOpen && 'bg-primary/15 text-primary',
+                    )}
+                    aria-label="Okuyucu ayarları"
+                  >
+                    <Settings className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="end"
+                  onOpenAutoFocus={(event) => event.preventDefault()}
+                  className="reader-scroll-thin max-h-[min(80svh,36rem)] w-[min(20rem,calc(100vw-1rem))] overflow-y-auto rounded-2xl border-border bg-popover p-3 shadow-2xl sm:w-72 sm:p-4"
+                >
+                  <h4 className="mb-3 text-sm font-semibold tracking-tight sm:mb-4 sm:text-base">
+                    Okuyucu Ayarları
+                  </h4>
+                  {readerSettingsBody}
+                </PopoverContent>
+              </Popover>
+            )}
           </div>
         </div>
       </div>
 
       {/* Bottom Bar */}
       <div
-        className={`fixed bottom-0 left-0 right-0 z-50 w-full max-w-[100vw] overflow-x-clip border-t border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-300 ${visible ? 'translate-y-0' : 'translate-y-full'}`}
+        aria-hidden={!visible}
+        inert={!visible ? true : undefined}
+        className={`fixed bottom-0 left-0 right-0 z-50 w-full max-w-[100vw] overflow-x-clip border-t border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${visible ? 'translate-y-0' : 'translate-y-full'}`}
         style={{ paddingBottom: READER_BOTTOM_SAFE_AREA }}
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-3 px-2 sm:gap-4 sm:px-4">
+        <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-1.5 px-1.5 sm:gap-4 sm:px-4">
           <Button
             variant="ghost"
             disabled={!prevChapter || navigatingChapterId !== null}
+            aria-label="Önceki bölüm"
             className="h-10 shrink-0 px-2 text-sm sm:px-3"
             onClick={() => {
               if (prevChapter) {
@@ -1088,13 +1181,13 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                   onPointerLeave={handleBarLeave}
                 >
                   {/* Background track */}
-                  <div className="absolute inset-x-0 h-[5px] rounded-full bg-white/10 group-hover:h-[7px] transition-all duration-200" />
+                  <div className="absolute inset-x-0 h-[5px] rounded-full bg-white/10 group-hover:h-[7px] transition-[height] duration-150 motion-reduce:transition-none" />
 
                   {/* Fill */}
                   <div
                     className={cn(
                       'absolute left-0 h-[5px] rounded-full bg-gradient-to-r from-primary to-blue-400 group-hover:h-[7px] pointer-events-none',
-                      isScrubbing ? 'transition-none h-[7px]' : 'transition-all duration-150',
+                      isScrubbing ? 'transition-none h-[7px]' : 'transition-[width,height] duration-150 motion-reduce:transition-none',
                     )}
                     style={{ width: `${progressPercent}%` }}
                   />
@@ -1105,7 +1198,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                       'absolute top-1/2 -translate-y-1/2 rounded-full bg-white border-2 border-primary shadow-[0_0_10px_rgba(59,130,246,0.5)] pointer-events-none -translate-x-1/2',
                       isScrubbing
                         ? 'h-5 w-5 shadow-[0_0_20px_rgba(59,130,246,0.9)] ring-4 ring-primary/35 transition-none'
-                        : 'h-3.5 w-3.5 group-hover:h-4 group-hover:w-4 group-hover:shadow-[0_0_16px_rgba(59,130,246,0.7)] transition-all duration-150',
+                        : 'h-3.5 w-3.5 group-hover:h-4 group-hover:w-4 group-hover:shadow-[0_0_16px_rgba(59,130,246,0.7)] transition-[left,width,height,box-shadow] duration-150 motion-reduce:transition-none',
                     )}
                     style={{
                       left: `${progressPercent}%`,
@@ -1150,10 +1243,16 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                         <span className="hidden sm:inline">{autoScrollSpeed} px/sn</span>
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent align="end" className="w-60">
+                    <PopoverContent
+                      side="top"
+                      align={isMobile ? 'center' : 'end'}
+                      collisionPadding={12}
+                      onOpenAutoFocus={(event) => event.preventDefault()}
+                      className="w-[min(16.5rem,calc(100vw-1.5rem))] rounded-2xl p-3.5 sm:w-64 sm:p-4"
+                    >
                       <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                          <div>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
                             <p className="text-sm font-semibold">Otomatik Kaydırma</p>
                             <p className="text-xs text-muted-foreground">
                               Hızı ayarla, sonra tek tuşla başlat.
@@ -1162,6 +1261,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                           <Button
                             variant={isAutoScrolling ? 'default' : 'outline'}
                             size="sm"
+                            className="shrink-0"
                             onClick={onAutoScrollToggle}
                           >
                             {isAutoScrolling ? 'Duraklat' : 'Başlat'}
@@ -1171,13 +1271,14 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                         <div className="space-y-2">
                           <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
                             <Label>Hız</Label>
-                            <span>{autoScrollSpeed} px/sn</span>
+                            <span className="tabular-nums">{autoScrollSpeed} px/sn</span>
                           </div>
                           <Slider
                             value={[autoScrollSpeed]}
                             min={10}
                             max={500}
                             step={5}
+                            aria-label="Otomatik kaydırma hızı"
                             onValueChange={([val]) => onAutoScrollSpeedChange(val)}
                           />
                         </div>
@@ -1192,6 +1293,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
           <Button
             variant="ghost"
             disabled={!nextChapter || navigatingChapterId !== null}
+            aria-label="Sonraki bölüm"
             className="h-10 shrink-0 px-2 text-sm sm:px-3"
             onClick={() => {
               if (nextChapter) {

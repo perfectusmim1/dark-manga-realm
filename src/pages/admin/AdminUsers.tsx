@@ -173,7 +173,7 @@ const AdminUsers: React.FC = () => {
 
         const selectedStaff = admins.find((staff) => staff.id === deleteId);
         if (selectedStaff?.role === 'admin' || selectedStaff?.email?.toLowerCase() === PRIMARY_ADMIN_EMAIL) {
-            toast.error('Ana admin kaldırılamaz');
+            toast.error('Ana yönetici kaldırılamaz');
             return;
         }
 
@@ -193,9 +193,9 @@ const AdminUsers: React.FC = () => {
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                         <Skeleton className="h-10 w-40" />
-                        <Skeleton className="mt-2 h-5 w-[32rem]" />
+                        <Skeleton className="mt-2 h-5 w-full max-w-[32rem]" />
                     </div>
-                    <Skeleton className="h-10 w-36" />
+                    <Skeleton className="h-10 w-full sm:w-36" />
                 </div>
 
                 <Skeleton className="h-20 rounded-2xl" />
@@ -203,7 +203,7 @@ const AdminUsers: React.FC = () => {
                 <div className="rounded-xl border border-border bg-card p-4">
                     <div className="space-y-4">
                         {[1, 2, 3].map((row) => (
-                            <div key={row} className="grid grid-cols-[2fr_2fr_1fr_1fr_64px] gap-4">
+                            <div key={row} className="grid grid-cols-3 gap-4 md:grid-cols-[2fr_2fr_1fr_1fr_64px]">
                                 {Array.from({ length: 5 }).map((_, index) => (
                                     <Skeleton key={index} className="h-10 w-full" />
                                 ))}
@@ -223,7 +223,7 @@ const AdminUsers: React.FC = () => {
         <div className="space-y-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold sm:text-3xl">Admin ve Moderatörler</h1>
+                    <h1 className="text-2xl font-bold sm:text-3xl">Yöneticiler ve Moderatörler</h1>
                 </div>
                 <Button onClick={() => setShowAddDialog(true)} className="w-full sm:w-auto">
                     {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
@@ -237,14 +237,14 @@ const AdminUsers: React.FC = () => {
                         const isPrimaryAdmin = admin.role === 'admin' || admin.email?.toLowerCase() === PRIMARY_ADMIN_EMAIL;
 
                         return (
-                            <div key={admin.id} className="space-y-4 p-4">
+                            <div key={admin.id} className="space-y-4 p-4 transition-colors">
                                 <div className="flex items-start gap-3">
-                                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                                        {admin.username ? admin.username[0].toUpperCase() : 'A'}
+                                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-semibold">
+                                        {admin.username ? admin.username[0].toLocaleUpperCase('tr-TR') : 'Y'}
                                     </div>
                                     <div className="min-w-0 flex-1 space-y-1">
                                         <div className="flex flex-wrap items-center gap-2">
-                                            <p className="font-medium">{admin.username}</p>
+                                            <p className="truncate font-medium">{admin.username}</p>
                                             {user?.id === admin.id && (
                                                 <Badge variant="secondary" className="text-xs">Siz</Badge>
                                             )}
@@ -253,7 +253,7 @@ const AdminUsers: React.FC = () => {
                                         {isPrimaryAdmin ? (
                                             <Badge variant="outline" className="w-fit border-purple-500/20 bg-purple-500/10 text-purple-500">
                                                 <ShieldCheck className="mr-1 h-3 w-3" />
-                                                Admin
+                                                Yönetici
                                             </Badge>
                                         ) : (
                                             <Badge variant="secondary" className="w-fit">
@@ -302,11 +302,11 @@ const AdminUsers: React.FC = () => {
                                 const isPrimaryAdmin = admin.role === 'admin' || admin.email?.toLowerCase() === PRIMARY_ADMIN_EMAIL;
 
                                 return (
-                                    <tr key={admin.id} className="hover:bg-secondary/50">
+                                    <tr key={admin.id} className="transition-colors hover:bg-secondary/50">
                                         <td className="px-4 py-3">
                                             <div className="flex items-center gap-3">
-                                                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-                                                    {admin.username ? admin.username[0].toUpperCase() : 'A'}
+                                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-semibold">
+                                                    {admin.username ? admin.username[0].toLocaleUpperCase('tr-TR') : 'Y'}
                                                 </div>
                                                 <div>
                                                     <p className="font-medium">{admin.username}</p>
@@ -321,7 +321,7 @@ const AdminUsers: React.FC = () => {
                                             {isPrimaryAdmin ? (
                                                 <Badge variant="outline" className="border-purple-500/20 bg-purple-500/10 text-purple-500">
                                                     <ShieldCheck className="mr-1 h-3 w-3" />
-                                                    Admin
+                                                    Yönetici
                                                 </Badge>
                                             ) : (
                                                 <Badge variant="secondary">
@@ -342,7 +342,8 @@ const AdminUsers: React.FC = () => {
                                                 className="text-destructive hover:text-destructive"
                                                 onClick={() => setDeleteId(admin.id)}
                                                 disabled={isPrimaryAdmin}
-                                                title={isPrimaryAdmin ? 'Ana admin kaldırılamaz' : 'Moderatör yetkisini kaldır'}
+                                                aria-label={isPrimaryAdmin ? 'Ana yönetici kaldırılamaz' : 'Moderatör yetkisini kaldır'}
+                                                title={isPrimaryAdmin ? 'Ana yönetici kaldırılamaz' : 'Moderatör yetkisini kaldır'}
                                             >
                                                 <Trash2 className="h-4 w-4" />
                                             </Button>
@@ -386,7 +387,7 @@ const AdminUsers: React.FC = () => {
                         </div>
 
                         <div className="rounded-xl border border-border bg-secondary/30 p-3 text-sm text-muted-foreground">
-                            Bu ekran yeni admin oluşturmaz. Sadece mevcut kullanıcıya moderatör rolü verir.
+                            Bu ekran yeni yönetici oluşturmaz. Sadece mevcut kullanıcıya moderatör rolü verir.
                         </div>
                     </div>
 

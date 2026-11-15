@@ -346,7 +346,7 @@ const CommentRevealPanel: React.FC<CommentRevealPanelProps> = ({
         </button>
 
         {expanded && (
-            <div className="mt-3 space-y-3">
+            <div className="mt-3 space-y-3 animate-card-reveal-fast motion-reduce:animate-none">
                 {children}
             </div>
         )}
@@ -2260,7 +2260,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                     ) : (
                                         <div className="space-y-2">
                                             {reply.title && <h4 className="font-bold text-foreground">{reply.title}</h4>}
-                                            <div className="text-sm leading-relaxed text-foreground/90">
+                                            <div className="break-words [overflow-wrap:anywhere] text-sm leading-relaxed text-foreground/90">
                                                 {renderFormattedText(reply.content, mentionUserIdByUsername)}
                                             </div>
                                             {hasCommentMedia(reply) && (
@@ -2279,7 +2279,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                             <img
                                                                 key={`${reply.id}-media-${index}`}
                                                                 src={mediaUrl}
-                                                                alt={`Reply media ${index + 1}`}
+                                                                alt={`Yanıt medyası ${index + 1}`}
                                                                 className="max-h-64 w-full rounded-lg object-contain"
                                                                 onError={() => markMediaAsFailed(`${reply.id}:media:${index}`)}
                                                             />
@@ -2301,7 +2301,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                     ) : (
                                                         <img
                                                             src={reply.gifUrl!}
-                                                            alt="Reply GIF"
+                                                            alt="Yanıt GIF'i"
                                                             className="max-h-48 w-full rounded-lg object-contain"
                                                             onError={() => markMediaAsFailed(`${reply.id}:gif`)}
                                                         />
@@ -2430,27 +2430,37 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 
             <div ref={commentSectionHeaderRef} className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="space-y-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <MessageCircle className="h-5 w-5 text-primary" />
-                        <h3 className="text-lg font-bold">
-                            {hasReaderPageContext && feedScope === 'page'
-                                ? `Sayfa ${activePageNumber} Yorumları`
-                                : 'Yorumlar'} ({visibleComments.length})
-                        </h3>
-                        {parentComments.length > 0 && (
+                    {(!compactModal || (hasReaderPageContext && feedScope === 'page')) && (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <MessageCircle className="h-5 w-5 text-primary" />
+                            <h3 className="text-lg font-bold">
+                                {hasReaderPageContext && feedScope === 'page'
+                                    ? `Sayfa ${activePageNumber} Yorumları`
+                                    : 'Yorumlar'} ({visibleComments.length})
+                            </h3>
+                            {totalPages > 1 && (
+                                <span className="text-xs text-muted-foreground">
+                                    Sayfa {safeCurrentPage} / {totalPages}
+                                </span>
+                            )}
+                        </div>
+                    )}
+                    {compactModal && !(hasReaderPageContext && feedScope === 'page') && totalPages > 1 && (
+                        <div className="flex items-center gap-2">
                             <span className="text-xs text-muted-foreground">
                                 Sayfa {safeCurrentPage} / {totalPages}
                             </span>
-                        )}
-                    </div>
+                        </div>
+                    )}
 
                     {hasReaderPageContext && (
                         <div className="flex flex-wrap items-center gap-2">
                             <div className="inline-flex w-full rounded-xl border border-border bg-secondary/20 p-1 sm:w-auto">
                                 <button
+                                    type="button"
                                     onClick={() => setFeedScope('chapter')}
                                     className={cn(
-                                        'flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all sm:flex-none',
+                                        'flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors duration-150 motion-reduce:transition-none sm:flex-none',
                                         feedScope === 'chapter'
                                             ? 'bg-background text-foreground shadow-sm'
                                             : 'text-muted-foreground hover:text-foreground'
@@ -2459,6 +2469,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                     Bölüm Sohbeti
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={() => {
                                         setFeedScope('page');
                                         if (targetCommentPageNumber) {
@@ -2472,7 +2483,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                         }
                                     }}
                                     className={cn(
-                                        'flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all sm:flex-none',
+                                        'flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors duration-150 motion-reduce:transition-none sm:flex-none',
                                         feedScope === 'page'
                                             ? 'bg-background text-foreground shadow-sm'
                                             : 'text-muted-foreground hover:text-foreground'
@@ -2540,8 +2551,9 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 
                 <div className="hidden w-full items-center rounded-lg bg-secondary/30 p-1 sm:flex sm:w-auto">
                     <button
+                        type="button"
                         onClick={() => setSortBy('newest')}
-                        className={`flex-1 rounded-md px-4 py-1.5 text-xs font-bold transition-all sm:flex-none ${sortBy === 'newest'
+                        className={`flex-1 rounded-md px-4 py-1.5 text-xs font-bold transition-colors duration-150 motion-reduce:transition-none sm:flex-none ${sortBy === 'newest'
                             ? 'bg-background text-foreground shadow-sm'
                             : 'text-muted-foreground hover:text-foreground'
                             }`}
@@ -2549,8 +2561,9 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                         En Yeni
                     </button>
                     <button
+                        type="button"
                         onClick={() => setSortBy('popular')}
-                        className={`flex-1 rounded-md px-4 py-1.5 text-xs font-bold transition-all sm:flex-none ${sortBy === 'popular'
+                        className={`flex-1 rounded-md px-4 py-1.5 text-xs font-bold transition-colors duration-150 motion-reduce:transition-none sm:flex-none ${sortBy === 'popular'
                             ? 'bg-background text-foreground shadow-sm'
                             : 'text-muted-foreground hover:text-foreground'
                             }`}
@@ -2595,8 +2608,9 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 
             <div className="flex w-full items-center rounded-lg bg-secondary/30 p-1 sm:hidden">
                 <button
+                    type="button"
                     onClick={() => setSortBy('newest')}
-                    className={`flex-1 rounded-md px-4 py-1.5 text-xs font-bold transition-all ${sortBy === 'newest'
+                    className={`flex-1 rounded-md px-4 py-1.5 text-xs font-bold transition-colors duration-150 motion-reduce:transition-none ${sortBy === 'newest'
                         ? 'bg-background text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
                         }`}
@@ -2604,8 +2618,9 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                     En Yeni
                 </button>
                 <button
+                    type="button"
                     onClick={() => setSortBy('popular')}
-                    className={`flex-1 rounded-md px-4 py-1.5 text-xs font-bold transition-all ${sortBy === 'popular'
+                    className={`flex-1 rounded-md px-4 py-1.5 text-xs font-bold transition-colors duration-150 motion-reduce:transition-none ${sortBy === 'popular'
                         ? 'bg-background text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
                         }`}
@@ -2802,9 +2817,9 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                                 </div>
                                                             </button>
                                                         ) : (
-                                                            <>
+                                                            <div className={cn('space-y-2', comment.isSpoiler && 'animate-card-reveal-fast motion-reduce:animate-none')}>
                                                                 {comment.title && <h4 className="font-bold text-foreground">{comment.title}</h4>}
-                                                                <div className="text-foreground/90 leading-relaxed font-sans">
+                                                                <div className="break-words [overflow-wrap:anywhere] text-foreground/90 leading-relaxed font-sans">
                                                                     {renderFormattedText(comment.content, mentionUserIdByUsername)}
                                                                 </div>
 
@@ -2836,7 +2851,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                                                 <img
                                                                                     key={`${comment.id}-media-${index}`}
                                                                                     src={mediaUrl}
-                                                                                    alt={`Comment media ${index + 1}`}
+                                                                                    alt={`Yorum medyası ${index + 1}`}
                                                                                     className="max-h-[30rem] w-full rounded-lg object-contain"
                                                                                     onError={() => markMediaAsFailed(`${comment.id}:media:${index}`)}
                                                                                 />
@@ -2859,14 +2874,14 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                                         ) : (
                                                                             <img
                                                                                 src={comment.gifUrl!}
-                                                                                alt="Comment GIF"
+                                                                                alt="Yorum GIF'i"
                                                                                 className="max-h-48 w-full rounded-lg object-contain"
                                                                                 onError={() => markMediaAsFailed(`${comment.id}:gif`)}
                                                                             />
                                                                         )}
                                                                     </CommentRevealPanel>
                                                                 )}
-                                                            </>
+                                                            </div>
                                                         )}
                                                     </div>
                                                 )}
@@ -3015,9 +3030,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 
                                                 {getReplies(comment.id).length > 0 && (
                                                     <div
+                                                        aria-hidden={!expandedReplies[comment.id]}
+                                                        inert={expandedReplies[comment.id] ? undefined : true}
                                                         className={cn(
-                                                            'grid transition-all duration-200 ease-out',
-                                                            expandedReplies[comment.id] ? 'mt-3 grid-rows-[1fr] opacity-100 sm:mt-4' : 'grid-rows-[0fr] opacity-0'
+                                                            'grid transition-[grid-template-rows,opacity,visibility] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                                                            expandedReplies[comment.id] ? 'visible mt-3 grid-rows-[1fr] opacity-100 sm:mt-4' : 'invisible grid-rows-[0fr] opacity-0'
                                                         )}
                                                     >
                                                         <div className="min-h-0 overflow-hidden">

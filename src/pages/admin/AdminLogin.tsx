@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Lock, Mail, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,14 +50,14 @@ const AdminLogin: React.FC = () => {
     };
 
     return (
-        <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background via-background to-primary/5">
+        <div className="flex min-h-dvh items-center justify-center bg-gradient-to-br from-background via-background to-primary/5 px-4 py-8">
             <div className="w-full max-w-md animate-fade-up">
-                <div className="rounded-2xl border border-border bg-card/50 p-8 shadow-xl backdrop-blur-sm">
+                <div className="rounded-2xl border border-border bg-card/50 p-6 shadow-xl backdrop-blur-sm sm:p-8">
                     <div className="mb-8 text-center">
                         <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
                             <Lock className="h-8 w-8 text-primary" />
                         </div>
-                        <h1 className="text-2xl font-bold">Admin Girişi</h1>
+                        <h1 className="text-2xl font-bold">Yönetici Girişi</h1>
                         <p className="mt-2 text-sm text-muted-foreground">
                             Yönetim paneline erişmek için giriş yapın
                         </p>
@@ -65,12 +65,14 @@ const AdminLogin: React.FC = () => {
 
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div className="space-y-2">
-                            <label className="text-sm font-medium">E-posta</label>
+                            <label htmlFor="admin-email" className="text-sm font-medium">E-posta</label>
                             <div className="relative">
-                                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                                 <Input
+                                    id="admin-email"
                                     type="email"
-                                    placeholder="admin@mangaverse.com"
+                                    autoComplete="email"
+                                    placeholder="yonetici@toonparrot.com"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
                                     className="pl-10"
@@ -80,11 +82,13 @@ const AdminLogin: React.FC = () => {
                         </div>
 
                         <div className="space-y-2">
-                            <label className="text-sm font-medium">Şifre</label>
+                            <label htmlFor="admin-password" className="text-sm font-medium">Şifre</label>
                             <div className="relative">
-                                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                                 <Input
+                                    id="admin-password"
                                     type={showPassword ? 'text' : 'password'}
+                                    autoComplete="current-password"
                                     placeholder="••••••••"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
@@ -94,7 +98,8 @@ const AdminLogin: React.FC = () => {
                                 <button
                                     type="button"
                                     onClick={() => setShowPassword(!showPassword)}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                    aria-label={showPassword ? 'Şifreyi gizle' : 'Şifreyi göster'}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
                                 >
                                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                                 </button>
@@ -144,9 +149,9 @@ const AdminLogin: React.FC = () => {
                     </Button>
 
                     <div className="mt-6 text-center">
-                        <a href="/" className="text-sm text-muted-foreground hover:text-primary">
+                        <Link to="/" className="text-sm text-muted-foreground transition-colors hover:text-primary">
                             ← Ana Sayfaya Dön
-                        </a>
+                        </Link>
                     </div>
                 </div>
             </div>

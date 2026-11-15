@@ -259,22 +259,20 @@ const AdminComments: React.FC = () => {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                     <h1 className="text-2xl font-bold sm:text-3xl">Yorumlar</h1>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                        {totalComments.toLocaleString('tr-TR')} toplam yorum
+                        {loadedCount > 0 && loadedCount < totalComments ? ` • ${loadedCount.toLocaleString('tr-TR')} yüklendi` : ''}
+                    </p>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
-                    <Badge variant="outline" className="px-3 py-1">
-                        {totalComments} toplam yorum
-                    </Badge>
-                    <Badge variant="outline" className="px-3 py-1">
-                        {loadedCount} yüklü
-                    </Badge>
-                    {selectedComments.size > 0 && (
+                {selectedComments.size > 0 && (
+                    <div className="flex flex-wrap gap-2">
                         <Button variant="destructive" onClick={() => setBulkDeleteConfirm(true)} className="w-full sm:w-auto">
                             <Trash2 className="mr-2 h-4 w-4" />
                             {selectedComments.size} Yorum Sil
                         </Button>
-                    )}
-                </div>
+                    </div>
+                )}
             </div>
 
             <div className="rounded-2xl border border-border bg-card/60 p-4">
@@ -334,7 +332,7 @@ const AdminComments: React.FC = () => {
                             tabIndex={0}
                         >
                             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                                <div className="flex gap-4">
+                                <div className="flex min-w-0 gap-3 sm:gap-4">
                                     <div className="pt-1">
                                         <Checkbox
                                             checked={selectedComments.has(comment.id)}
@@ -343,11 +341,11 @@ const AdminComments: React.FC = () => {
                                         />
                                     </div>
 
-                                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+                                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary sm:h-11 sm:w-11">
                                         {comment.username[0]?.toUpperCase() || '?'}
                                     </div>
 
-                                    <div className="min-w-0 space-y-3">
+                                    <div className="min-w-0 flex-1 space-y-3">
                                         <div className="flex flex-wrap items-center gap-2">
                                             <Link
                                                 to={`/profile/${comment.userId}`}
@@ -355,7 +353,7 @@ const AdminComments: React.FC = () => {
                                             >
                                                 {comment.username}
                                             </Link>
-                                            <Badge variant="outline">{getMangaTitle(comment.mangaId)}</Badge>
+                                            <Badge variant="outline" className="max-w-full truncate">{getMangaTitle(comment.mangaId)}</Badge>
                                             {comment.isPinned && (
                                                 <Badge variant="secondary" className="bg-primary/15 text-primary">
                                                     Sabit
@@ -384,7 +382,7 @@ const AdminComments: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <div className="flex shrink-0 items-center gap-2 lg:pl-4">
+                                <div className="flex flex-wrap shrink-0 items-center justify-end gap-2 lg:pl-4">
                                     {commentTargetHref && (
                                         <Button asChild variant="outline" size="sm" className="gap-2" data-prevent-card-toggle="true">
                                             <Link to={commentTargetHref}>
@@ -399,6 +397,7 @@ const AdminComments: React.FC = () => {
                                         disabled={updatingCommentId === comment.id}
                                         className={comment.isPinned ? 'text-primary hover:bg-primary/10 hover:text-primary' : 'text-muted-foreground hover:bg-primary/10 hover:text-primary'}
                                         onClick={() => void handleTogglePin(comment)}
+                                        aria-label={comment.isPinned ? 'Sabitlemeyi kaldır' : 'Yorumu sabitle'}
                                         data-prevent-card-toggle="true"
                                     >
                                         {updatingCommentId === comment.id ? (
@@ -412,6 +411,7 @@ const AdminComments: React.FC = () => {
                                         size="icon"
                                         className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                                         onClick={() => setDeleteId(comment.id)}
+                                        aria-label="Yorumu sil"
                                         data-prevent-card-toggle="true"
                                     >
                                         <Trash2 className="h-4 w-4" />

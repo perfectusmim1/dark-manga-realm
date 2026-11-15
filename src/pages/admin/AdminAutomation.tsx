@@ -274,7 +274,7 @@ const AdminAutomation: React.FC = () => {
     try {
       setIsDispatching(true);
       const res = await dispatchGitHubScraper({ mode: dispatchMode });
-      toast.success(res.message || 'GitHub Actions taraması başlatıldı!');
+      toast.success(res.message || 'Otomatik tarama başlatıldı!');
       setTimeout(() => {
         loadGitHubRuns();
       }, 3500);
@@ -761,44 +761,29 @@ const AdminAutomation: React.FC = () => {
 
   return (
     <div className="space-y-6 lg:space-y-8">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="space-y-2">
-          <div className="inline-flex rounded-2xl bg-primary/10 p-3 text-primary">
-            <Bot className="h-6 w-6" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold sm:text-3xl">Otomasyon</h1>
-          </div>
+      <div className="flex items-center gap-3">
+        <div className="inline-flex rounded-2xl bg-primary/10 p-3 text-primary">
+          <Bot className="h-6 w-6" />
         </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className="h-8 gap-1 border-primary/20 bg-primary/5 text-primary">
-            <ShieldCheck className="h-4 w-4" />
-            Sadece Admin
-          </Badge>
-          <Badge variant="outline" className="h-8 border-primary/20 bg-primary/5 text-primary">
-            Cloudflare + GitHub Actions (2s)
-          </Badge>
-          <Badge variant="outline" className="h-8 border-primary/20 bg-primary/5 text-primary">
-            Oto-Ayıklama: 90 Gün
-          </Badge>
+        <div>
+          <h1 className="text-2xl font-bold sm:text-3xl">Otomasyon</h1>
         </div>
       </div>
 
-      {/* GITHUB ACTIONS 7/24 OTOMASYON VE MANUEL TETİKLEME MERKEZİ */}
+      {/* 7/24 OTOMASYON VE MANUEL TETİKLEME MERKEZİ */}
       <Card className="border-primary/20 bg-gradient-to-br from-card via-card to-primary/5 shadow-md">
         <CardHeader className="flex flex-col gap-4 pb-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="space-y-1">
+          <div className="min-w-0 space-y-1">
             <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <Play className="h-4 w-4" />
               </div>
               <CardTitle className="text-lg font-bold sm:text-xl">
-                GitHub Actions 7/24 Tarayıcı & Otomasyon Merkezi
+                7/24 Tarayıcı ve Otomasyon Merkezi
               </CardTitle>
             </div>
             <CardDescription className="text-xs sm:text-sm">
-              Cloudflare Cron ve GitHub Actions ile çalışan tarayıcıyı canlı takip edin veya dilediğiniz an tek tıkla manuel başlatın.
+              Otomatik tarayıcıyı canlı takip edin veya dilediğiniz an tek tıkla başlatın.
             </CardDescription>
           </div>
 
@@ -808,7 +793,7 @@ const AdminAutomation: React.FC = () => {
               size="sm"
               onClick={loadGitHubRuns}
               disabled={isGhLoading}
-              className="h-9 gap-1.5"
+              className="h-9 w-full gap-1.5 sm:w-auto"
             >
               <RefreshCw className={cn('h-3.5 w-3.5', isGhLoading && 'animate-spin')} />
               <span>Yenile</span>
@@ -819,21 +804,21 @@ const AdminAutomation: React.FC = () => {
         <CardContent className="space-y-5">
           {/* Hızlı Başlatma Barı */}
           <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-background/60 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Tarama Modu:
               </Label>
               <Select
                 value={dispatchMode}
                 onValueChange={(val: any) => setDispatchMode(val)}
               >
-                <SelectTrigger className="h-9 w-[260px] bg-card text-xs sm:text-sm">
+                <SelectTrigger className="h-9 w-full bg-card text-xs sm:w-[280px] sm:text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="smart">Smart (Vitrin + Delta + Kuyruk)</SelectItem>
-                  <SelectItem value="delta-only">Sadece Yeni Bölümler (Delta)</SelectItem>
-                  <SelectItem value="enrich-only">Sadece Metadata & Türkçe Açıklama</SelectItem>
+                  <SelectItem value="smart">Akıllı Tarama (Vitrin + Değişim + Kuyruk)</SelectItem>
+                  <SelectItem value="delta-only">Yalnızca Yeni Bölümler</SelectItem>
+                  <SelectItem value="enrich-only">Yalnızca Meta Veri ve Türkçe Açıklama</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -841,7 +826,7 @@ const AdminAutomation: React.FC = () => {
             <Button
               onClick={handleManualDispatch}
               disabled={isDispatching}
-              className="h-9 gap-2 shadow-sm font-medium"
+              className="h-9 w-full gap-2 font-medium shadow-sm sm:w-auto"
             >
               {isDispatching ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -854,21 +839,21 @@ const AdminAutomation: React.FC = () => {
 
           {/* Son Çalışmalar Tablosu / Listesi */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground">
-              <span>Son GitHub Actions Çalışmaları ({ghRuns.length})</span>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-muted-foreground">
+              <span>Son Otomatik Çalışmalar ({ghRuns.length})</span>
               <span className="text-[11px] font-normal text-muted-foreground/80">
-                Cloudflare Cron (Her 2 Saatte Bir) & Manuel Tetikleme
+                Her 2 Saatte Bir ve Manuel Tetikleme
               </span>
             </div>
 
             {isGhLoading && ghRuns.length === 0 ? (
               <div className="flex items-center justify-center p-8 text-sm text-muted-foreground">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                GitHub geçmişi yükleniyor...
+                Çalışma geçmişi yükleniyor...
               </div>
             ) : ghRuns.length === 0 ? (
               <div className="rounded-xl border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
-                Henüz GitHub Actions çalışma geçmişi kaydedilmedi veya token bekleniyor.
+                Henüz otomatik çalışma geçmişi kaydedilmedi veya anahtar bekleniyor.
               </div>
             ) : (
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -894,7 +879,7 @@ const AdminAutomation: React.FC = () => {
                       <div className="space-y-1.5">
                         <div className="flex items-center justify-between gap-1.5">
                           <span className="font-semibold text-foreground">
-                            Run #{run.runNumber}
+                            Çalışma #{run.runNumber}
                           </span>
                           <Badge
                             variant="outline"
@@ -938,9 +923,9 @@ const AdminAutomation: React.FC = () => {
                       <div className="mt-2 flex items-center justify-between pt-2 border-t border-border/40 text-[10px] text-muted-foreground">
                         <span>
                           {run.event === 'schedule'
-                            ? 'Otomatik Cron'
+                            ? 'Otomatik Tarama'
                             : run.event === 'workflow_dispatch'
-                            ? 'Manuel Tetiklendi'
+                            ? 'Elle Başlatıldı'
                             : run.event}
                         </span>
                         <a
@@ -962,7 +947,7 @@ const AdminAutomation: React.FC = () => {
       </Card>
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.12fr)_minmax(360px,0.88fr)]">
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>{editingAutomationId ? 'Otomasyonu Düzenle' : 'Yeni Bölüm Otomasyonu'}</CardTitle>
@@ -1116,13 +1101,13 @@ const AdminAutomation: React.FC = () => {
                           ) : null}
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          Local bölüm sayısı: {selectedManga.chapterCount ?? selectedManga.chapters.length}
+                          Kayıtlı bölüm sayısı: {selectedManga.chapterCount ?? selectedManga.chapters.length}
                         </p>
                       </div>
                     </div>
                   ) : (
                     <div className="rounded-2xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-                      Otomasyonu bağlamak istediğin local seri burada görünecek.
+                      Otomasyonu bağlamak istediğin kayıtlı seri burada görünecek.
                     </div>
                   )}
 
@@ -1154,7 +1139,7 @@ const AdminAutomation: React.FC = () => {
                       Linki Doğrula
                     </Button>
                     <p className="text-xs leading-5 text-muted-foreground">
-                      Doğrulama server tarafında yapılır. Başlık uyuşmasa bile manuel onayla kaydedebilirsin.
+                      Doğrulama sunucu tarafında yapılır. Başlık uyuşmasa bile manuel onayla kaydedebilirsin.
                     </p>
                   </div>
 
@@ -1200,7 +1185,7 @@ const AdminAutomation: React.FC = () => {
                       <div className="space-y-2 text-sm text-muted-foreground">
                         <p>Doğrulama bekleniyor.</p>
                         <p className="text-xs">
-                          Sistem başlık, normalize URL, kapak ve kaynak bölüm sayısını burada gösterecek.
+                          Sistem başlık, standart bağlantı, kapak ve kaynak bölüm sayısını burada gösterecek.
                         </p>
                       </div>
                     )}
@@ -1209,11 +1194,11 @@ const AdminAutomation: React.FC = () => {
               </div>
 
               <div className="space-y-4">
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <Label>Günlük Kontrol Saatleri</Label>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Girdiğin her saat Istanbul saatine göre çalışır. Format `HH:mm` olmalı; örnek `13:00`, `15:00`, `17:00`.
+                      Girdiğin her saat İstanbul saatine göre çalışır. Saat biçimi SS:dd olmalı; örnek 13:00, 15:00, 17:00.
                     </p>
                   </div>
                   <Button variant="outline" onClick={addCheckTime} className="shrink-0">
@@ -1294,7 +1279,7 @@ const AdminAutomation: React.FC = () => {
                 <div className="min-w-0">
                   <CardTitle>Son Çalışma Geçmişi</CardTitle>
                   <CardDescription>
-                    En son tetiklenen otomasyon koşularının kısa log özeti.
+                    En son çalıştırılan otomasyon işlemlerinin kısa özeti.
                   </CardDescription>
                 </div>
                 <Button
@@ -1315,7 +1300,7 @@ const AdminAutomation: React.FC = () => {
             <CardContent>
               {recentRuns.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-                  Henüz otomasyon koşusu oluşmadı.
+                  Henüz otomasyon çalışması oluşmadı.
                 </div>
               ) : (
                 <div className="max-h-[360px] overflow-y-auto overscroll-contain pr-2 [scrollbar-gutter:stable] sm:pr-3">
@@ -1375,7 +1360,7 @@ const AdminAutomation: React.FC = () => {
           </Card>
         </div>
 
-        <Card className="self-start overflow-hidden">
+        <Card className="min-w-0 self-start overflow-hidden">
           <CardHeader>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
@@ -1524,7 +1509,7 @@ const AdminAutomation: React.FC = () => {
                                 <span>
                                   Kontrol:{' '}
                                   {automation.checkTimes.length >= 10
-                                    ? '7/24 (Her 2 Saatte Bir - GitHub Actions)'
+                                    ? '7/24 (Her 2 Saatte Bir)'
                                     : automation.checkTimes.map(normalizeTimeDisplay).join(' • ')}
                                 </span>
                               </div>
@@ -1556,7 +1541,7 @@ const AdminAutomation: React.FC = () => {
                                 <span className="font-medium">Son Durum</span>
                               </div>
                               <p className="mt-2">
-                                Son koşu: {formatRelativeDate(automation.lastRunFinishedAt || automation.lastRunStartedAt)}
+                                Son çalışma: {formatRelativeDate(automation.lastRunFinishedAt || automation.lastRunStartedAt)}
                               </p>
                               <p className="mt-1">Eklenen bölüm: {automation.lastAddedChapterCount}</p>
                               {automation.lastRunError ? (

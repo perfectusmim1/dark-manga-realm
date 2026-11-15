@@ -15,11 +15,14 @@ import { getStatistics, getRecentAdminMangas } from '@/lib/database';
 import { Manga } from '@/lib/types';
 import { toast } from 'sonner';
 import { getMangaTypeLabel } from '@/lib/mangaType';
+import { useDeviceProfile } from '@/hooks/use-device-profile';
+import { cn } from '@/lib/utils';
 
 const AdminDashboard: React.FC = () => {
     const [stats, setStats] = useState<any | null>(null);
     const [recentMangas, setRecentMangas] = useState<Manga[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const { disableHeavyEffects, prefersReducedMotion } = useDeviceProfile();
 
     useEffect(() => {
         const loadData = async () => {
@@ -89,11 +92,17 @@ const AdminDashboard: React.FC = () => {
         },
     ];
 
+    const cardRevealClass = prefersReducedMotion
+        ? ''
+        : disableHeavyEffects
+            ? 'animate-route-fade'
+            : 'animate-card-reveal-fast';
+
     return (
         <div className="space-y-6 lg:space-y-8">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold sm:text-3xl">Dashboard</h1>
+                    <h1 className="text-2xl font-bold sm:text-3xl">Genel Bakış</h1>
                 </div>
                 <div className="flex gap-2">
                     <Button asChild className="w-full sm:w-auto">
@@ -105,11 +114,16 @@ const AdminDashboard: React.FC = () => {
                 </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-                {statCards.map((stat) => (
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
+                {statCards.map((stat, index) => (
                     <div
                         key={stat.title}
-                        className="rounded-xl border border-border bg-card p-4 transition-shadow hover:shadow-lg sm:p-6"
+                        className={cn(
+                            'rounded-xl border border-border bg-card p-3.5 transition-[border-color,box-shadow] duration-150 hover:border-primary/35 hover:shadow-lg sm:p-5',
+                            index === statCards.length - 1 && 'col-span-2 lg:col-span-1',
+                            cardRevealClass,
+                        )}
+                        style={prefersReducedMotion || disableHeavyEffects ? undefined : { animationDelay: `${index * 25}ms` }}
                     >
                         <div className="flex items-center justify-between">
                             <div className={`rounded-lg p-2 ${stat.bgColor}`}>
@@ -117,19 +131,19 @@ const AdminDashboard: React.FC = () => {
                             </div>
                             <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
                         </div>
-                        <div className="mt-4">
-                            <p className="text-2xl font-bold">{stat.value}</p>
-                            <p className="text-sm text-muted-foreground">{stat.title}</p>
+                        <div className="mt-3 sm:mt-4">
+                            <p className="text-xl font-bold sm:text-2xl">{stat.value}</p>
+                            <p className="text-xs text-muted-foreground sm:text-sm">{stat.title}</p>
                         </div>
                     </div>
                 ))}
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2 lg:gap-6">
-                <div className="rounded-xl border border-border bg-card p-4 sm:p-6">
+                <div className={cn('rounded-xl border border-border bg-card p-4 transition-[border-color,box-shadow] duration-150 hover:border-border/90 hover:shadow-md sm:p-6', cardRevealClass)}>
                     <h2 className="mb-4 text-lg font-semibold">Türe Göre Dağılım</h2>
                     <div className="space-y-4">
-                        {(['manhwa', 'manhua', 'manga', 'webtoon', 'hentai'] as const)
+                        {(['manhwa', 'manhua', 'manga', 'webtoon', 'hentai', 'webtoon_hentai'] as const)
                             .filter((type) => (stats.mangasByType[type] || 0) > 0)
                             .map((type) => {
                             const count = stats.mangasByType[type] || 0;
@@ -160,7 +174,7 @@ const AdminDashboard: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="rounded-xl border border-border bg-card p-4 sm:p-6">
+                <div className={cn('rounded-xl border border-border bg-card p-4 transition-[border-color,box-shadow] duration-150 hover:border-border/90 hover:shadow-md sm:p-6', cardRevealClass)}>
                     <h2 className="mb-4 text-lg font-semibold">Duruma Göre Dağılım</h2>
                     <div className="space-y-4">
                         {[
@@ -168,7 +182,7 @@ const AdminDashboard: React.FC = () => {
                             { key: 'completed', label: 'Tamamlandı', color: 'bg-primary' },
                             { key: 'hiatus', label: 'Ara Verildi', color: 'bg-orange-500' },
                         ].map(({ key, label, color }) => {
-                            const count = stats.mangasByStatus[key as any];
+                            const count = stats.mangasByStatus[key as any] || 0;
                             const percentage = stats.totalMangas > 0
                                 ? Math.round((count / stats.totalMangas) * 100)
                                 : 0;
@@ -177,7 +191,7 @@ const AdminDashboard: React.FC = () => {
                                 <div key={key}>
                                     <div className="mb-1 flex items-center justify-between text-sm">
                                         <span>{label}</span>
-                                        <span className="text-muted-foreground">{count} ({percentage}%)</span>
+                                        <span className="text-muted-foreground font-mono">{count} ({percentage}%)</span>
                                     </div>
                                     <div className="h-2 overflow-hidden rounded-full bg-secondary">
                                         <div
@@ -192,32 +206,36 @@ const AdminDashboard: React.FC = () => {
                 </div>
             </div>
 
-            <div className="rounded-xl border border-border bg-card p-4 sm:p-6">
+            <div className={cn('rounded-xl border border-border bg-card p-4 transition-[border-color,box-shadow] duration-150 hover:border-border/90 hover:shadow-md sm:p-6', cardRevealClass)}>
                 <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <h2 className="text-lg font-semibold">Son Güncellenenler</h2>
                     <Button variant="ghost" size="sm" asChild className="w-full sm:w-auto">
                         <Link to="/admin/mangas">Tümünü Gör</Link>
                     </Button>
                 </div>
-                <div className="space-y-3">
+                <div className="space-y-2 sm:space-y-3">
                     {recentMangas.map((manga) => (
                         <Link
                             key={manga.id}
                             to={`/admin/mangas/${manga.id}`}
-                            className="flex flex-col gap-3 rounded-lg p-3 transition-colors hover:bg-secondary sm:flex-row sm:items-center"
+                            className="flex items-start gap-3 rounded-lg p-2.5 transition-colors hover:bg-secondary/70 sm:items-center sm:p-3"
                         >
                             <img
                                 src={manga.cover}
                                 alt={manga.title}
-                                className="h-16 w-12 rounded object-cover sm:h-12 sm:w-9"
+                                className="h-14 w-10 shrink-0 rounded object-cover sm:h-12 sm:w-9"
                             />
-                            <div className="w-full min-w-0 flex-1">
-                                <h3 className="font-medium">{manga.title}</h3>
-                                <p className="text-sm text-muted-foreground">
+                            <div className="min-w-0 flex-1">
+                                <h3 className="truncate font-medium">{manga.title}</h3>
+                                <p className="text-xs text-muted-foreground sm:text-sm">
                                     {manga.chapterCount ?? manga.chapters.length} bölüm • {getMangaTypeLabel(manga.type)}
                                 </p>
+                                <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground sm:hidden">
+                                    <Clock className="h-3.5 w-3.5" />
+                                    {new Date(manga.lastUpdated).toLocaleDateString('tr-TR')}
+                                </div>
                             </div>
-                            <div className="flex items-center gap-1 text-sm text-muted-foreground sm:ml-auto">
+                            <div className="hidden items-center gap-1 text-sm text-muted-foreground sm:ml-auto sm:flex sm:shrink-0">
                                 <Clock className="h-4 w-4" />
                                 {new Date(manga.lastUpdated).toLocaleDateString('tr-TR')}
                             </div>

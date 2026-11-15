@@ -107,6 +107,19 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
     const startIndex = filteredMangas.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
     const endIndex = Math.min(currentPage * pageSize, filteredMangas.length);
 
+    const getStatusLabel = (status: string) => {
+        switch (status) {
+            case 'ongoing':
+                return 'Devam Ediyor';
+            case 'completed':
+                return 'Tamamlandı';
+            case 'hiatus':
+                return 'Ara Verildi';
+            default:
+                return status;
+        }
+    };
+
     const getStatusBadge = (status: string) => {
         switch (status) {
             case 'ongoing':
@@ -143,12 +156,12 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
         isPublic !== false ? (
             <Badge variant="outline" className="border-emerald-500/20 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20">
                 <Globe2 className="mr-1 h-3.5 w-3.5" />
-                Public
+                Herkese Açık
             </Badge>
         ) : (
             <Badge variant="outline" className="border-amber-500/20 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20">
                 <Lock className="mr-1 h-3.5 w-3.5" />
-                Private
+                Gizli
             </Badge>
         )
     );
@@ -162,9 +175,6 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
     );
 
     const sectionTitle = isAdultSection ? 'Yetişkin Mangalar' : 'Mangalar';
-    const sectionDescription = isAdultSection
-        ? '18+ işaretli serileri ayrı listeden yönetin.'
-        : '18+ dışındaki tüm serileri yönetin.';
     const emptyMessage = isAdultSection ? 'Yetişkin manga bulunamadı' : 'Manga bulunamadı';
 
     return (
@@ -183,7 +193,7 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
 
             {/* Filters */}
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
-                <div className="relative w-full flex-1 min-w-[200px]">
+                <div className="relative w-full min-w-0 flex-1 sm:min-w-[200px]">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                         placeholder="Manga veya yazar ara..."
@@ -196,17 +206,19 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button variant="outline" className="w-full justify-between sm:w-auto">
-                            <Filter className="mr-2 h-4 w-4" />
-                            Tür: {typeFilter === 'all' ? 'Tümü' : getMangaTypeLabel(typeFilter)}
+                            <span className="flex items-center">
+                                <Filter className="mr-2 h-4 w-4" />
+                                Tür: {typeFilter === 'all' ? 'Tümü' : getMangaTypeLabel(typeFilter)}
+                            </span>
                             <ChevronDown className="ml-2 h-4 w-4" />
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent>
                         <DropdownMenuItem onClick={() => setTypeFilter('all')}>Tümü</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setTypeFilter('manga')}>Manga</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setTypeFilter('manhwa')}>Manhwa</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setTypeFilter('manhua')}>Manhua</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setTypeFilter('webtoon')}>Webtoon</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setTypeFilter('manga')}>{getMangaTypeLabel('manga')}</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setTypeFilter('manhwa')}>{getMangaTypeLabel('manhwa')}</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setTypeFilter('manhua')}>{getMangaTypeLabel('manhua')}</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setTypeFilter('webtoon')}>{getMangaTypeLabel('webtoon')}</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setTypeFilter('hentai')}>{getMangaTypeLabel('hentai')}</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setTypeFilter('webtoon_hentai')}>{getMangaTypeLabel('webtoon_hentai')}</DropdownMenuItem>
                     </DropdownMenuContent>
@@ -215,8 +227,10 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button variant="outline" className="w-full justify-between sm:w-auto">
-                            <Filter className="mr-2 h-4 w-4" />
-                            Durum: {statusFilter === 'all' ? 'Tümü' : statusFilter}
+                            <span className="flex items-center">
+                                <Filter className="mr-2 h-4 w-4" />
+                                Durum: {statusFilter === 'all' ? 'Tümü' : getStatusLabel(statusFilter)}
+                            </span>
                             <ChevronDown className="ml-2 h-4 w-4" />
                         </Button>
                     </DropdownMenuTrigger>
@@ -231,15 +245,17 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button variant="outline" className="w-full justify-between sm:w-auto">
-                            <Filter className="mr-2 h-4 w-4" />
-                            Görünürlük: {visibilityFilter === 'all' ? 'Tümü' : visibilityFilter === 'public' ? 'Public' : 'Private'}
+                            <span className="flex items-center">
+                                <Filter className="mr-2 h-4 w-4" />
+                                Görünürlük: {visibilityFilter === 'all' ? 'Tümü' : visibilityFilter === 'public' ? 'Herkese Açık' : 'Gizli'}
+                            </span>
                             <ChevronDown className="ml-2 h-4 w-4" />
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent>
                         <DropdownMenuItem onClick={() => setVisibilityFilter('all')}>Tümü</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setVisibilityFilter('public')}>Public</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setVisibilityFilter('private')}>Private</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setVisibilityFilter('public')}>Herkese Açık</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setVisibilityFilter('private')}>Gizli</DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
             </div>
@@ -289,9 +305,9 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
                                     className="h-20 w-14 shrink-0 rounded object-cover"
                                 />
                                 <div className="min-w-0 flex-1 space-y-2">
-                                    <div>
-                                        <p className="font-medium">{manga.title}</p>
-                                        <p className="text-sm text-muted-foreground">{manga.author}</p>
+                                    <div className="min-w-0">
+                                        <p className="break-words font-medium">{manga.title}</p>
+                                        <p className="truncate text-sm text-muted-foreground">{manga.author}</p>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
                                         {getTypeBadge(manga.type)}
@@ -307,24 +323,25 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
                             </div>
 
                             <div className="grid grid-cols-3 gap-2">
-                                <Button variant="outline" asChild>
+                                <Button variant="outline" size="sm" className="px-2 text-xs sm:text-sm" asChild>
                                     <Link to={`/manga/${manga.id}`} target="_blank">
-                                        <Eye className="mr-2 h-4 w-4" />
+                                        <Eye className="mr-1.5 h-3.5 w-3.5 shrink-0" />
                                         Gör
                                     </Link>
                                 </Button>
-                                <Button variant="outline" asChild>
+                                <Button variant="outline" size="sm" className="px-2 text-xs sm:text-sm" asChild>
                                     <Link to={`/admin/mangas/${manga.id}`}>
-                                        <Edit2 className="mr-2 h-4 w-4" />
+                                        <Edit2 className="mr-1.5 h-3.5 w-3.5 shrink-0" />
                                         Düzenle
                                     </Link>
                                 </Button>
                                 <Button
                                     variant="outline"
-                                    className="text-destructive hover:text-destructive"
+                                    size="sm"
+                                    className="px-2 text-xs text-destructive hover:text-destructive sm:text-sm"
                                     onClick={() => setDeleteId(manga.id)}
                                 >
-                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    <Trash2 className="mr-1.5 h-3.5 w-3.5 shrink-0" />
                                     Sil
                                 </Button>
                             </div>
@@ -373,12 +390,12 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
                                     <td className="px-4 py-3">{manga.views.toLocaleString('tr-TR')}</td>
                                     <td className="px-4 py-3">
                                         <div className="flex items-center justify-end gap-2">
-                                            <Button variant="ghost" size="icon" asChild>
+                                            <Button variant="ghost" size="icon" asChild aria-label="Seriyi görüntüle">
                                                 <Link to={`/manga/${manga.id}`} target="_blank">
                                                     <Eye className="h-4 w-4" />
                                                 </Link>
                                             </Button>
-                                            <Button variant="ghost" size="icon" asChild>
+                                            <Button variant="ghost" size="icon" asChild aria-label="Düzenle">
                                                 <Link to={`/admin/mangas/${manga.id}`}>
                                                     <Edit2 className="h-4 w-4" />
                                                 </Link>
@@ -388,6 +405,7 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
                                                 size="icon"
                                                 className="text-destructive hover:text-destructive"
                                                 onClick={() => setDeleteId(manga.id)}
+                                                aria-label="Sil"
                                             >
                                                 <Trash2 className="h-4 w-4" />
                                             </Button>

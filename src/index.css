@@ -64,23 +64,21 @@
 @layer base {
   *, ::before, ::after {
     @apply border-border;
-    outline: none !important;
   }
 
-  *:focus,
-  *:focus-visible,
-  input:focus,
-  input:focus-visible,
-  textarea:focus,
-  textarea:focus-visible,
-  select:focus,
-  select:focus-visible,
-  button:focus,
-  button:focus-visible,
-  a:focus,
-  a:focus-visible {
-    outline: none !important;
-    outline-offset: 0 !important;
+  *:focus:not(:focus-visible),
+  input:focus:not(:focus-visible),
+  textarea:focus:not(:focus-visible),
+  select:focus:not(:focus-visible),
+  button:focus:not(:focus-visible),
+  a:focus:not(:focus-visible) {
+    outline: none;
+    outline-offset: 0;
+  }
+
+  *:focus-visible {
+    outline: 2px solid hsl(var(--primary) / 0.65);
+    outline-offset: 2px;
   }
 
   html {
@@ -291,9 +289,12 @@
 
   @media (prefers-reduced-motion: reduce) {
     .animate-fade-up,
+    .animate-fade-in,
     .animate-card-reveal-fast,
     .animate-route-enter,
-    .animate-route-fade {
+    .animate-route-fade,
+    .animate-scale-in,
+    .animate-slide-in-right {
       animation: none !important;
       opacity: 1 !important;
       transform: none !important;
@@ -305,7 +306,7 @@
   }
 
   .animate-fade-in {
-    animation: fadeIn 0.3s ease-out forwards;
+    animation: fadeIn 0.18s cubic-bezier(0.22, 1, 0.36, 1) forwards;
   }
 
   .animate-card-reveal-fast {
@@ -318,15 +319,15 @@
   }
 
   .animate-route-fade {
-    animation: routeFadeIn 0.16s ease-out backwards;
+    animation: routeFadeIn 0.16s cubic-bezier(0.22, 1, 0.36, 1) backwards;
   }
 
   .animate-scale-in {
-    animation: scaleIn 0.3s ease-out forwards;
+    animation: scaleIn 0.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
   }
 
   .animate-slide-in-right {
-    animation: slideInRight 0.3s ease-out forwards;
+    animation: slideInRight 0.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
   }
 
   @keyframes fadeUp {
@@ -366,24 +367,24 @@
   @keyframes scaleIn {
     from {
       opacity: 0;
-      transform: scale(0.95);
+      transform: scale3d(0.96, 0.96, 1);
     }
 
     to {
       opacity: 1;
-      transform: scale(1);
+      transform: none;
     }
   }
 
   @keyframes slideInRight {
     from {
       opacity: 0;
-      transform: translateX(20px);
+      transform: translate3d(16px, 0, 0);
     }
 
     to {
       opacity: 1;
-      transform: translateX(0);
+      transform: none;
     }
   }
 

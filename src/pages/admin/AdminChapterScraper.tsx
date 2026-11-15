@@ -5,7 +5,6 @@ import {
     Download,
     RefreshCw,
     Loader2,
-    Globe,
     Check,
     ChevronsUpDown,
     BookOpen,
@@ -263,7 +262,7 @@ const AdminChapterScraper: React.FC = () => {
     const handleScraperProviderChange = (nextProvider: ScraperProvider) => {
         writePreferredScraperProvider(nextProvider);
         setScraperProvider(nextProvider);
-        toast.success(`Scraper sağlayıcısı: ${getScraperProviderLabel(nextProvider)}`);
+        toast.success(`Proxy sağlayıcısı: ${getScraperProviderLabel(nextProvider)}`);
     };
 
     const handleScrapeSourceChange = (nextSource: ScrapeSource) => {
@@ -361,9 +360,9 @@ const AdminChapterScraper: React.FC = () => {
                 handleScrapeSourceChange(detectedSource);
             }
 
-            toast.info('Direkt link algılandı, bölümler kontrol ediliyor...');
+            toast.info('Doğrudan bağlantı algılandı, bölümler kontrol ediliyor...');
             fetchSourceChapters({
-                title: 'Linkten Çekilen Manga',
+                title: 'Bağlantıdan Çekilen Manga',
                 link: normalizeScrapeSeriesUrl(sourceToUse, rawQuery),
                 cover: '',
                 genres: [],
@@ -575,16 +574,16 @@ const AdminChapterScraper: React.FC = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                    <RefreshCw className="h-6 w-6" />
-                </div>
-                <div>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary sm:h-12 sm:w-12">
+                        <RefreshCw className="h-5 w-5 sm:h-6 sm:w-6" />
+                    </div>
                     <h1 className="text-2xl font-bold sm:text-3xl">Bölüm Çekme</h1>
                 </div>
-                <div className="flex flex-col gap-2 sm:ml-auto sm:flex-row sm:flex-wrap sm:items-center">
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                     <Select value={scrapeSource} onValueChange={(value) => handleScrapeSourceChange(value as ScrapeSource)}>
-                        <SelectTrigger className="h-8 w-full border-primary/20 bg-primary/5 text-xs text-primary sm:w-[190px]">
+                        <SelectTrigger className="h-9 w-full border-primary/20 bg-primary/5 text-xs text-primary sm:h-8 sm:w-[190px]">
                             <SelectValue placeholder="Kaynak site seç" />
                         </SelectTrigger>
                         <SelectContent>
@@ -596,7 +595,7 @@ const AdminChapterScraper: React.FC = () => {
                         </SelectContent>
                     </Select>
                     <Select value={scraperProvider} onValueChange={(value) => handleScraperProviderChange(value as ScraperProvider)}>
-                        <SelectTrigger className="h-8 w-full border-primary/20 bg-primary/5 text-xs text-primary sm:w-[170px]">
+                        <SelectTrigger className="h-9 w-full border-primary/20 bg-primary/5 text-xs text-primary sm:h-8 sm:w-[170px]">
                             <SelectValue placeholder="Proxy seç" />
                         </SelectTrigger>
                         <SelectContent>
@@ -607,19 +606,15 @@ const AdminChapterScraper: React.FC = () => {
                             ))}
                         </SelectContent>
                     </Select>
-                    <Badge variant="outline" className="h-8 gap-1 border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors">
-                        <Globe className="h-4 w-4" />
-                        {getScrapeSourceLabel(scrapeSource)}
-                    </Badge>
                 </div>
             </div>
 
-            <div className="flex items-center justify-between rounded-xl border border-border bg-secondary/30 px-4 py-3">
-                <div className="flex items-center gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <div className="flex flex-col gap-3 rounded-xl border border-border bg-secondary/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3 sm:items-center">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                         <Sparkles className="h-4 w-4" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                         <p className="text-sm font-medium">Bozuk Bölümleri Yedek Kaynaklardan Tamamla</p>
                         <p className="text-xs text-muted-foreground">
                             Birincil kaynakta görsel eksik veya bozuksa diğer 4 kaynaktan (OkuToon, MangaCix, Gölge Bahçesi, DxDFansub) otomatik aranıp tamamlanır.
@@ -630,6 +625,7 @@ const AdminChapterScraper: React.FC = () => {
                     checked={autoRecoverFromFallbacks}
                     onCheckedChange={setAutoRecoverFromFallbacks}
                     aria-label="Bozuk bölümleri yedek kaynaklardan tamamla"
+                    className="shrink-0 self-end sm:self-auto"
                 />
             </div>
 
@@ -757,11 +753,11 @@ const AdminChapterScraper: React.FC = () => {
                         </Dialog>
 
                         {localMangaDetails && (
-                            <div className="flex items-center gap-3 rounded-lg border border-border p-3 bg-card">
-                                <img src={localMangaDetails.cover} className="h-16 w-12 rounded object-cover" />
-                                <div>
+                            <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-3">
+                                <img src={localMangaDetails.cover} alt={localMangaDetails.title} className="h-16 w-12 shrink-0 rounded object-cover" />
+                                <div className="min-w-0">
                                     <div className="flex flex-wrap items-center gap-2">
-                                        <p className="font-bold">{localMangaDetails.title}</p>
+                                        <p className="truncate font-bold">{localMangaDetails.title}</p>
                                         {localMangaDetails.isAdult ? (
                                             <Badge variant="outline" className="border-rose-500/20 bg-rose-500/10 text-rose-500">
                                                 18+
@@ -789,10 +785,11 @@ const AdminChapterScraper: React.FC = () => {
                             <Input
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                placeholder={`Manga adı veya ${getScrapeSourceLabel(scrapeSource)} URL...`}
+                                placeholder={`Manga adı veya ${getScrapeSourceLabel(scrapeSource)} bağlantısı...`}
                             />
-                            <Button type="submit" disabled={loadingSource}>
+                            <Button type="submit" disabled={loadingSource} className="w-full sm:w-auto" aria-label="Kaynak sitede ara">
                                 {loadingSource ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                                <span className="ml-2 sm:hidden">Ara</span>
                             </Button>
                         </form>
 
@@ -805,7 +802,7 @@ const AdminChapterScraper: React.FC = () => {
                                             onClick={() => fetchSourceChapters(m, m.source)}
                                             className={`flex cursor-pointer items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary ${selectedSourceManga?.link === m.link ? 'bg-primary/20 border-primary' : ''}`}
                                         >
-                                            <img src={m.cover} className="h-10 w-8 rounded object-cover" />
+                                            <img src={m.cover} alt={m.title} className="h-10 w-8 shrink-0 rounded object-cover" />
                                             <div className="min-w-0">
                                                 <span className="block truncate text-sm font-medium">{m.title}</span>
                                             </div>
@@ -842,7 +839,7 @@ const AdminChapterScraper: React.FC = () => {
                     <CardContent className="p-0">
                         <div className="grid md:grid-cols-2">
                             <div className="p-4 md:border-r md:border-border md:p-6">
-                                <div className="mb-4 flex items-center justify-between">
+                                <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                                     <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Yeni / Güncellenecek Bölümler ({newChapters.length})</h3>
                                     {newChapters.length > 0 && (
                                         <Button
@@ -861,7 +858,7 @@ const AdminChapterScraper: React.FC = () => {
                                         </Button>
                                     )}
                                 </div>
-                                <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                                <div className="grid grid-cols-3 place-items-center gap-3 sm:grid-cols-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                                     {newChapters.map((ch, i) => {
                                         const isSelected = selectedChapterIndices.includes(i);
                                         const isUpdate = ch.changeType === 'updated';

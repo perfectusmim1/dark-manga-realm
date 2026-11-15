@@ -70,35 +70,35 @@ const SOURCE_LABELS: Record<MetadataImportSource, string> = {
 const OPTION_LABELS: Record<ImportOptionKey, { title: string; description: string }> = {
   manga_core: {
     title: 'Seri Ana Bilgileri',
-    description: 'Kapak, açıklama, durum, type, skor ve temel seri metadatası',
+    description: 'Kapak, açıklama, durum, tür, puan ve temel seri meta verisi',
   },
   alternative_titles: {
     title: 'Alternatif İsimler',
-    description: 'English, native, synonym ve associated name alanları',
+    description: 'İngilizce, özgün ve alternatif ad alanları',
   },
   tags: {
-    title: 'Türler ve Tagler',
-    description: 'Kaynakta bulunan genre ve tag verilerini site etiketlerine ekler',
+    title: 'Türler ve Etiketler',
+    description: 'Kaynakta bulunan tür ve etiket verilerini site etiketlerine ekler',
   },
   related_series: {
     title: 'İlgili Seriler',
-    description: 'Local sitede eşleşen devam, öncül ve uyarlama ilişkilerini bağlar',
+    description: 'Sitede eşleşen devam, öncül ve uyarlama ilişkilerini bağlar',
   },
   authors: {
     title: 'Yazarlar',
-    description: 'Author kayıtlarını detaylı metadatalarıyla günceller veya oluşturur',
+    description: 'Yazar kayıtlarını detaylı meta verileriyle günceller veya oluşturur',
   },
   artists: {
     title: 'Çizerler',
-    description: 'Artist kayıtlarını detaylı metadatalarıyla günceller veya oluşturur',
+    description: 'Çizer kayıtlarını detaylı meta verileriyle günceller veya oluşturur',
   },
   characters: {
     title: 'Karakterler',
-    description: 'Karakter yaş, cinsiyet, ilişki, sınıf ve benzeri detayları import eder',
+    description: 'Karakter yaş, cinsiyet, ilişki, sınıf ve benzeri detayları içe aktarır',
   },
   gallery: {
     title: 'Görsel Havuzu',
-    description: 'Seri, karakter, author ve artist galerilerini çeker',
+    description: 'Seri, karakter, yazar ve çizer galerilerini çeker',
   },
 };
 
@@ -123,7 +123,7 @@ type PreviewDetailKey =
 
 const DETAIL_LABELS: Record<PreviewDetailKey, string> = {
   alternative_titles: 'Alternatif İsimler',
-  tags: 'Tag / Genre',
+  tags: 'Etiket / Tür',
   authors_artists: 'Yazar / Çizer',
   characters: 'Karakterler',
   related_series: 'İlgili Seriler',
@@ -469,7 +469,7 @@ const ManualEntityMatchDialog = ({
 
   return (
     <Dialog open={Boolean(state)} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Kaydı Eşleştir</DialogTitle>
           <DialogDescription>
@@ -764,11 +764,11 @@ const PreviewDetailDialog: React.FC<PreviewDetailDialogProps> = ({
 
   return (
     <Dialog open={!!detailKey} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{detailKey ? DETAIL_LABELS[detailKey] : ''}</DialogTitle>
           <DialogDescription>
-            Import edilecek verilerin detaylı listesi
+            İçe aktarılacak verilerin detaylı listesi
           </DialogDescription>
         </DialogHeader>
         <ScrollArea className="max-h-[60vh] pr-3">
@@ -1051,7 +1051,7 @@ const AdminMetadataImport: React.FC = () => {
         key,
         label: author.name,
         subtitle: manualMatchSummary || (alreadyLinked
-          ? 'Zaten bağlı, seçili kalırsa metadata güncellenecek'
+          ? 'Zaten bağlı, seçili kalırsa meta veri güncellenecek'
           : existingGlobalAuthor
             ? 'Sistemde mevcut, seçili kalırsa bu yazar güncellenecek'
             : (author.description || author.details?.nativeName)),
@@ -1082,7 +1082,7 @@ const AdminMetadataImport: React.FC = () => {
         key,
         label: artist.name,
         subtitle: manualMatchSummary || (alreadyLinked
-          ? 'Zaten bağlı, seçili kalırsa metadata güncellenecek'
+          ? 'Zaten bağlı, seçili kalırsa meta veri güncellenecek'
           : existingGlobalArtist
             ? 'Sistemde mevcut, seçili kalırsa bu çizer güncellenecek'
             : (artist.description || artist.details?.nativeName)),
@@ -1124,9 +1124,9 @@ const AdminMetadataImport: React.FC = () => {
         key,
         label: character.name,
         subtitle: manualMatchSummary || (alreadyLinked
-          ? 'Zaten bağlı, seçili kalırsa rol ve metadata güncellenecek'
+          ? 'Zaten bağlı, seçili kalırsa rol ve meta veri güncellenecek'
           : autoMatchedCharacter
-            ? 'Sistemde mevcut, seçili kalırsa bu mangaya bağlanıp rol ve metadata güncellenecek'
+            ? 'Sistemde mevcut, seçili kalırsa bu mangaya bağlanıp rol ve meta veri güncellenecek'
             : conflictingGlobalCharacter
               ? 'Aynı isimli karakter başka bir seride bulundu; otomatik eşleştirme yapılmadı.'
             : (character.description || character.details?.nativeName)),
@@ -1213,7 +1213,7 @@ const AdminMetadataImport: React.FC = () => {
           skipped: alreadyExists || !parentChecked,
           skipReason: alreadyExists
             ? 'Bu görsel karakter galerisinde zaten var'
-            : (!parentChecked ? 'Karakter importtan çıkarıldığı için bu galeri de atlanacak' : undefined),
+            : (!parentChecked ? 'Karakter aktarımdan çıkarıldığı için bu galeri de atlanacak' : undefined),
           matchState: alreadyExists ? 'matched' : 'new',
           item: image,
           characterKey,
@@ -1468,7 +1468,7 @@ const AdminMetadataImport: React.FC = () => {
     event?.preventDefault();
 
     if (!query.trim()) {
-      toast.error('Kaynak site için isim veya direkt link gir');
+      toast.error('Kaynak site için isim veya doğrudan bağlantı gir');
       return;
     }
 
@@ -1525,7 +1525,7 @@ const AdminMetadataImport: React.FC = () => {
 
   const handleImport = async () => {
     if (!selectedMangaId || !filteredPreview) {
-      toast.error('Import için manga ve önizleme seçilmeli');
+      toast.error('Aktarım için manga ve önizleme seçilmeli');
       return;
     }
 
@@ -1539,7 +1539,7 @@ const AdminMetadataImport: React.FC = () => {
       toast.success('Veriler seçilen manga içine aktarıldı');
     } catch (error) {
       console.error(error);
-      toast.error(error instanceof Error ? error.message : 'Import sırasında hata oluştu');
+      toast.error(error instanceof Error ? error.message : 'Aktarım sırasında hata oluştu');
     } finally {
       setImporting(false);
     }
@@ -1552,14 +1552,14 @@ const AdminMetadataImport: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Harici Metadata Import</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Harici Meta Veri Aktarımı</h1>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Import Ayarları</CardTitle>
+              <CardTitle>Aktarım Ayarları</CardTitle>
               <CardDescription>
                 Seri seçimi, kaynak seçimi ve veri tipleri burada kontrol edilir.
               </CardDescription>
@@ -1567,7 +1567,7 @@ const AdminMetadataImport: React.FC = () => {
             <CardContent className="space-y-6">
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="manga-filter">Local Manga Filtrele</Label>
+                  <Label htmlFor="manga-filter">Kayıtlı Manga Filtrele</Label>
                   <Input
                     id="manga-filter"
                     value={mangaFilter}
@@ -1608,33 +1608,33 @@ const AdminMetadataImport: React.FC = () => {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex items-end justify-between rounded-xl border border-border bg-secondary/30 px-4 py-3">
-                  <div>
+                <div className="flex flex-col gap-3 rounded-xl border border-border bg-secondary/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
                     <p className="text-sm font-medium">Görünürlük</p>
                     <p className="text-xs text-muted-foreground">
-                      Import edilen character, author ve artist kayıtları public mi olsun?
+                      İçe aktarılan karakter, yazar ve çizer kayıtları herkese açık olsun mu?
                     </p>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex shrink-0 items-center gap-3 self-end sm:self-auto">
                     <Badge variant={importAsPublic ? 'default' : 'secondary'}>
-                      {importAsPublic ? 'Public' : 'Private'}
+                      {importAsPublic ? 'Herkese Açık' : 'Gizli'}
                     </Badge>
                     <Switch checked={importAsPublic} onCheckedChange={setImportAsPublic} />
                   </div>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between rounded-xl border border-border bg-secondary/30 px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <Languages className="h-5 w-5 text-primary" />
-                  <div>
+              <div className="flex flex-col gap-3 rounded-xl border border-border bg-secondary/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3 sm:items-center">
+                  <Languages className="mt-0.5 h-5 w-5 shrink-0 text-primary sm:mt-0" />
+                  <div className="min-w-0">
                     <p className="text-sm font-medium">Türkçeye Çevir</p>
                     <p className="text-xs text-muted-foreground">
-                      Açıklamaları ve biyografileri otomatik olarak Türkçeye çevirir (Google Translate)
+                      Açıklamaları ve biyografileri otomatik olarak Türkçeye çevirir
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex shrink-0 items-center gap-3 self-end sm:self-auto">
                   <Badge variant={translateToTurkish ? 'default' : 'secondary'}>
                     {translateToTurkish ? 'Açık' : 'Kapalı'}
                   </Badge>
@@ -1691,7 +1691,7 @@ const AdminMetadataImport: React.FC = () => {
               </div>
 
               <form className="space-y-3" onSubmit={handleSearch}>
-                <Label htmlFor="source-query">Kaynak Arama / Direkt Link</Label>
+                <Label htmlFor="source-query">Kaynak Arama veya Doğrudan Bağlantı</Label>
                 <div className="flex flex-col gap-3 md:flex-row">
                   <Input
                     id="source-query"
@@ -1699,11 +1699,11 @@ const AdminMetadataImport: React.FC = () => {
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder={
                       source === 'fandom'
-                        ? 'https://wiki.fandom.com/wiki/... şeklinde direkt wiki linki yapıştır'
-                        : 'Solo Leveling veya direkt kaynak URL yapıştır'
+                        ? 'https://wiki.fandom.com/wiki/... şeklinde doğrudan wiki bağlantısı yapıştır'
+                        : 'Solo Leveling veya doğrudan kaynak bağlantısı yapıştır'
                     }
                   />
-                  <Button type="submit" disabled={searching}>
+                  <Button type="submit" disabled={searching} className="w-full md:w-auto">
                     {searching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
                     Kaynağı Tara
                   </Button>
@@ -1728,7 +1728,7 @@ const AdminMetadataImport: React.FC = () => {
                 candidates.map((candidate) => (
                   <div
                     key={candidate.id}
-                    className={`flex flex-col gap-3 rounded-xl border px-4 py-4 lg:flex-row lg:items-center lg:justify-between ${
+                    className={`flex flex-col gap-3 rounded-xl border px-4 py-4 transition-colors lg:flex-row lg:items-center lg:justify-between ${
                       selectedCandidateId === candidate.id ? 'border-primary bg-primary/5' : 'border-border bg-card'
                     }`}
                   >
@@ -1736,7 +1736,7 @@ const AdminMetadataImport: React.FC = () => {
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
-                          className="text-left text-sm font-semibold hover:text-primary"
+                          className="text-left text-sm font-semibold transition-colors hover:text-primary"
                           onClick={() => setSelectedCandidateId(candidate.id)}
                         >
                           {candidate.title}
@@ -1747,17 +1747,17 @@ const AdminMetadataImport: React.FC = () => {
                         <p className="text-xs text-muted-foreground">{candidate.subtitle}</p>
                       ) : null}
                       <a
-                        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
+                        className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-primary"
                         href={candidate.url}
                         rel="noreferrer"
                         target="_blank"
                       >
-                        Kaynak linki
+                        Kaynak bağlantısı
                         <ExternalLink className="h-3 w-3" />
                       </a>
                     </div>
                     <div className="flex gap-2">
-                      <Button variant="outline" onClick={() => setSelectedCandidateId(candidate.id)}>
+                      <Button variant="outline" onClick={() => setSelectedCandidateId(candidate.id)} className="w-full lg:w-auto">
                         Seç
                       </Button>
                     </div>
@@ -1766,7 +1766,7 @@ const AdminMetadataImport: React.FC = () => {
               )}
 
               <div className="flex justify-end">
-                <Button onClick={handlePreviewLoad} disabled={!selectedCandidate || previewLoading}>
+                <Button onClick={handlePreviewLoad} disabled={!selectedCandidate || previewLoading} className="w-full sm:w-auto">
                   {previewLoading ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
@@ -1779,12 +1779,12 @@ const AdminMetadataImport: React.FC = () => {
           </Card>
         </div>
 
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>Önizleme</CardTitle>
               <CardDescription>
-                Import öncesi çekilecek veri yoğunluğunu burada kontrol et.
+                Aktarım öncesi çekilecek veri kapsamını burada kontrol et.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -1800,7 +1800,7 @@ const AdminMetadataImport: React.FC = () => {
                       <Badge>{SOURCE_LABELS[effectivePreview.source]}</Badge>
                     </div>
                     <a
-                      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
+                      className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-primary"
                       href={effectivePreview.sourceUrl}
                       rel="noreferrer"
                       target="_blank"
@@ -1826,7 +1826,7 @@ const AdminMetadataImport: React.FC = () => {
                         <p className="text-lg font-semibold">
                           {previewCounts ? `${previewCounts.alternativeTitles.selected} / ${previewCounts.alternativeTitles.total}` : effectivePreview.alternativeTitles.length}
                         </p>
-                        <Eye className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                        <Eye className="h-4 w-4 text-muted-foreground opacity-70 transition-opacity sm:opacity-0 sm:group-hover:opacity-100" />
                       </div>
                     </button>
                     <button
@@ -1834,12 +1834,12 @@ const AdminMetadataImport: React.FC = () => {
                       className="group rounded-xl border border-border px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5"
                       onClick={() => setDetailDialogKey('tags')}
                     >
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Tag / Genre</p>
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Etiket / Tür</p>
                       <div className="mt-1 flex items-center justify-between">
                         <p className="text-lg font-semibold">
                           {previewCounts ? `${previewCounts.tags.selected} / ${previewCounts.tags.total}` : effectivePreview.tags.length}
                         </p>
-                        <Eye className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                        <Eye className="h-4 w-4 text-muted-foreground opacity-70 transition-opacity sm:opacity-0 sm:group-hover:opacity-100" />
                       </div>
                     </button>
                     <button
@@ -1854,7 +1854,7 @@ const AdminMetadataImport: React.FC = () => {
                             ? `${previewCounts.authors.selected}/${previewCounts.authors.total} • ${previewCounts.artists.selected}/${previewCounts.artists.total}`
                             : `${effectivePreview.authors.length} / ${effectivePreview.artists.length}`}
                         </p>
-                        <Eye className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                        <Eye className="h-4 w-4 text-muted-foreground opacity-70 transition-opacity sm:opacity-0 sm:group-hover:opacity-100" />
                       </div>
                     </button>
                     <button
@@ -1867,7 +1867,7 @@ const AdminMetadataImport: React.FC = () => {
                         <p className="text-lg font-semibold">
                           {previewCounts ? `${previewCounts.characters.selected} / ${previewCounts.characters.total}` : effectivePreview.characters.length}
                         </p>
-                        <Eye className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                        <Eye className="h-4 w-4 text-muted-foreground opacity-70 transition-opacity sm:opacity-0 sm:group-hover:opacity-100" />
                       </div>
                     </button>
                     <button
@@ -1880,7 +1880,7 @@ const AdminMetadataImport: React.FC = () => {
                         <p className="text-lg font-semibold">
                           {previewCounts ? `${previewCounts.relatedSeries.selected} / ${previewCounts.relatedSeries.total}` : effectivePreview.relatedSeries.length}
                         </p>
-                        <Eye className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                        <Eye className="h-4 w-4 text-muted-foreground opacity-70 transition-opacity sm:opacity-0 sm:group-hover:opacity-100" />
                       </div>
                     </button>
                     <button
@@ -1895,20 +1895,20 @@ const AdminMetadataImport: React.FC = () => {
                             ? `${previewCounts.gallery.selected} / ${previewCounts.gallery.total}`
                             : effectivePreview.gallery.length + effectivePreview.characters.reduce((sum, item) => sum + item.gallery.length, 0)}
                         </p>
-                        <Eye className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                        <Eye className="h-4 w-4 text-muted-foreground opacity-70 transition-opacity sm:opacity-0 sm:group-hover:opacity-100" />
                       </div>
                     </button>
                   </div>
 
                   {previewCounts ? (
                     <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-xs text-muted-foreground">
-                      Önizleme detaylarına girip işaretleri değiştirebilirsin. Varsayılan olarak sitede zaten bulunan veriler `Atla` durumuna çekilir.
+                      Önizleme detaylarına girip işaretleri değiştirebilirsin. Varsayılan olarak sitede zaten bulunan veriler Atla durumuna çekilir.
                     </div>
                   ) : null}
 
                   {effectivePreview.warnings.length > 0 ? (
                     <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
-                      <p className="text-sm font-medium text-amber-100">Runtime Uyarıları</p>
+                      <p className="text-sm font-medium text-amber-100">Çalışma Uyarıları</p>
                       <ul className="mt-2 space-y-1 text-xs text-amber-50">
                         {effectivePreview.warnings.map((warning) => (
                           <li key={warning}>{warning}</li>
@@ -1942,14 +1942,14 @@ const AdminMetadataImport: React.FC = () => {
 
           <Card>
             <CardHeader>
-              <CardTitle>Import Et</CardTitle>
+              <CardTitle>İçe Aktar</CardTitle>
               <CardDescription>
-                Önizleme doğruysa seçilen local manga kaydına verileri merge et.
+                Önizleme doğruysa seçilen kayıtlı manga verileriyle birleştir.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="rounded-xl border border-border px-4 py-3 text-sm">
-                <p className="font-medium">Seçilen Local Manga</p>
+                <p className="font-medium">Seçilen Kayıtlı Manga</p>
                 <p className="mt-1 text-muted-foreground">
                   {mangas.find((item) => item.id === selectedMangaId)?.title || 'Manga seçilmedi'}
                 </p>
@@ -1961,7 +1961,7 @@ const AdminMetadataImport: React.FC = () => {
                 ) : (
                   <Download className="mr-2 h-4 w-4" />
                 )}
-                Import Başlat
+                Aktarımı Başlat
               </Button>
             </CardContent>
           </Card>

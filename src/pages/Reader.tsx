@@ -2334,24 +2334,26 @@ const Reader: React.FC = () => {
 
       {/* Alt yüzen kontroller: Sol (En Alta Git) - Orta (Çeviri Durumu Kartı) - Sağ (En Üste Git) */}
       <div
-        className="pointer-events-none fixed inset-x-0 z-40 flex w-full max-w-[100vw] items-center justify-between overflow-x-clip px-3 sm:px-5 transition-[bottom] duration-300"
+        className="pointer-events-none fixed inset-x-0 z-40 flex w-full max-w-[100vw] items-center justify-between overflow-x-clip px-3 sm:px-5 transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
         style={{
-          bottom: controlsVisible
-            ? 'calc(env(safe-area-inset-bottom) + 5.25rem)'
-            : 'calc(env(safe-area-inset-bottom) + 1.25rem)',
+          bottom: 'calc(env(safe-area-inset-bottom) + 1.25rem)',
+          transform: controlsVisible ? 'translate3d(0, -4rem, 0)' : 'translate3d(0, 0, 0)',
         }}
       >
         {/* Sol: En Alta Git */}
         <div
+          aria-hidden={!controlsVisible}
           className={cn(
-            'transition-opacity duration-300',
+            'transition-opacity duration-200 motion-reduce:transition-none',
             controlsVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
           )}
         >
           <Button
             variant="secondary"
             size="icon"
-            className="h-10 w-10 rounded-full border border-border/80 bg-background/90 text-foreground opacity-80 shadow-lg backdrop-blur-md transition-all hover:opacity-100 hover:scale-105 active:scale-95"
+            tabIndex={controlsVisible ? undefined : -1}
+            aria-label="En Alta Git"
+            className="h-10 w-10 rounded-full border border-border/80 bg-background/90 text-foreground opacity-80 shadow-lg backdrop-blur-md transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none hover:opacity-100 hover:scale-105 active:scale-95"
             onClick={(e) => {
               e.stopPropagation();
               scrollToBottom();
@@ -2376,15 +2378,18 @@ const Reader: React.FC = () => {
 
         {/* Sağ: En Üste Git */}
         <div
+          aria-hidden={!controlsVisible}
           className={cn(
-            'transition-opacity duration-300',
+            'transition-opacity duration-200 motion-reduce:transition-none',
             controlsVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
           )}
         >
           <Button
             variant="secondary"
             size="icon"
-            className="h-10 w-10 rounded-full border border-border/80 bg-background/90 text-foreground opacity-80 shadow-lg backdrop-blur-md transition-all hover:opacity-100 hover:scale-105 active:scale-95"
+            tabIndex={controlsVisible ? undefined : -1}
+            aria-label="En Üste Git"
+            className="h-10 w-10 rounded-full border border-border/80 bg-background/90 text-foreground opacity-80 shadow-lg backdrop-blur-md transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none hover:opacity-100 hover:scale-105 active:scale-95"
             onClick={(e) => {
               e.stopPropagation();
               scrollToTop();

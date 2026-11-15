@@ -267,7 +267,7 @@ const AdminEntities: React.FC = () => {
     try {
       sourceLinks = parseSourceLinks(formData.sourceLinksJson);
     } catch {
-      toast.error('Kaynak linkleri geçerli JSON array formatında olmalı');
+      toast.error('Kaynak bağlantıları geçerli JSON dizisi biçiminde olmalı');
       return;
     }
 
@@ -482,7 +482,7 @@ const AdminEntities: React.FC = () => {
         <CardHeader className="pb-3">
           <CardTitle>{ENTITY_LABELS[activeTab]} Kayıtları</CardTitle>
           <CardDescription>
-            `Gizli` kayıtlar yalnızca admin panelinden görünür. Public sayfalarda ve direkt linkte açılmaz.
+            Gizli kayıtlar yalnızca yönetim panelinden görünür; herkese açık sayfalarda ve doğrudan bağlantılarda açılmaz.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -615,10 +615,10 @@ const AdminEntities: React.FC = () => {
                           initialClassName="text-2xl"
                         />
                         <div className="min-w-0 flex-1 space-y-2">
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium">{item.name}</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="break-words font-medium">{item.name}</p>
                             <Badge variant={item.isPublic === false ? 'destructive' : 'secondary'}>
-                              {item.isPublic === false ? 'Gizli' : 'Açık'}
+                              {item.isPublic === false ? 'Gizli' : 'Herkese Açık'}
                             </Badge>
                           </div>
                           <p className="text-sm text-muted-foreground">
@@ -711,7 +711,7 @@ const AdminEntities: React.FC = () => {
                           <TableCell>
                             <Badge variant={item.isPublic === false ? 'destructive' : 'secondary'} className="gap-1">
                               {item.isPublic === false ? <Lock className="h-3 w-3" /> : <Globe2 className="h-3 w-3" />}
-                              {item.isPublic === false ? 'Gizli' : 'Açık'}
+                              {item.isPublic === false ? 'Gizli' : 'Herkese Açık'}
                             </Badge>
                           </TableCell>
                           <TableCell className="hidden xl:table-cell max-w-md">
@@ -725,6 +725,7 @@ const AdminEntities: React.FC = () => {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => handleOpenDialog(item)}
+                                aria-label="Düzenle"
                                 data-prevent-row-toggle="true"
                               >
                                 <UserPen className="h-4 w-4" />
@@ -734,6 +735,7 @@ const AdminEntities: React.FC = () => {
                                 size="icon"
                                 className="text-destructive hover:text-destructive hover:bg-destructive/10"
                                 onClick={() => setEntityToDelete({ id: item.id, name: item.name })}
+                                aria-label="Sil"
                                 data-prevent-row-toggle="true"
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -769,13 +771,13 @@ const AdminEntities: React.FC = () => {
       </Card>
 
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="w-[calc(100vw-2rem)] max-w-5xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="w-[calc(100vw-1.5rem)] max-w-5xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>
               {editingEntity ? 'Düzenle' : 'Yeni Oluştur'}: {ENTITY_LABELS[activeTab]}
             </DialogTitle>
             <DialogDescription>
-              Temel bilgi, görünürlük, alternatif isimler, metadata, galeri ve kaynak linklerini düzenleyin.
+              Temel bilgi, görünürlük, alternatif isimler, meta veri, galeri ve kaynak bağlantılarını düzenleyin.
             </DialogDescription>
           </DialogHeader>
 
@@ -821,12 +823,12 @@ const AdminEntities: React.FC = () => {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Bu alan yalnızca varsayılan profil bilgisidir. Seri bazlı ana/yan/diğer rolü manga düzenleme ekranından veya import sırasında ayrı ayarlanır.
+                  Bu alan yalnızca varsayılan profil bilgisidir. Seri bazlı ana/yan/diğer rolü manga düzenleme ekranından veya içe aktarım sırasında ayrı ayarlanır.
                 </p>
               </div>
             ) : null}
 
-            <div className="grid gap-4 md:grid-cols-[1fr,auto] md:items-end">
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Açıklama</label>
                 <Textarea
@@ -837,16 +839,17 @@ const AdminEntities: React.FC = () => {
                 />
               </div>
 
-              <div className="flex items-center justify-between rounded-2xl border border-border bg-secondary/20 px-4 py-3 md:min-w-[220px]">
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-secondary/20 px-4 py-3 md:min-w-[220px]">
                 <div>
-                  <p className="text-sm font-medium">Public görünürlük</p>
+                  <p className="text-sm font-medium">Herkese açık görünürlük</p>
                   <p className="text-xs text-muted-foreground">
-                    Kapalıysa sadece admin panelinde görünür.
+                    Kapalıysa yalnızca yönetim panelinde görünür.
                   </p>
                 </div>
                 <Switch
                   checked={formData.isPublic}
                   onCheckedChange={(checked) => setFormData((current) => ({ ...current, isPublic: checked }))}
+                  aria-label="Herkese açık görünürlük"
                 />
               </div>
             </div>
@@ -875,8 +878,8 @@ const AdminEntities: React.FC = () => {
 
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {[
-                ['nativeName', 'Native İsim'],
-                ['englishName', 'English İsim'],
+                ['nativeName', 'Özgün İsim'],
+                ['englishName', 'İngilizce İsim'],
                 ['romajiName', 'Romaji'],
                 ['status', 'Durum'],
                 ['age', 'Yaş'],
@@ -890,7 +893,7 @@ const AdminEntities: React.FC = () => {
                 ['role', 'Rol'],
                 ['className', 'Sınıf'],
                 ['rankTitle', 'Unvan'],
-                ['website', 'Website'],
+                ['website', 'Web Sitesi'],
                 ['twitter', 'Twitter'],
               ].map(([field, label]) => (
                 <div key={field} className="space-y-2">
@@ -967,7 +970,7 @@ const AdminEntities: React.FC = () => {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Kaynak Linkleri JSON</label>
+              <label className="text-sm font-medium">Kaynak Bağlantıları (JSON)</label>
               <Textarea
                 value={formData.sourceLinksJson}
                 onChange={(event) => setFormData((current) => ({ ...current, sourceLinksJson: event.target.value }))}
@@ -977,7 +980,7 @@ const AdminEntities: React.FC = () => {
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
             <Button variant="outline" onClick={() => setShowDialog(false)}>İptal</Button>
             <Button onClick={handleSave}>Kaydet</Button>
           </DialogFooter>

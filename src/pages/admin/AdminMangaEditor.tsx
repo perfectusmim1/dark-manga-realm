@@ -1148,7 +1148,7 @@ const AdminMangaEditor: React.FC = () => {
 
             <div className="grid gap-4 lg:grid-cols-3 lg:gap-6">
                 {/* Main Info */}
-                <div className="space-y-6 lg:col-span-2">
+                <div className="min-w-0 space-y-6 lg:col-span-2">
                     <div className="rounded-xl border border-border bg-card p-4 space-y-4 sm:p-6">
                         <h2 className="text-lg font-semibold">Temel Bilgiler</h2>
 
@@ -1170,7 +1170,7 @@ const AdminMangaEditor: React.FC = () => {
                                     placeholder="Alternatif başlık ekle"
                                     onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addAlternativeTitle())}
                                 />
-                                    <Button type="button" onClick={addAlternativeTitle} className="sm:w-auto">
+                                    <Button type="button" onClick={addAlternativeTitle} className="sm:w-auto" aria-label="Alternatif başlık ekle">
                                         <Plus className="h-4 w-4" />
                                     </Button>
                             </div>
@@ -1179,7 +1179,7 @@ const AdminMangaEditor: React.FC = () => {
                                     {manga.alternativeTitles?.map((title, i) => (
                                         <Badge key={i} variant="secondary" className="gap-1">
                                             {title}
-                                            <button onClick={() => removeAlternativeTitle(i)}>
+                                            <button type="button" onClick={() => removeAlternativeTitle(i)} aria-label={`${title} başlığını kaldır`}>
                                                 <X className="h-3 w-3" />
                                             </button>
                                         </Badge>
@@ -1203,7 +1203,7 @@ const AdminMangaEditor: React.FC = () => {
                                             getSearchValues={(author) => author.alternativeNames || []}
                                             getSecondaryText={(author) => author.alternativeNames?.slice(0, 2).join(' • ')}
                                         />
-                                        <Button variant="outline" size="icon" onClick={() => setShowEntityDialog({ type: 'author' })} className="sm:w-10">
+                                        <Button type="button" variant="outline" size="icon" onClick={() => setShowEntityDialog({ type: 'author' })} className="sm:w-10" aria-label="Yeni yazar oluştur">
                                             <Plus className="h-4 w-4" />
                                         </Button>
                                     </div>
@@ -1212,7 +1212,7 @@ const AdminMangaEditor: React.FC = () => {
                                             {selectedAuthors.map((author) => (
                                                 <Badge key={author.id} variant="secondary" className="gap-2 px-3 py-1">
                                                     <span>{author.name}</span>
-                                                    <button type="button" onClick={() => removeSelectedAuthor(author.id)}>
+                                                    <button type="button" onClick={() => removeSelectedAuthor(author.id)} aria-label={`${author.name} yazarını kaldır`}>
                                                         <X className="h-3 w-3" />
                                                     </button>
                                                 </Badge>
@@ -1222,7 +1222,7 @@ const AdminMangaEditor: React.FC = () => {
                                     <Input
                                         value={manga.author || ''}
                                         onChange={(e) => handleChange('author', e.target.value)}
-                                        placeholder="Ek yazar adlari icin yeni satir veya ; kullanin"
+                                        placeholder="Ek yazar adları için yeni satır veya ; kullanın"
                                         className="mt-2"
                                     />
                                 </div>
@@ -1241,7 +1241,7 @@ const AdminMangaEditor: React.FC = () => {
                                             getSearchValues={(artist) => artist.alternativeNames || []}
                                             getSecondaryText={(artist) => artist.alternativeNames?.slice(0, 2).join(' • ')}
                                         />
-                                        <Button variant="outline" size="icon" onClick={() => setShowEntityDialog({ type: 'artist' })} className="sm:w-10">
+                                        <Button type="button" variant="outline" size="icon" onClick={() => setShowEntityDialog({ type: 'artist' })} className="sm:w-10" aria-label="Yeni çizer oluştur">
                                             <Plus className="h-4 w-4" />
                                         </Button>
                                     </div>
@@ -1250,7 +1250,7 @@ const AdminMangaEditor: React.FC = () => {
                                             {selectedArtists.map((artist) => (
                                                 <Badge key={artist.id} variant="secondary" className="gap-2 px-3 py-1">
                                                     <span>{artist.name}</span>
-                                                    <button type="button" onClick={() => removeSelectedArtist(artist.id)}>
+                                                    <button type="button" onClick={() => removeSelectedArtist(artist.id)} aria-label={`${artist.name} çizerini kaldır`}>
                                                         <X className="h-3 w-3" />
                                                     </button>
                                                 </Badge>
@@ -1260,7 +1260,7 @@ const AdminMangaEditor: React.FC = () => {
                                     <Input
                                         value={manga.artist || ''}
                                         onChange={(e) => handleChange('artist', e.target.value)}
-                                        placeholder="Ek çizer adlari icin yeni satir veya ; kullanin"
+                                        placeholder="Ek çizer adları için yeni satır veya ; kullanın"
                                         className="mt-2"
                                     />
                                 </div>
@@ -1441,6 +1441,7 @@ const AdminMangaEditor: React.FC = () => {
                                                     {char.imageUrl ? (
                                                         <img
                                                             src={char.imageUrl}
+                                                            alt={char.name}
                                                             className="h-full w-full object-cover"
                                                             onError={(e) => {
                                                                 (e.target as HTMLImageElement).src = 'https://via.placeholder.com/40?text=?';
@@ -1478,6 +1479,7 @@ const AdminMangaEditor: React.FC = () => {
                                                     variant="outline"
                                                     size="icon"
                                                     className="shrink-0 hover:text-destructive"
+                                                    aria-label={`${char.name} karakterini kaldır`}
                                                     onClick={() => {
                                                         setMangaCharacters((current) => current.filter((item) => item.id !== char.id));
                                                     }}
@@ -1514,7 +1516,7 @@ const AdminMangaEditor: React.FC = () => {
                                 </p>
                             </div>
 
-                            <div className="grid gap-2 lg:grid-cols-[1fr,220px,auto]">
+                            <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
                                 <Select value={selectedRelatedMangaId} onValueChange={setSelectedRelatedMangaId}>
                                     <SelectTrigger>
                                         <SelectValue placeholder="Bağlanacak manga seçin..." />
@@ -1535,14 +1537,11 @@ const AdminMangaEditor: React.FC = () => {
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="related">İlgili Seri</SelectItem>
-                                        <SelectItem value="sequel">Devam Serisi</SelectItem>
-                                        <SelectItem value="prequel">Öncesi</SelectItem>
-                                        <SelectItem value="spinoff">Spin-off</SelectItem>
-                                        <SelectItem value="side_story">Yan Hikaye</SelectItem>
-                                        <SelectItem value="adaptation">Adaptasyon</SelectItem>
-                                        <SelectItem value="adapted_from">Uyarlama Kaynağı</SelectItem>
-                                        <SelectItem value="alternative_version">Alternatif Versiyon</SelectItem>
+                                        {['related', 'sequel', 'prequel', 'spinoff', 'side_story', 'adaptation', 'adapted_from', 'alternative_version'].map((relType) => (
+                                            <SelectItem key={relType} value={relType}>
+                                                {getMangaRelationTypeLabel(relType)}
+                                            </SelectItem>
+                                        ))}
                                     </SelectContent>
                                 </Select>
 
@@ -1570,6 +1569,7 @@ const AdminMangaEditor: React.FC = () => {
                                                 variant="ghost"
                                                 size="icon"
                                                 className="text-destructive"
+                                                aria-label="İlişkiyi kaldır"
                                                 onClick={() => removeRelatedSeries(relation.relatedMangaId)}
                                             >
                                                 <Trash2 className="h-4 w-4" />
@@ -1709,18 +1709,22 @@ const AdminMangaEditor: React.FC = () => {
                                             </div>
                                             <div className="flex gap-2">
                                                 <Button
+                                                    type="button"
                                                     variant="ghost"
                                                     size="icon"
                                                     onClick={() => openEditChapterDialog(chapter)}
+                                                    aria-label="Bölümü düzenle"
                                                     data-prevent-card-toggle="true"
                                                 >
                                                     <Upload className="h-4 w-4" />
                                                 </Button>
                                                 <Button
+                                                    type="button"
                                                     variant="ghost"
                                                     size="icon"
                                                     className="text-destructive"
                                                     onClick={() => handleDeleteChapter(chapter.id)}
+                                                    aria-label="Bölümü sil"
                                                     data-prevent-card-toggle="true"
                                                 >
                                                     <Trash2 className="h-4 w-4" />
@@ -1739,12 +1743,12 @@ const AdminMangaEditor: React.FC = () => {
                 </div>
 
                 {/* Sidebar */}
-                <div className="space-y-6">
+                <div className="min-w-0 space-y-6">
                     <div className="rounded-xl border border-border bg-card p-4 space-y-4 sm:p-6">
                         <div className="rounded-xl border border-border/60 bg-secondary/20 p-4">
                             <div className="flex items-start justify-between gap-4">
                                 <div className="space-y-1">
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex flex-wrap items-center gap-2">
                                         {manga.isPublic !== false ? (
                                             <Globe2 className="h-4 w-4 text-emerald-500" />
                                         ) : (
@@ -1754,11 +1758,11 @@ const AdminMangaEditor: React.FC = () => {
                                         <Badge variant="outline" className={manga.isPublic !== false
                                             ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600'
                                             : 'border-amber-500/30 bg-amber-500/10 text-amber-600'}>
-                                            {manga.isPublic !== false ? 'Public' : 'Private'}
+                                            {manga.isPublic !== false ? 'Herkese Açık' : 'Gizli'}
                                         </Badge>
                                     </div>
                                     <p className="text-sm text-muted-foreground">
-                                        Private seriler admin panelde kalır, ziyaretçilerde ve listelemelerde gizlenir.
+                                        Gizli seriler yönetim panelinde kalır; ziyaretçilerden ve listelemelerden gizlenir.
                                     </p>
                                 </div>
                                 <Switch
@@ -1772,7 +1776,7 @@ const AdminMangaEditor: React.FC = () => {
                         <div className="rounded-xl border border-rose-500/20 bg-[linear-gradient(135deg,rgba(127,29,29,0.12),rgba(136,19,55,0.08),rgba(120,53,15,0.12))] p-4">
                             <div className="flex items-start justify-between gap-4">
                                 <div className="space-y-1">
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex flex-wrap items-center gap-2">
                                         <TriangleAlert className="h-4 w-4 text-rose-500" />
                                         <h2 className="text-sm font-semibold">18+ İçerik</h2>
                                         <Badge
@@ -1803,34 +1807,34 @@ const AdminMangaEditor: React.FC = () => {
                             <Input
                                 value={manga.cover || ''}
                                 onChange={(e) => handleChange('cover', e.target.value)}
-                                placeholder="https://example.com/cover.jpg"
+                                placeholder="https://ornek.com/kapak.jpg"
                             />
                             {manga.cover && (
                                 <img
                                     src={manga.cover}
-                                    alt="Cover"
+                                    alt="Kapak görseli"
                                     className="mt-2 w-full rounded-lg object-cover"
                                     onError={(e) => {
-                                        (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x400?text=No+Image';
+                                        (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x400?text=Gorsel+Yok';
                                     }}
                                 />
                             )}
                         </div>
 
                         <div className="space-y-2">
-                            <label className="text-sm font-medium">Banner URL</label>
+                            <label className="text-sm font-medium">Afiş URL</label>
                             <Input
                                 value={manga.banner || ''}
                                 onChange={(e) => handleChange('banner', e.target.value)}
-                                placeholder="https://example.com/banner.jpg"
+                                placeholder="https://ornek.com/afis.jpg"
                             />
                             {manga.banner && (
                                 <img
                                     src={manga.banner}
-                                    alt="Banner"
+                                    alt="Afiş görseli"
                                     className="mt-2 w-full rounded-lg aspect-video object-cover"
                                     onError={(e) => {
-                                        (e.target as HTMLImageElement).src = 'https://via.placeholder.com/1200x400?text=No+Banner+Image';
+                                        (e.target as HTMLImageElement).src = 'https://via.placeholder.com/1200x400?text=Afis+Yok';
                                     }}
                                 />
                             )}
@@ -1840,13 +1844,13 @@ const AdminMangaEditor: React.FC = () => {
                             <div className="space-y-1">
                                 <label className="text-sm font-medium">Seri Galerisi</label>
                                 <p className="text-xs text-muted-foreground">
-                                    Her satıra bir görsel URL'si yazın. Bu görseller manga sayfasında `Galeri` sekmesinde gösterilir.
+                                    Her satıra bir görsel URL'si yazın. Bu görseller manga sayfasındaki Galeri sekmesinde gösterilir.
                                 </p>
                             </div>
                             <Textarea
                                 value={seriesGalleryInput}
                                 onChange={(e) => updateSeriesGalleryUrls(e.target.value)}
-                                placeholder={'https://example.com/gallery-1.jpg\nhttps://example.com/gallery-2.jpg'}
+                                placeholder={'https://ornek.com/galeri-1.jpg\nhttps://ornek.com/galeri-2.jpg'}
                                 className="min-h-[120px]"
                             />
                             <p className="text-xs text-muted-foreground">
@@ -1861,7 +1865,7 @@ const AdminMangaEditor: React.FC = () => {
                                                 alt={`Seri galeri ${index + 1}`}
                                                 className="aspect-[3/4] w-full rounded-md object-cover"
                                                 onError={(e) => {
-                                                    (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x400?text=No+Image';
+                                                    (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x400?text=Gorsel+Yok';
                                                 }}
                                             />
                                             <p className="truncate text-[11px] text-muted-foreground">{url}</p>
@@ -1918,7 +1922,7 @@ const AdminMangaEditor: React.FC = () => {
                                 />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium">Bölüm Başlığı (Opsiyonel)</label>
+                                <label className="text-sm font-medium">Bölüm Başlığı (İsteğe Bağlı)</label>
                                 <Input
                                     value={newChapter.title || ''}
                                     onChange={(e) => setNewChapter(prev => ({ ...prev, title: e.target.value }))}
@@ -1933,10 +1937,10 @@ const AdminMangaEditor: React.FC = () => {
                                 <Input
                                     value={pageUrlInput}
                                     onChange={(e) => setPageUrlInput(e.target.value)}
-                                    placeholder="https://example.com/page1.jpg"
+                                    placeholder="https://ornek.com/sayfa1.jpg"
                                     onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addPageUrl())}
                                 />
-                                <Button type="button" onClick={addPageUrl}>
+                                <Button type="button" onClick={addPageUrl} aria-label="Sayfa URL ekle">
                                     <Plus className="h-4 w-4" />
                                 </Button>
                             </div>
@@ -1944,13 +1948,15 @@ const AdminMangaEditor: React.FC = () => {
                             {newChapter.pages.length > 0 && (
                                 <div className="mt-2 space-y-2 max-h-60 overflow-y-auto">
                                     {newChapter.pages.map((page, i) => (
-                                        <div key={i} className="flex items-center gap-2 rounded-lg border border-border p-2">
+                                        <div key={i} className="flex min-w-0 items-center gap-2 rounded-lg border border-border p-2">
                                             <ImageIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                                            <span className="flex-1 truncate text-sm">{page}</span>
+                                            <span className="min-w-0 flex-1 truncate text-sm">{page}</span>
                                             <Button
+                                                type="button"
                                                 variant="ghost"
                                                 size="icon"
-                                                className="h-6 w-6"
+                                                className="h-6 w-6 shrink-0"
+                                                aria-label={`Sayfa ${i + 1} sil`}
                                                 onClick={() => removePageUrl(i)}
                                             >
                                                 <X className="h-3 w-3" />

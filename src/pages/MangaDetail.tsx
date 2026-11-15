@@ -3524,7 +3524,7 @@ const MangaDetail: React.FC = () => {
                       if (seenGenres.has(key)) return [];
                       seenGenres.add(key);
                       return (
-                        <Link key={genre} to={`/browse?genre=${encodeURIComponent(genre)}`}>
+                        <Link key={key} to={`/browse?genre=${encodeURIComponent(genre)}`}>
                           <Badge
                             variant="secondary"
                             className="cursor-pointer transition-colors hover:bg-secondary/80"
@@ -3583,9 +3583,9 @@ const MangaDetail: React.FC = () => {
                     <Button
                       variant="outline"
                       onClick={handleAddToList}
-                      className="group h-9 w-full border-primary/30 text-xs transition-all hover:border-primary/60 hover:bg-primary/5 sm:h-10 sm:w-auto sm:text-sm"
+                      className="group h-9 w-full border-primary/30 text-xs transition-colors duration-150 motion-reduce:transition-none hover:border-primary/60 hover:bg-primary/5 sm:h-10 sm:w-auto sm:text-sm"
                     >
-                      <List className="h-4 w-4 text-primary transition-transform group-hover:scale-110" />
+                      <List className="h-4 w-4 text-primary transition-transform duration-150 motion-reduce:transition-none group-hover:scale-110" />
                       Listeye Ekle
                     </Button>
 
@@ -3649,19 +3649,19 @@ const MangaDetail: React.FC = () => {
               <TabsList className="h-auto min-w-full w-max justify-start gap-3 rounded-none border-b bg-transparent p-0 sm:gap-8">
                 <TabsTrigger
                   value="overview"
-                  className="whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent"
+                  className="whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-colors duration-150 motion-reduce:transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
                 >
                   GENEL BAKIŞ
                 </TabsTrigger>
                 <TabsTrigger
                   value="preview"
-                  className="whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent"
+                  className="whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-colors duration-150 motion-reduce:transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
                 >
                   ÖNİZLEME
                 </TabsTrigger>
                 <TabsTrigger
                   value="bookmarks"
-                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent"
+                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-colors duration-150 motion-reduce:transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
                 >
                   YER İMLERİ
                   {seriesBookmarks.length > 0 && (
@@ -3672,7 +3672,7 @@ const MangaDetail: React.FC = () => {
                 </TabsTrigger>
                 <TabsTrigger
                   value="reviews"
-                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent"
+                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-colors duration-150 motion-reduce:transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
                 >
                   İNCELEMELER
                   {reviewCount > 0 && (
@@ -3683,7 +3683,7 @@ const MangaDetail: React.FC = () => {
                 </TabsTrigger>
                 <TabsTrigger
                   value="characters"
-                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent"
+                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-colors duration-150 motion-reduce:transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
                 >
                   KARAKTERLER
                   {characterCount > 0 && (
@@ -3695,7 +3695,7 @@ const MangaDetail: React.FC = () => {
                 {seriesGalleryImages.length > 0 && (
                   <TabsTrigger
                     value="gallery"
-                    className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent"
+                    className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-colors duration-150 motion-reduce:transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
                   >
                     GALERİ
                     <Badge variant="secondary" className="h-5 border-none bg-primary/10 px-2 text-[10px] text-primary hover:bg-primary/20">
@@ -3705,7 +3705,7 @@ const MangaDetail: React.FC = () => {
                 )}
                 <TabsTrigger
                   value="discover"
-                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent"
+                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-colors duration-150 motion-reduce:transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
                 >
                   KEŞFET
                 </TabsTrigger>
@@ -3720,10 +3720,7 @@ const MangaDetail: React.FC = () => {
                     <div className="space-y-4 sm:space-y-6 lg:col-span-2 lg:space-y-8">
                       <div className="rounded-xl border border-border bg-card/50 overflow-hidden">
                         <div className="flex flex-col justify-between gap-3 border-b border-border p-3 sm:flex-row sm:items-center sm:gap-4 sm:p-4">
-                          <div>
-                            <h2 className="text-xl font-bold">Bölümler</h2>
-                            <p className="text-sm text-muted-foreground">{uniqueChapterCount} bölüm mevcut</p>
-                          </div>
+                          <h2 className="text-xl font-bold">Bölümler</h2>
                           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                             <div className="flex items-center rounded-lg border border-border/70 bg-secondary/40 p-0.5 text-xs">
                               <button
@@ -4244,9 +4241,9 @@ const MangaDetail: React.FC = () => {
                           })}
                           className={cn(
                             'group flex min-h-[176px] gap-4 rounded-2xl border border-border bg-card/50 p-4 shadow-sm transition-colors hover:border-primary/30 hover:bg-card/70 sm:min-h-[204px] sm:gap-5 sm:p-5 lg:p-6',
-                            !reduceMotion && 'animate-fade-up',
+                            !reduceMotion && 'animate-fade-up motion-reduce:animate-none',
                           )}
-                          style={reduceMotion ? undefined : { animationDelay: `${0.08 + index * 0.04}s` }}
+                          style={reduceMotion ? undefined : { animationDelay: `${0.04 + Math.min(index, 8) * 0.03}s` }}
                         >
                           <BookmarkPagePreview
                             src={previewImage}
@@ -4651,8 +4648,8 @@ const MangaDetail: React.FC = () => {
                           const isReviewExpandable = shouldCollapseReviewContent(review.content);
 
                           return (
-                            <div key={review.id} className="relative rounded-xl border border-border bg-card/30 p-4 transition-all hover:bg-card/50 sm:p-6">
-                              <div className={cn("transition-all duration-300", isBlocked && !isRevealed && "blur-md select-none pointer-events-none grayscale opacity-40 overflow-hidden max-h-40")}>
+                            <div key={review.id} className="relative rounded-xl border border-border bg-card/30 p-4 transition-colors duration-150 motion-reduce:transition-none hover:bg-card/50 sm:p-6">
+                              <div className={cn("transition-[filter,opacity] duration-200 motion-reduce:transition-none", isBlocked && !isRevealed && "blur-md select-none pointer-events-none grayscale opacity-40 overflow-hidden max-h-40")}>
                                 <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                   <div className="flex min-w-0 gap-3 sm:gap-4">
                                     <Link to={`/profile/${review.userId}`} className="shrink-0 transition-transform hover:scale-105">
@@ -4697,11 +4694,11 @@ const MangaDetail: React.FC = () => {
                                 <div className="mb-6">
                                   <div
                                     className={cn(
-                                      'relative overflow-hidden transition-[max-height] duration-300 ease-out',
+                                      'relative overflow-hidden transition-[max-height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
                                       isReviewExpandable && !isReviewExpanded ? 'max-h-48' : 'max-h-[120rem]',
                                     )}
                                   >
-                                    <div className="text-sm leading-relaxed text-foreground/90">
+                                    <div className="break-words [overflow-wrap:anywhere] text-sm leading-relaxed text-foreground/90">
                                       {renderRichContent(review.content || '')}
                                     </div>
                                     {isReviewExpandable && !isReviewExpanded && (

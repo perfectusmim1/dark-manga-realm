@@ -110,8 +110,8 @@ const AdminAnnouncements: React.FC = () => {
         <div className="space-y-6 lg:space-y-8">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold flex items-center gap-3 sm:text-3xl">
-                        <Megaphone className="h-8 w-8 text-primary" />
+                    <h1 className="flex items-center gap-3 text-2xl font-bold sm:text-3xl">
+                        <Megaphone className="h-7 w-7 shrink-0 text-primary sm:h-8 sm:w-8" />
                         Duyurular
                     </h1>
                 </div>
@@ -129,8 +129,9 @@ const AdminAnnouncements: React.FC = () => {
                         </DialogHeader>
                         <form onSubmit={handleCreate} className="space-y-4 py-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium">Başlık</label>
+                                <label htmlFor="announcement-title" className="text-sm font-medium">Başlık</label>
                                 <Input 
+                                    id="announcement-title"
                                     placeholder="Örn: Sitemiz Güncellendi!" 
                                     value={title}
                                     onChange={(e) => setTitle(e.target.value)}
@@ -138,8 +139,9 @@ const AdminAnnouncements: React.FC = () => {
                                 />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium">İçerik</label>
+                                <label htmlFor="announcement-content" className="text-sm font-medium">İçerik</label>
                                 <Textarea 
+                                    id="announcement-content"
                                     placeholder="Duyuru detaylarını buraya yazın..." 
                                     className="min-h-[150px]"
                                     value={content}
@@ -174,16 +176,16 @@ const AdminAnnouncements: React.FC = () => {
                     announcements.map((announcement) => (
                         <div 
                             key={announcement.id}
-                            className="group relative rounded-xl border border-border bg-card p-4 transition-all hover:border-primary/50 hover:shadow-md sm:p-6"
+                            className="group relative rounded-xl border border-border bg-card p-4 transition-all duration-200 hover:border-primary/50 hover:shadow-md sm:p-6"
                         >
                             <div className="flex items-start justify-between gap-4">
-                                <div className="space-y-1 pr-8 sm:pr-12">
-                                    <h3 className="text-lg font-bold">{announcement.title}</h3>
+                                <div className="min-w-0 flex-1 space-y-1 pr-10 sm:pr-12">
+                                    <h3 className="break-words text-lg font-bold">{announcement.title}</h3>
                                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                        <Calendar className="h-3 w-3" />
+                                        <Calendar className="h-3 w-3 shrink-0" />
                                         {format(new Date(announcement.created_at), 'd MMMM yyyy HH:mm', { locale: tr })}
                                     </div>
-                                    <div className="mt-4 text-sm text-foreground/80 leading-relaxed whitespace-pre-wrap">
+                                    <div className="mt-4 break-words text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap">
                                         {announcement.content}
                                     </div>
                                 </div>
@@ -191,7 +193,8 @@ const AdminAnnouncements: React.FC = () => {
                                 <Button 
                                     variant="ghost" 
                                     size="icon" 
-                                    className="absolute top-3 right-3 text-destructive opacity-100 transition-opacity sm:top-4 sm:right-4 sm:opacity-0 sm:group-hover:opacity-100"
+                                    aria-label="Duyuruyu sil"
+                                    className="absolute top-3 right-3 text-destructive opacity-100 transition-opacity sm:top-4 sm:right-4 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
                                     onClick={() => setAnnouncementToDelete(announcement)}
                                 >
                                     <Trash2 className="h-4 w-4" />
