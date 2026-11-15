@@ -26,8 +26,8 @@ import { useDeviceProfile } from '@/hooks/use-device-profile';
 
 const PAGE_SIZE = 90;
 const LATEST_COVER_TRANSFORM = Object.freeze({
-    width: 192,
-    quality: 82,
+    width: 144,
+    quality: 85,
     format: 'webp' as const,
     fit: 'cover' as const,
 });
@@ -178,6 +178,8 @@ const LatestChapters: React.FC = () => {
         }
     }, []);
 
+    const previousAudienceKeyRef = React.useRef(audienceKey);
+
     React.useEffect(() => {
         const nextUserKey = user?.id ?? null;
         if (latestChaptersPageCacheUserId !== undefined && latestChaptersPageCacheUserId !== nextUserKey) {
@@ -185,8 +187,16 @@ const LatestChapters: React.FC = () => {
             latestChaptersStatsCache = null;
             countsLoadedRef.current = false;
         }
+        if (previousAudienceKeyRef.current !== audienceKey) {
+            previousAudienceKeyRef.current = audienceKey;
+            countsLoadedRef.current = Boolean(
+                latestChaptersStatsCache
+                && latestChaptersStatsCache.audienceKey === audienceKey
+                && Date.now() - latestChaptersStatsCache.fetchedAt < LATEST_CHAPTERS_PAGE_CACHE_TTL_MS,
+            );
+        }
         latestChaptersPageCacheUserId = nextUserKey;
-    }, [user?.id]);
+    }, [audienceKey, user?.id]);
 
     const loadChapters = React.useCallback(async (page: number) => {
         if (!isOnline) {
@@ -337,6 +347,16 @@ const LatestChapters: React.FC = () => {
         }));
     }, [chapters, looseQuickFilter, normalizedQuickFilter]);
 
+    const loadedRecent24hCount = React.useMemo(() => {
+        const cutoffMs = Date.now() - 24 * 60 * 60 * 1000;
+        return chapters.reduce((count, chapter) => {
+            const parsedTime = Date.parse(chapter.addedAt || '');
+            return Number.isFinite(parsedTime) && parsedTime >= cutoffMs ? count + 1 : count;
+        }, 0);
+    }, [chapters]);
+
+    const effectiveRecentChapterCount = Math.max(recentChapterCount, loadedRecent24hCount);
+
     if (!isOnline) {
         return (
             <OfflineRequiredScreen
@@ -370,10 +390,10 @@ const LatestChapters: React.FC = () => {
                             <div className="min-w-0">
                                 <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Son Bölümler</h1>
                                 <p className="mt-0.5 text-xs text-muted-foreground">
-                                    {recentChapterCount > 0
-                                        ? `Son 24 saatte ${recentChapterCount} bölüm eklendi`
+                                    {effectiveRecentChapterCount > 0
+                                        ? `Son 24 saatte ${effectiveRecentChapterCount} bölüm eklendi`
                                         : totalChaptersCount > 0
-                                            ? `${totalChaptersCount} güncel bölüm · En yeni güncellemeler`
+                                            ? `${totalChaptersCount} güncel bölüm listeleniyor`
                                             : 'En yeni bölüm güncellemeleri'}
                                 </p>
                             </div>

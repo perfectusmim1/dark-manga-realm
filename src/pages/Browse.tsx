@@ -399,8 +399,8 @@ const Browse: React.FC = () => {
   const hasActiveFilters = searchQuery || selectedGenres.length > 0 || selectedTagSlugs.length > 0 || typeFilter !== 'all' || statusFilter !== 'all' || contentFilter !== 'all';
   const isInitialResultsPending = isLoading && mangas.length === 0;
 
-  const BROWSE_PAGE_SIZE = 36;
-  const totalPages = Math.max(1, Math.ceil(filteredManga.length / BROWSE_PAGE_SIZE));
+  const browsePageSize = gridDensity === 'compact' ? 35 : 36;
+  const totalPages = Math.max(1, Math.ceil(filteredManga.length / browsePageSize));
 
   useEffect(() => {
     if (currentPage > totalPages && totalPages > 0) {
@@ -409,9 +409,9 @@ const Browse: React.FC = () => {
   }, [currentPage, totalPages]);
 
   const paginatedManga = useMemo(() => {
-    const start = (currentPage - 1) * BROWSE_PAGE_SIZE;
-    return filteredManga.slice(start, start + BROWSE_PAGE_SIZE);
-  }, [filteredManga, currentPage]);
+    const start = (currentPage - 1) * browsePageSize;
+    return filteredManga.slice(start, start + browsePageSize);
+  }, [filteredManga, currentPage, browsePageSize]);
 
   const resultsLabel = isInitialResultsPending
     ? 'Seriler hazırlanıyor...'
@@ -706,7 +706,7 @@ const Browse: React.FC = () => {
                     index={idx}
                     disableHeavyEffects={disableHeavyEffects || prefersReducedMotion}
                     enableEntryAnimation={!prefersReducedMotion}
-                    entryAnimationClassName="animate-card-reveal-fast"
+                    entryAnimationClassName="animate-route-fade"
                     entryAnimationDelayStepMs={10}
                     entryAnimationDurationMs={170}
                   />

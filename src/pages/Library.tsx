@@ -330,6 +330,7 @@ const Library: React.FC = () => {
                                                     alt={manga.title}
                                                     priority={index < 6}
                                                     rootMargin="480px 0px"
+                                                    transform={{ width: 144, quality: 85, format: 'webp', fit: 'cover' }}
                                                     containerClassName="h-full w-full"
                                                     placeholderClassName="rounded-lg"
                                                     sizes="64px"

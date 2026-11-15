@@ -15,6 +15,7 @@ import useDocumentTitle from '@/hooks/useDocumentTitle';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
 import Header from '@/components/layout/Header';
 import InstallAppBanner from '@/components/pwa/InstallAppBanner';
+import OptimizedImage from '@/components/media/OptimizedImage';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -380,12 +381,14 @@ const Downloads: React.FC = () => {
                       <div className="flex min-w-0 gap-3 sm:gap-4">
                         <Link to={`/manga/${entry.manga.mangaId}`} className="shrink-0">
                           {entry.manga.cover ? (
-                            <img
+                            <OptimizedImage
                               src={entry.manga.cover}
                               alt={entry.manga.title}
-                              loading="lazy"
-                              decoding="async"
-                              className="h-24 w-[4.5rem] rounded-xl object-cover ring-1 ring-border/50 sm:h-28 sm:w-20"
+                              allowProxy
+                              transform={{ width: 160, quality: 85, format: 'webp', fit: 'cover' }}
+                              containerClassName="h-24 w-[4.5rem] overflow-hidden rounded-xl ring-1 ring-border/50 sm:h-28 sm:w-20"
+                              placeholderClassName="rounded-xl p-1 text-[8px] leading-tight"
+                              className="h-full w-full object-cover"
                             />
                           ) : (
                             <div className="flex h-24 w-[4.5rem] items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 via-secondary/50 to-background text-xl font-bold text-muted-foreground ring-1 ring-border/50 sm:h-28 sm:w-20">

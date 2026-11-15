@@ -465,7 +465,7 @@ const TierListsDiscoveryTab: React.FC = () => {
                                     src={entry.image}
                                     alt={entry.name}
                                     allowProxy
-                                    transform={{ width: 80, quality: 75 }}
+                                    transform={{ width: 80, quality: 85, format: 'webp', fit: 'cover' }}
                                     containerClassName="h-full w-full"
                                     className="h-full w-full object-cover"
                                   />

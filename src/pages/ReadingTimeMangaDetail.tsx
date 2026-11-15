@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, BookOpen, CalendarDays, Clock3, Flame } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
+import OptimizedImage from '@/components/media/OptimizedImage';
 import useDocumentTitle from '@/hooks/useDocumentTitle';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
 import { useAuth } from '@/contexts/AuthContext';
@@ -100,12 +101,14 @@ const ReadingTimeSessionCard = ({ entry }: { entry: ReadingTimeEntry }) => {
             className="group flex items-start gap-3 rounded-xl border border-border/60 bg-card/75 p-3 transition-colors duration-200 hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
             {entry.mangaCover ? (
-                <img
+                <OptimizedImage
                     src={entry.mangaCover}
                     alt={entry.mangaTitle}
-                    loading="lazy"
-                    decoding="async"
-                    className="image-downscale-quality h-16 w-12 shrink-0 rounded-lg object-cover ring-1 ring-border/50"
+                    allowProxy
+                    transform={{ width: 144, quality: 85, format: 'webp', fit: 'cover' }}
+                    containerClassName="h-16 w-12 shrink-0 overflow-hidden rounded-lg ring-1 ring-border/50"
+                    placeholderClassName="rounded-lg p-1 text-[8px] leading-tight"
+                    className="h-full w-full object-cover"
                 />
             ) : (
                 <div className="flex h-16 w-12 shrink-0 items-center justify-center rounded-lg bg-secondary/60">
@@ -246,10 +249,15 @@ const ReadingTimeMangaDetail: React.FC = () => {
 
                         <div className="flex min-w-0 flex-1 items-start gap-3 sm:gap-4">
                             {mangaCover ? (
-                                <img
+                                <OptimizedImage
                                     src={mangaCover}
                                     alt={mangaTitle}
-                                    className="h-20 w-14 shrink-0 rounded-xl border border-border/60 object-cover sm:h-28 sm:w-20 sm:rounded-2xl"
+                                    priority
+                                    allowProxy
+                                    transform={{ width: 192, quality: 85, format: 'webp', fit: 'cover' }}
+                                    containerClassName="h-20 w-14 shrink-0 overflow-hidden rounded-xl border border-border/60 sm:h-28 sm:w-20 sm:rounded-2xl"
+                                    placeholderClassName="rounded-xl p-1 text-[8px] leading-tight sm:rounded-2xl"
+                                    className="h-full w-full object-cover"
                                 />
                             ) : null}
 

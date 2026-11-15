@@ -12,6 +12,7 @@ import {
     X,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
+import OptimizedImage from '@/components/media/OptimizedImage';
 import useDocumentTitle from '@/hooks/useDocumentTitle';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
 import { useAuth } from '@/contexts/AuthContext';
@@ -311,12 +312,14 @@ const ReadingTimeMangaCard = ({
         >
             <div className="relative h-24 w-[4.25rem] shrink-0 overflow-hidden rounded-xl border border-border/50 bg-black leading-none">
                 {aggregate.mangaCover ? (
-                    <img
+                    <OptimizedImage
                         src={aggregate.mangaCover}
                         alt={aggregate.mangaTitle}
-                        loading="lazy"
-                        decoding="async"
-                        className="image-downscale-quality block h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+                        allowProxy
+                        transform={{ width: 144, quality: 85, format: 'webp', fit: 'cover' }}
+                        containerClassName="h-full w-full"
+                        placeholderClassName="rounded-xl p-1 text-[8px] leading-tight"
+                        className="block h-full w-full object-cover"
                     />
                 ) : (
                     <div className="flex h-full w-full items-center justify-center bg-secondary/40">

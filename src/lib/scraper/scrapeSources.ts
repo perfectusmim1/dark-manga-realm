@@ -518,6 +518,7 @@ export const cleanChapterTitle = (
   text = text.replace(/\b\d+(?:[.,]\d+)?\s*[kmbKMkMB]\b/g, ' ');
   text = text.replace(/\b\d+\s*(?:g[öo]r[üu]nt[üu]lenme|okunma|okuma|views?|reads?)\b/gi, ' ');
   text = text.replace(/\bburadas[ıi]n[ıi]z\b/gi, ' ');
+  text = text.replace(/\s*[-–—:|•]?\s*\b(?:read\s*(?:last|first|now|online)|read-(?:first|last)|(?:first|last|latest|new)\s*chapter)\b\s*/gi, ' ');
 
   // 4. If series title is provided, strip it from title
   if (seriesTitle && typeof seriesTitle === 'string') {

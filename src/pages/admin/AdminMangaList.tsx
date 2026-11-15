@@ -34,6 +34,7 @@ import { getMangaSummaries, deleteManga } from '@/lib/database';
 import { getMangaTypeLabel } from '@/lib/mangaType';
 import { Manga } from '@/lib/types';
 import { toast } from 'sonner';
+import ProxyImage from '@/components/media/ProxyImage';
 import { AppPagination } from '@/components/ui/AppPagination';
 
 interface AdminMangaListProps {
@@ -299,9 +300,11 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
                     {paginatedMangas.map((manga) => (
                         <div key={manga.id} className="space-y-4 p-4">
                             <div className="flex items-start gap-3">
-                                <img
+                                <ProxyImage
                                     src={manga.cover}
                                     alt={manga.title}
+                                    allowProxy
+                                    transform={{ width: 144, quality: 85, format: 'webp', fit: 'cover' }}
                                     className="h-20 w-14 shrink-0 rounded object-cover"
                                 />
                                 <div className="min-w-0 flex-1 space-y-2">
@@ -367,10 +370,12 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
                                 <tr key={manga.id} className="hover:bg-secondary/50">
                                     <td className="px-4 py-3">
                                         <div className="flex items-center gap-3">
-                                            <img
+                                            <ProxyImage
                                                 src={manga.cover}
                                                 alt={manga.title}
-                                                className="h-12 w-9 rounded object-cover"
+                                                allowProxy
+                                                transform={{ width: 80, quality: 85, format: 'webp', fit: 'cover' }}
+                                                className="h-12 w-9 shrink-0 rounded object-cover"
                                             />
                                             <div>
                                                 <p className="font-medium">{manga.title}</p>

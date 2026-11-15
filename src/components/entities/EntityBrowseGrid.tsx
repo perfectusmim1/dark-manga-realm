@@ -156,6 +156,7 @@ const EntityBrowseGrid: React.FC<EntityBrowseGridProps> = ({
                         allowProxy
                         priority={index < 6}
                         rootMargin="560px 0px"
+                        transform={{ width: 320, quality: 84, format: 'webp', fit: 'cover' }}
                         containerClassName="h-full w-full"
                         placeholderClassName="rounded-[inherit]"
                         className="h-full w-full rounded-[inherit] object-cover"

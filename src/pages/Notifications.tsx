@@ -14,6 +14,7 @@ import {
     Trash2,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
+import OptimizedImage from '@/components/media/OptimizedImage';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
@@ -323,11 +324,15 @@ const Notifications: React.FC = () => {
 
                                 {/* Manga Cover (for new chapter notifications) */}
                                 {notification.mangaCover && (
-                                    <div className="flex-shrink-0">
-                                        <img
+                                    <div className="h-16 w-12 shrink-0 overflow-hidden rounded-lg bg-secondary shadow-md">
+                                        <OptimizedImage
                                             src={notification.mangaCover}
                                             alt={notification.mangaTitle || 'Manga'}
-                                            className="h-16 w-12 rounded-lg object-cover shadow-md transition-transform group-hover:scale-105"
+                                            allowProxy
+                                            transform={{ width: 144, quality: 85, format: 'webp', fit: 'cover' }}
+                                            containerClassName="h-full w-full"
+                                            placeholderClassName="rounded-lg p-1 text-[8px] leading-tight"
+                                            className="h-full w-full object-cover"
                                         />
                                     </div>
                                 )}

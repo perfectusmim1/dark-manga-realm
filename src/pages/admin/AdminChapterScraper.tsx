@@ -40,6 +40,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { toast } from 'sonner';
+import ProxyImage from '@/components/media/ProxyImage';
 import { getMangaById, getMangaSummaries, saveManga } from '@/lib/database';
 import { createNotificationForFollowers } from '@/lib/storage';
 import { Manga, Chapter } from '@/lib/types';
@@ -754,7 +755,13 @@ const AdminChapterScraper: React.FC = () => {
 
                         {localMangaDetails && (
                             <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-3">
-                                <img src={localMangaDetails.cover} alt={localMangaDetails.title} className="h-16 w-12 shrink-0 rounded object-cover" />
+                                <ProxyImage
+                                    src={localMangaDetails.cover}
+                                    alt={localMangaDetails.title}
+                                    allowProxy
+                                    transform={{ width: 96, quality: 85, format: 'webp', fit: 'cover' }}
+                                    className="h-16 w-12 shrink-0 rounded object-cover"
+                                />
                                 <div className="min-w-0">
                                     <div className="flex flex-wrap items-center gap-2">
                                         <p className="truncate font-bold">{localMangaDetails.title}</p>
@@ -802,7 +809,13 @@ const AdminChapterScraper: React.FC = () => {
                                             onClick={() => fetchSourceChapters(m, m.source)}
                                             className={`flex cursor-pointer items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary ${selectedSourceManga?.link === m.link ? 'bg-primary/20 border-primary' : ''}`}
                                         >
-                                            <img src={m.cover} alt={m.title} className="h-10 w-8 shrink-0 rounded object-cover" />
+                                            <ProxyImage
+                                                src={m.cover}
+                                                alt={m.title}
+                                                allowProxy
+                                                transform={{ width: 72, quality: 85, format: 'webp', fit: 'cover' }}
+                                                className="h-10 w-8 shrink-0 rounded object-cover"
+                                            />
                                             <div className="min-w-0">
                                                 <span className="block truncate text-sm font-medium">{m.title}</span>
                                             </div>

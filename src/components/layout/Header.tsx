@@ -483,25 +483,36 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
                         onClick={() => handleResultClick(manga.id)}
                         className="flex w-full items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary/80 text-left group"
                       >
-                        <img
-                          src={manga.cover}
-                          alt={manga.title}
-                          loading="lazy"
-                          decoding="async"
-                          className={cn(
-                            'h-12 w-9 rounded object-cover shadow-sm transition-transform group-hover:scale-105',
-                            shouldBlurAdultArtwork(manga) && 'scale-[1.03] blur-sm',
-                          )}
-                        />
+                        <div className="h-12 w-9 shrink-0 overflow-hidden rounded bg-secondary shadow-sm">
+                          <OptimizedImage
+                            src={manga.cover}
+                            alt={manga.title}
+                            priority
+                            allowProxy
+                            transform={{ width: 80, quality: 86, format: 'webp', fit: 'cover' }}
+                            containerClassName="h-full w-full"
+                            placeholderClassName="rounded p-1 text-[8px] leading-tight"
+                            className={cn(
+                              'h-full w-full object-cover',
+                              shouldBlurAdultArtwork(manga) && 'scale-[1.03] blur-sm',
+                            )}
+                          />
+                        </div>
                         <div className="flex-1 min-w-0">
                           <h4 className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{manga.title}</h4>
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className="text-[10px] text-muted-foreground">{getCompactMangaTypeLabel(manga.type)}</span>
                             <span className="h-1 w-1 rounded-full bg-border" />
-                            <div className="flex items-center gap-1 text-[10px] text-primary font-medium">
-                              <Star className="h-2.5 w-2.5 fill-current" />
-                              {typeof manga.averageRating === 'number' ? manga.averageRating.toFixed(1) : '0.0'}
-                            </div>
+                            {typeof manga.averageRating === 'number' && manga.averageRating > 0 ? (
+                              <div className="flex items-center gap-1 text-[10px] text-primary font-medium">
+                                <Star className="h-2.5 w-2.5 fill-current" />
+                                {manga.averageRating.toFixed(1)}
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-muted-foreground">
+                                {manga.chapterCount || manga.chapters?.length || 0} Bölüm
+                              </span>
+                            )}
                           </div>
                         </div>
                       </button>
@@ -522,7 +533,7 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
                         className="flex w-full items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary/80 text-left group"
                       >
                         <Avatar className="h-8 w-8">
-                          <AvatarImage src={resolveDisplayImageUrl(char.imageUrl)} />
+                          <AvatarImage src={resolveDisplayImageUrl(char.imageUrl, { width: 80, quality: 85, format: 'webp', fit: 'cover' })} />
                           <AvatarFallback className="text-[10px]">{char.name[0]}</AvatarFallback>
                         </Avatar>
                         <div className="flex-1 min-w-0">
@@ -549,7 +560,7 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
                         className="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-secondary/80 group"
                       >
                         <Avatar className="h-8 w-8">
-                          <AvatarImage src={resolveDisplayImageUrl(author.imageUrl)} />
+                          <AvatarImage src={resolveDisplayImageUrl(author.imageUrl, { width: 80, quality: 85, format: 'webp', fit: 'cover' })} />
                           <AvatarFallback className="text-[10px]">{author.name[0]}</AvatarFallback>
                         </Avatar>
                         <div className="min-w-0 flex-1">
@@ -580,7 +591,7 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
                         className="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-secondary/80 group"
                       >
                         <Avatar className="h-8 w-8">
-                          <AvatarImage src={resolveDisplayImageUrl(artist.imageUrl)} />
+                          <AvatarImage src={resolveDisplayImageUrl(artist.imageUrl, { width: 80, quality: 85, format: 'webp', fit: 'cover' })} />
                           <AvatarFallback className="text-[10px]">{artist.name[0]}</AvatarFallback>
                         </Avatar>
                         <div className="min-w-0 flex-1">
@@ -1232,7 +1243,7 @@ const HeaderContent: React.FC = () => {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-9 w-9 p-0 rounded-full hover:bg-secondary/80">
                   <Avatar className="h-8 w-8 border border-border/50">
-                    <AvatarImage src={displayUser.avatar} />
+                    <AvatarImage src={resolveDisplayImageUrl(displayUser.avatar, { width: 80, quality: 85, format: 'webp', fit: 'cover' })} />
                     <AvatarFallback className="bg-primary/10 text-primary text-xs">
                       {displayUser.username[0]?.toUpperCase() || 'U'}
                     </AvatarFallback>

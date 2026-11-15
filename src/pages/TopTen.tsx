@@ -111,7 +111,7 @@ const TOP_TEN_AUDIENCE_META: Record<
 };
 
 const TOP_TEN_CARD_TRANSFORM = Object.freeze({
-  width: 480,
+  width: 360,
   quality: 84,
   format: 'webp' as const,
   fit: 'cover' as const,

@@ -77,7 +77,7 @@ export const TierItemCard: React.FC<TierItemCardProps> = React.memo(({
           allowProxy
           srcSet={itemSrcSet}
           sizes="(max-width: 640px) 84px, 96px"
-          transform={{ width: 360, quality: 84, fit: 'cover' }}
+          transform={{ width: 192, quality: 85, format: 'webp', fit: 'cover' }}
           className="h-full w-full object-cover pointer-events-none"
           containerClassName="h-full w-full"
           rootMargin="400px 0px"

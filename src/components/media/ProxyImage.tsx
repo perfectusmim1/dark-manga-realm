@@ -19,6 +19,8 @@ const getTransformKey = (transform?: ImageProxyTransformOptions) =>
     ? `${transform.width || ''}:${transform.quality || ''}:${transform.format || ''}:${transform.fit || ''}`
     : '';
 
+type ImageFallbackStage = 'primary' | 'raw' | 'worker_proxy' | 'failed';
+
 const ProxyImage: React.FC<ProxyImageProps> = ({
   src,
   alt,
@@ -34,26 +36,18 @@ const ProxyImage: React.FC<ProxyImageProps> = ({
   ...rest
 }) => {
   const transformKey = React.useMemo(() => getTransformKey(transform), [transform]);
-  const [shouldBypassProxy, setShouldBypassProxy] = React.useState(false);
-  const [useProxyFallback, setUseProxyFallback] = React.useState(false);
-  const [hasFinalError, setHasFinalError] = React.useState(false);
+  const [fallbackStage, setFallbackStage] = React.useState<ImageFallbackStage>('primary');
   const avoidRawFallback = React.useMemo(() => shouldAvoidRawImageFallback(src), [src]);
   const hasTransform = Boolean(transform && (transform.width || transform.quality));
   const effectiveAllowProxy = allowProxy || avoidRawFallback || hasTransform;
   const isExternalUrl = typeof src === 'string' && (src.startsWith('http://') || src.startsWith('https://'));
 
   React.useEffect(() => {
-    setShouldBypassProxy(false);
-    setUseProxyFallback(false);
-    setHasFinalError(false);
+    setFallbackStage('primary');
   }, [src, transformKey, srcSet]);
 
-  const proxiedSrc = React.useMemo(() => {
-    if (useProxyFallback && isExternalUrl) {
-      return buildProxiedImageUrl(src) || src;
-    }
-
-    if (!effectiveAllowProxy || shouldBypassProxy) {
+  const primarySrc = React.useMemo(() => {
+    if (!effectiveAllowProxy) {
       return src;
     }
 
@@ -61,30 +55,50 @@ const ProxyImage: React.FC<ProxyImageProps> = ({
       purpose: 'preview',
       surface: 'admin_preview',
     }) || (avoidRawFallback ? buildProxiedImageUrl(src) : '') || src;
-  }, [avoidRawFallback, effectiveAllowProxy, isExternalUrl, shouldBypassProxy, src, transform, useProxyFallback]);
+  }, [avoidRawFallback, effectiveAllowProxy, src, transform, transformKey]);
+
+  const proxiedSrc = React.useMemo(() => {
+    if (fallbackStage === 'worker_proxy' && isExternalUrl) {
+      return buildProxiedImageUrl(src) || src;
+    }
+
+    if (fallbackStage === 'raw') {
+      return src;
+    }
+
+    return primarySrc;
+  }, [fallbackStage, isExternalUrl, primarySrc, src]);
 
   const handleError = React.useCallback<React.ReactEventHandler<HTMLImageElement>>(
     (event) => {
-      if (effectiveAllowProxy && !avoidRawFallback && !shouldBypassProxy && proxiedSrc !== src && !useProxyFallback) {
-        setShouldBypassProxy(true);
-        return;
-      }
+      if (fallbackStage === 'primary') {
+        if (!avoidRawFallback && primarySrc !== src) {
+          setFallbackStage('raw');
+          return;
+        }
 
-      if (isExternalUrl && !useProxyFallback) {
+        if (isExternalUrl) {
+          const fallbackUrl = buildProxiedImageUrl(src);
+          if (fallbackUrl && fallbackUrl !== primarySrc) {
+            setFallbackStage('worker_proxy');
+            return;
+          }
+        }
+      } else if (fallbackStage === 'raw' && isExternalUrl) {
         const fallbackUrl = buildProxiedImageUrl(src);
-        if (fallbackUrl && fallbackUrl !== proxiedSrc) {
-          setUseProxyFallback(true);
+        if (fallbackUrl && fallbackUrl !== primarySrc && fallbackUrl !== src) {
+          setFallbackStage('worker_proxy');
           return;
         }
       }
 
-      setHasFinalError(true);
+      setFallbackStage('failed');
       onError?.(event);
     },
-    [avoidRawFallback, effectiveAllowProxy, isExternalUrl, onError, proxiedSrc, shouldBypassProxy, src, useProxyFallback],
+    [avoidRawFallback, fallbackStage, isExternalUrl, onError, primarySrc, src],
   );
 
-  if (!proxiedSrc || hasFinalError) {
+  if (!proxiedSrc || fallbackStage === 'failed') {
     return (
       <div
         role="img"
@@ -99,8 +113,8 @@ const ProxyImage: React.FC<ProxyImageProps> = ({
     );
   }
 
-  const activeSrcSet = shouldBypassProxy || useProxyFallback ? undefined : srcSet;
-  const activeSizes = shouldBypassProxy || useProxyFallback ? undefined : sizes;
+  const activeSrcSet = fallbackStage !== 'primary' ? undefined : srcSet;
+  const activeSizes = fallbackStage !== 'primary' ? undefined : sizes;
 
   return (
     <img

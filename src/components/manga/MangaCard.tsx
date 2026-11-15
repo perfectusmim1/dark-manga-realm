@@ -32,7 +32,7 @@ const MANGA_CARD_INTRINSIC_WIDTH = 280;
 const MANGA_CARD_INTRINSIC_HEIGHT = 420;
 
 const MANGA_CARD_COVER_TRANSFORM = Object.freeze({
-  width: 480,
+  width: 420,
   quality: 84,
   format: 'webp' as const,
   fit: 'cover' as const,
@@ -76,7 +76,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   coverPriority,
   coverRootMargin = '520px 0px',
   enableEntryAnimation = true,
-  entryAnimationClassName = 'animate-fade-up',
+  entryAnimationClassName = 'animate-route-fade',
   entryAnimationDelayStepMs = 50,
   entryAnimationDurationMs = 500,
 }) => {
@@ -179,7 +179,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
         className="peer absolute inset-0 z-[1] rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       />
 
-      <div className="pointer-events-none relative aspect-[2/3] w-full overflow-hidden bg-card">
+      <div className="pointer-events-none relative aspect-[2/3] w-full overflow-hidden bg-card [transform:translateZ(0)] [backface-visibility:hidden]">
         <OptimizedImage
           src={manga.cover}
           alt={manga.title}
@@ -264,7 +264,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
             <Badge
               variant={manga.status === 'completed' ? 'default' : 'outline'}
               className={cn(
-                `max-w-[58%] px-1.5 py-0.5 text-[9px] font-bold shadow-sm ${disableHeavyEffects ? '' : 'transition-opacity duration-200 group-hover:opacity-0'}`,
+                `max-w-[58%] px-1.5 py-0.5 text-[9px] font-bold shadow-sm ${disableHeavyEffects ? '' : 'transition-opacity duration-150 ease-out group-hover:opacity-0'}`,
                 manga.status === 'completed'
                   ? 'border-none bg-primary/90 text-primary-foreground'
                   : `border-white/20 bg-black/60 text-white ${disableHeavyEffects ? '' : 'backdrop-blur-md'}`
@@ -283,24 +283,26 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
               value={averageRatingValue}
               iconClassName="h-2.5 w-2.5"
               className={cn(
-                `gap-1 rounded-md px-1.5 py-0.5 text-[10px] ${disableHeavyEffects ? '' : 'transition-opacity duration-200 group-hover:opacity-0'}`
+                `gap-1 rounded-md px-1.5 py-0.5 text-[10px] ${disableHeavyEffects ? '' : 'transition-opacity duration-150 ease-out group-hover:opacity-0'}`
               )}
             />
           ) : null}
         </div>
 
         {!disableHeavyEffects && (
-          <div className="absolute bottom-0 left-0 right-0 translate-y-2 p-2 opacity-0 transition-[transform,opacity] duration-150 group-hover:translate-y-0 group-hover:opacity-100 sm:p-2.5">
+          <div className="pointer-events-none absolute bottom-0 left-0 right-0 p-2 opacity-0 transition-opacity duration-150 ease-out group-hover:opacity-100 sm:p-2.5">
             <div className="flex items-center gap-2 text-[11px] text-white">
-              <span className="flex items-center gap-1 font-medium drop-shadow-md">
-                <Star className="h-3 w-3 fill-primary text-primary" />
-                {averageRating} ({reviewCount})
-              </span>
-              <span className="flex items-center gap-1 font-medium drop-shadow-md">
+              {hasVisibleRating && (
+                <span className="flex items-center gap-1 font-medium">
+                  <Star className="h-3 w-3 fill-primary text-primary" />
+                  {averageRating} ({reviewCount})
+                </span>
+              )}
+              <span className="flex items-center gap-1 font-medium">
                 <Eye className="h-3 w-3" />
                 {formatViews(manga.views)}
               </span>
-              <span className="flex items-center gap-1 font-medium drop-shadow-md">
+              <span className="flex items-center gap-1 font-medium">
                 <BookOpen className="h-3 w-3" />
                 {chapterCount}
               </span>

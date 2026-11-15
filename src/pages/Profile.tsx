@@ -5,6 +5,7 @@ import { tr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
 import HeatMap from '@/components/profile/HeatMap';
+import OptimizedImage from '@/components/media/OptimizedImage';
 import { Shield, Settings, Calendar, BookOpen, Book, MessageSquare, History, Globe, Lock, ChevronRight, List, Sparkles, Image as ImageIcon, Film, Reply, Clock3, Flag, Star, ThumbsUp, ThumbsDown, User as UserIcon } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -654,7 +655,17 @@ const Profile: React.FC = () => {
                         {profileData.recentReads.map((read: any) => (
                           <Link key={read.manga_id} to={`/manga/${read.manga_id}`} className="group block overflow-hidden rounded-xl border border-border/60 bg-secondary/25 transition-[border-color,background-color] duration-200 hover:border-primary/40 hover:bg-secondary/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background">
                             <div className="relative aspect-[3/4] overflow-hidden bg-black">
-                              <img src={read.mangas?.cover} alt={read.mangas?.title} loading="lazy" decoding="async" className="image-downscale-quality block h-full w-full object-cover" />
+                              {read.mangas?.cover ? (
+                                <OptimizedImage
+                                  src={read.mangas.cover}
+                                  alt={read.mangas?.title || 'Kapak'}
+                                  allowProxy
+                                  transform={{ width: 320, quality: 84, format: 'webp', fit: 'cover' }}
+                                  containerClassName="h-full w-full"
+                                  placeholderClassName="rounded-none"
+                                  className="block h-full w-full object-cover"
+                                />
+                              ) : null}
                               <div className="pointer-events-none absolute -inset-x-px -bottom-px top-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/30 to-transparent p-2.5 sm:p-3">
                                 <p className="line-clamp-1 text-xs sm:text-sm font-semibold text-white transition-colors group-hover:text-primary group-focus-visible:text-primary">{read.mangas?.title}</p>
                                 <p className="mt-0.5 text-[11px] sm:text-xs font-semibold text-primary">Bölüm {read.chapter_number}</p>
@@ -794,12 +805,14 @@ const Profile: React.FC = () => {
                            <div className="flex items-start gap-3.5">
                              <div className="h-20 w-14 sm:h-24 sm:w-16 shrink-0 overflow-hidden rounded-xl border border-border/60 bg-secondary/40">
                                {comment.targetImage ? (
-                                 <img
+                                 <OptimizedImage
                                    src={comment.targetImage}
                                    alt={comment.targetName}
-                                   loading="lazy"
-                                   decoding="async"
-                                   className="image-downscale-quality h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+                                   allowProxy
+                                   transform={{ width: 144, quality: 85, format: 'webp', fit: 'cover' }}
+                                   containerClassName="h-full w-full"
+                                   placeholderClassName="rounded-xl p-1 text-[8px] leading-tight"
+                                   className="h-full w-full object-cover"
                                  />
                                ) : (
                                  <div className="flex h-full w-full items-center justify-center bg-secondary/40 text-muted-foreground/70">
@@ -917,12 +930,14 @@ const Profile: React.FC = () => {
                            <div className="flex items-start gap-3.5 sm:gap-4">
                              <div className="h-24 w-16 sm:h-28 sm:w-20 shrink-0 overflow-hidden rounded-xl border border-border/60 bg-secondary/40">
                                {review.mangaCover ? (
-                                 <img
+                                 <OptimizedImage
                                    src={review.mangaCover}
                                    alt={review.mangaTitle}
-                                   loading="lazy"
-                                   decoding="async"
-                                   className="image-downscale-quality h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+                                   allowProxy
+                                   transform={{ width: 160, quality: 85, format: 'webp', fit: 'cover' }}
+                                   containerClassName="h-full w-full"
+                                   placeholderClassName="rounded-xl p-1 text-[8px] leading-tight"
+                                   className="h-full w-full object-cover"
                                  />
                                ) : (
                                  <div className="flex h-full w-full items-center justify-center bg-secondary/40 text-center text-xs text-muted-foreground">
@@ -1038,12 +1053,14 @@ const Profile: React.FC = () => {
                        >
                          <div className="overflow-hidden rounded-xl border border-border/60 bg-background/45 transition-colors hover:border-primary/40 hover:bg-background/70">
                            <div className="relative aspect-[3/4] overflow-hidden bg-secondary/30">
-                              <img
+                              <OptimizedImage
                                 src={manga.cover}
                                 alt={manga.title}
-                                loading="lazy"
-                                decoding="async"
-                                className="image-downscale-quality h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+                                allowProxy
+                                transform={{ width: 280, quality: 84, format: 'webp', fit: 'cover' }}
+                                containerClassName="h-full w-full"
+                                placeholderClassName="rounded-none"
+                                className="h-full w-full object-cover"
                               />
                              <Badge className="absolute left-2 top-2 rounded-md border-none bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-white hover:bg-black/75">
                               {getCompactMangaTypeLabel(manga.type)}

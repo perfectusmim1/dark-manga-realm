@@ -195,8 +195,15 @@ const HOME_PAGE_CACHE: {
 };
 
 const CONTINUE_READING_COVER_TRANSFORM = Object.freeze({
-  width: 520,
-  quality: 84,
+  width: 240,
+  quality: 85,
+  format: 'webp' as const,
+  fit: 'cover' as const,
+});
+
+const CONTINUE_READING_SECONDARY_TRANSFORM = Object.freeze({
+  width: 96,
+  quality: 86,
   format: 'webp' as const,
   fit: 'cover' as const,
 });
@@ -524,7 +531,7 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
                       sizes="40px"
                       priority={index === 0}
                       rootMargin="540px 0px"
-                      transform={CONTINUE_READING_COVER_TRANSFORM}
+                      transform={CONTINUE_READING_SECONDARY_TRANSFORM}
                       containerClassName="h-14 w-10 shrink-0 overflow-hidden rounded-lg border border-border/40"
                       placeholderClassName="rounded-lg"
                       className={cn(
@@ -818,7 +825,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
                 coverPriority={index < visibleCoverPriorityCount}
                 coverRootMargin={coverRootMargin}
                 enableEntryAnimation
-                entryAnimationClassName="animate-card-reveal-fast"
+                entryAnimationClassName="animate-route-fade"
                 entryAnimationDelayStepMs={cardAnimationDelayStepMs}
                 entryAnimationDurationMs={cardAnimationDurationMs}
               />
@@ -1117,7 +1124,7 @@ const Index: React.FC = () => {
       .then(({ getMangaCatalogPage }) => (
         getMangaCatalogPage({
           page: catalogPage,
-          pageSize: 24,
+          pageSize: 28,
           sort: 'updated',
           includeAdult: canSeeAdultContent,
         })

@@ -1,5 +1,10 @@
 import { offlineProxyConfig } from '@/lib/offline/proxyConfig';
-import { isStoredMediaUrl } from '@/lib/mediaStorage';
+import {
+  buildProxiedImageUrl,
+  isStoredMediaUrl,
+  unwrapManagedMediaUrl,
+} from '@/lib/mediaStorage';
+import { isManagedArtworkUrl } from '@/lib/managedArtwork';
 
 export type ImageProxyFormat = 'webp' | 'avif' | 'jpeg' | 'png';
 export type ImageProxyFit = 'scale-down' | 'contain' | 'cover';
@@ -113,6 +118,172 @@ const shouldProxyImageUrl = (sourceUrl?: string | null) => {
 
 export const supportsImageProxyTransform = () => Boolean(offlineProxyConfig.url);
 
+const RESIZE_WIDTH_BUCKETS = [72, 80, 96, 144, 192, 240, 320, 360, 420, 480, 640] as const;
+
+const HOTLINK_OR_CUSTOM_REFERER_HOSTS = [
+  'webtoonhatti.club',
+  'webtoonhatti.com',
+  'webtoonhatti.net',
+  'uploads.mangadex.org',
+  'mangadex.org',
+  'anime-planet.com',
+  'anisearch.com',
+  'mangaupdates.com',
+  'hattorimanga.net',
+  'hayalistic.com',
+  'hayalistic.com.tr',
+  'yedek.mangawow.com',
+  'kirmizikafa.monster',
+  'wikia.nocookie.net',
+  'webtoon-oku.net',
+  'cdn-1.webtoon-oku.net',
+  'cdn-2.webtoon-oku.net',
+  'kkplayer.wtf',
+  'wowpic.org',
+  'homeandheartshop.site',
+  'brightglow12.site',
+  'fastcontent12.site',
+  'readlightnovel.site',
+  'mangacix.net',
+] as const;
+
+const PHOTON_PREFERRED_HOSTS = [
+  'cdn.hentaiturk.com',
+  'cdn.okutoon.com',
+  'om-cdn.okutoon.com',
+  'madaradex.org',
+] as const;
+
+const SKIP_RESIZE_CDN_HOSTS = [
+  'wsrv.nl',
+  'images.weserv.nl',
+  'i0.wp.com',
+  'i1.wp.com',
+  'i2.wp.com',
+  'i3.wp.com',
+  'api.dicebear.com',
+  'lh3.googleusercontent.com',
+] as const;
+
+const quantizeResizeWidth = (width?: number): number | null => {
+  if (typeof width !== 'number' || !Number.isFinite(width) || width <= 0 || width > 640) {
+    return null;
+  }
+
+  for (const bucket of RESIZE_WIDTH_BUCKETS) {
+    if (width <= bucket) {
+      return bucket;
+    }
+  }
+
+  return 640;
+};
+
+const isHotlinkOrCustomRefererHost = (hostname: string) => {
+  const lower = hostname.toLowerCase();
+  if (lower.includes('siyahmelek') || lower.includes('webtoonhatti') || lower.includes('readlightnovel')) {
+    return true;
+  }
+
+  return HOTLINK_OR_CUSTOM_REFERER_HOSTS.some((host) => matchesHostRule(lower, host));
+};
+
+const shouldSkipResizeTransform = (parsed: URL, fullUrl: string) => {
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return true;
+  }
+
+  const lowerHost = parsed.hostname.toLowerCase();
+  if (
+    lowerHost === 'localhost'
+    || lowerHost === '127.0.0.1'
+    || lowerHost.endsWith('.local')
+    || SKIP_RESIZE_CDN_HOSTS.some((host) => matchesHostRule(lowerHost, host))
+  ) {
+    return true;
+  }
+
+  if (lowerHost.includes('tenor.com') || lowerHost.includes('giphy.com')) {
+    return true;
+  }
+
+  if (/\.(?:gif|svg|ico)(?:$|\?)/i.test(parsed.pathname)) {
+    return true;
+  }
+
+  if (isManagedArtworkUrl(fullUrl)) {
+    return true;
+  }
+
+  return false;
+};
+
+const buildResizedDisplayImageUrl = (
+  sourceUrl: string,
+  transform: ImageProxyTransformOptions,
+): string | null => {
+  const targetWidth = quantizeResizeWidth(transform.width);
+  if (!targetWidth) {
+    return null;
+  }
+
+  const unwrappedUrl = unwrapManagedMediaUrl(sourceUrl) || sourceUrl;
+  const parsed = getParsedSourceUrl(unwrappedUrl);
+  if (!parsed || shouldSkipResizeTransform(parsed, unwrappedUrl)) {
+    return null;
+  }
+
+  const quality = Math.min(92, Math.max(60, Math.round(transform.quality || 84)));
+  const wsrvFormat = transform.format === 'jpeg'
+    ? 'jpg'
+    : (transform.format === 'avif' || transform.format === 'png' || transform.format === 'webp' ? transform.format : 'webp');
+  const lowerHost = parsed.hostname.toLowerCase();
+
+  if (matchesHostRule(lowerHost, 's4.anilist.co')) {
+    if (targetWidth <= 120 && !parsed.search) {
+      return `https://i0.wp.com/s4.anilist.co${parsed.pathname}?w=${targetWidth}&quality=${quality}&strip=all`;
+    }
+
+    if (
+      targetWidth <= 240
+      && /^\/file\/anilistcdn\/media\/(?:manga|anime)\/cover\/large\//i.test(parsed.pathname)
+    ) {
+      return `https://s4.anilist.co${parsed.pathname.replace(/\/large\//i, '/medium/')}${parsed.search}`;
+    }
+
+    if (targetWidth <= 240 && !parsed.search) {
+      return `https://i0.wp.com/s4.anilist.co${parsed.pathname}?w=${targetWidth}&quality=${quality}&strip=all`;
+    }
+
+    return null;
+  }
+
+  if (isHotlinkOrCustomRefererHost(lowerHost)) {
+    if (targetWidth <= 240) {
+      const workerProxyUrl = buildProxiedImageUrl(unwrappedUrl);
+      if (workerProxyUrl && workerProxyUrl !== unwrappedUrl) {
+        return `https://wsrv.nl/?url=${encodeURIComponent(workerProxyUrl)}&w=${targetWidth}&q=${quality}&output=${wsrvFormat}&we`;
+      }
+    }
+
+    return null;
+  }
+
+  if (PHOTON_PREFERRED_HOSTS.some((host) => matchesHostRule(lowerHost, host))) {
+    if (targetWidth <= 480 && !parsed.search) {
+      return `https://i0.wp.com/${parsed.hostname}${parsed.pathname}?w=${targetWidth}&quality=${quality}&strip=all`;
+    }
+
+    return null;
+  }
+
+  if (targetWidth <= 480) {
+    return `https://wsrv.nl/?url=${encodeURIComponent(unwrappedUrl)}&w=${targetWidth}&q=${quality}&output=${wsrvFormat}&we`;
+  }
+
+  return null;
+};
+
 export const shouldAvoidRawImageFallback = (sourceUrl?: string | null) => {
   const parsedSourceUrl = getParsedSourceUrl(sourceUrl);
   if (!parsedSourceUrl || isStoredMediaUrl(sourceUrl)) {
@@ -132,12 +303,18 @@ export const buildImageProxyUrl = (
     return null;
   }
 
-  // Zaten data/blob dönüşümü yapılmışsa doğrudan döndür
+  // Zaten data/blob veya göreli yerel yol ise doğrudan döndür
   if (
     normalizedSourceUrl.startsWith('data:') ||
-    normalizedSourceUrl.startsWith('blob:')
+    normalizedSourceUrl.startsWith('blob:') ||
+    normalizedSourceUrl.startsWith('/')
   ) {
     return normalizedSourceUrl;
+  }
+
+  const resizedDisplayUrl = buildResizedDisplayImageUrl(normalizedSourceUrl, transform);
+  if (resizedDisplayUrl) {
+    return resizedDisplayUrl;
   }
 
   if (!shouldProxyImageUrl(normalizedSourceUrl)) {

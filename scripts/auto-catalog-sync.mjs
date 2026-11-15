@@ -443,6 +443,7 @@ const cleanChapterTitle = (rawTitle, chapterNumber, seriesTitle) => {
   text = text.replace(/\b\d+(?:[.,]\d+)?\s*[kmbKMkMB]\b/g, ' ');
   text = text.replace(/\b\d+\s*(?:g[öo]r[üu]nt[üu]lenme|okunma|okuma|views?|reads?)\b/gi, ' ');
   text = text.replace(/\bburadas[ıi]n[ıi]z\b/gi, ' ');
+  text = text.replace(/\s*[-–—:|•]?\s*\b(?:read\s*(?:last|first|now|online)|read-(?:first|last)|(?:first|last|latest|new)\s*chapter)\b\s*/gi, ' ');
 
   // 4. If series title is provided, strip it from title
   if (seriesTitle && typeof seriesTitle === 'string') {
@@ -1109,6 +1110,97 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
 };
 
 const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = '', fallbackCover = '', fallbackIsAdult = false) => {
+  if (source === 'dxdfansub') {
+    const slugMatch = String(seriesUrl || '').match(/dxdfansub\.com\/(?:manga|series|api\/series)\/([^/?#]+)/i);
+    const seriesSlug = slugMatch ? slugMatch[1].trim() : '';
+    if (!seriesSlug) return null;
+
+    let seriesMeta = null;
+    try {
+      const metaRes = await fetchUpstream(`https://api.dxdfansub.com/api/series/${encodeURIComponent(seriesSlug)}`, {
+        headers: { Accept: 'application/json' },
+        timeoutMs: 15000,
+      });
+      if (metaRes.ok && metaRes.content) {
+        seriesMeta = JSON.parse(metaRes.content);
+      }
+    } catch {}
+
+    let chList = [];
+    try {
+      const chRes = await fetchUpstream(`https://api.dxdfansub.com/api/series/${encodeURIComponent(seriesSlug)}/chapters?page=1&limit=500`, {
+        headers: { Accept: 'application/json' },
+        timeoutMs: 15000,
+      });
+      if (chRes.ok && chRes.content) {
+        const parsed = JSON.parse(chRes.content);
+        if (Array.isArray(parsed)) chList = parsed;
+        else if (Array.isArray(parsed?.data)) chList = parsed.data;
+        else if (Array.isArray(parsed?.chapters)) chList = parsed.chapters;
+      }
+    } catch {}
+
+    if (!seriesMeta && chList.length === 0) return null;
+
+    const title = cleanSeriesTitle(seriesMeta?.title || seriesMeta?.name || fallbackTitle || seriesSlug);
+    const description = String(seriesMeta?.description || '').trim();
+    const rawCover = seriesMeta?.coverImage || seriesMeta?.cover || fallbackCover || '';
+    const cover = rawCover && !rawCover.startsWith('http')
+      ? `https://api.dxdfansub.com${rawCover.startsWith('/') ? '' : '/'}${rawCover}`
+      : rawCover;
+    const rawStatus = String(seriesMeta?.status || '').toLowerCase();
+    const status = rawStatus === 'completed' || rawStatus === 'tamamlandi'
+      ? 'completed'
+      : rawStatus === 'cancelled' || rawStatus === 'dropped'
+      ? 'cancelled'
+      : rawStatus === 'hiatus'
+      ? 'hiatus'
+      : 'ongoing';
+    const genres = Array.isArray(seriesMeta?.genres)
+      ? seriesMeta.genres.map((g) => normalizeGenreToTurkish(typeof g === 'string' ? g : g?.name || '')).filter(Boolean)
+      : [];
+
+    const rawChapters = [];
+    const seenNums = new Set();
+    for (const ch of chList) {
+      if (!ch || ch.isLocked === true || ch.lock?.type === 'paid' || ch.lock?.coinCost > 0) continue;
+      const num = Number(ch.number ?? ch.chapterNumber ?? 0);
+      if (!Number.isFinite(num) || seenNums.has(num)) continue;
+      seenNums.add(num);
+      const chSlug = ch.slug || `chapter-${num}`;
+      rawChapters.push({
+        title: cleanChapterTitle(ch.title || `Bölüm ${num}`, num, title),
+        link: `https://api.dxdfansub.com/api/chapters/${encodeURIComponent(seriesSlug)}/${encodeURIComponent(chSlug)}`,
+        chapterNumber: num,
+        releaseDate: ch.releaseDate || ch.createdAt || new Date().toISOString(),
+      });
+    }
+    rawChapters.sort((a, b) => a.chapterNumber - b.chapterNumber);
+
+    return {
+      source: 'dxdfansub',
+      title,
+      link: seriesUrl,
+      cover: upgradeSourceImageUrl(cover),
+      description,
+      alternativeTitles: Array.isArray(seriesMeta?.alternativeTitles) ? seriesMeta.alternativeTitles : [],
+      author: seriesMeta?.author || 'Bilinmiyor',
+      artist: seriesMeta?.artist || undefined,
+      status,
+      genres,
+      isAdult: detectIsAdult({
+        source: 'dxdfansub',
+        url: seriesUrl,
+        html: `${title} ${description}`,
+        genres,
+        title,
+        description,
+        fallbackIsAdult,
+      }),
+      chapters: rawChapters,
+    };
+  }
+
   if (source === 'okutoon') {
     const slug = String(seriesUrl || '')
       .replace(/^https?:\/\/(?:www\.)?okutoon\.com\/?/i, '')
@@ -1541,6 +1633,36 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
 };
 
 const fetchChapterPagesFromSource = async (source, chapterLink) => {
+  if (source === 'dxdfansub') {
+    let apiUrl = String(chapterLink || '').trim();
+    if (!apiUrl.includes('api.dxdfansub.com/api/chapters/')) {
+      const m = apiUrl.match(/dxdfansub\.com\/(?:manga|series)\/([^/?#]+)\/(?:bolum|chapter)\/([^/?#]+)/i);
+      if (m) {
+        apiUrl = `https://api.dxdfansub.com/api/chapters/${encodeURIComponent(m[1])}/${encodeURIComponent(m[2])}`;
+      }
+    }
+    if (!apiUrl) return [];
+    const apiRes = await fetchUpstream(apiUrl, {
+      headers: { Accept: 'application/json' },
+      timeoutMs: 15000,
+    });
+    if (!apiRes.ok || !apiRes.content) return [];
+    try {
+      const json = JSON.parse(apiRes.content);
+      const pages = Array.isArray(json?.pages) ? json.pages : Array.isArray(json?.data?.pages) ? json.data.pages : [];
+      const rawUrls = pages
+        .map((p) => {
+          const u = typeof p === 'string' ? p : p?.url || p?.src || '';
+          if (!u) return '';
+          return u.startsWith('http') ? u : `https://api.dxdfansub.com${u.startsWith('/') ? '' : '/'}${u}`;
+        })
+        .filter((u) => u && !isJunkImageUrl(u));
+      return await verifyAndFilterImageUrls(rawUrls);
+    } catch {
+      return [];
+    }
+  }
+
   if (source === 'okutoon') {
     let seriesSlug = '';
     let chapterSlug = '';
@@ -2323,7 +2445,7 @@ class SmartCatalogStore {
 
   getLockedPrimarySource(manga) {
     if (!manga) return null;
-    const activeScraperSources = ['webtoonhatti', 'okutoon', 'siyahmelek', 'hattorimanga', 'mangadass'];
+    const activeScraperSources = ['webtoonhatti', 'okutoon', 'siyahmelek', 'hattorimanga', 'mangadass', 'dxdfansub'];
     if (
       manga.details?.primarySource &&
       manga.details?.primarySourceUrl &&

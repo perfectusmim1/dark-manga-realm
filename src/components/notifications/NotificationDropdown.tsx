@@ -31,6 +31,7 @@ import {
 import { Notification } from '@/lib/types';
 import { normalizeCommentNavigationLink } from '@/lib/commentNavigation';
 import OfflineNotice from '@/components/offline/OfflineNotice';
+import OptimizedImage from '@/components/media/OptimizedImage';
 import { isDocumentVisible } from '@/lib/documentVisibility';
 import { isExpectedAccessControlError } from '@/lib/supabase';
 import { readHeaderShellSnapshot, updateHeaderShellCounts } from '@/lib/headerShellCache';
@@ -282,11 +283,18 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ userId }) =
                                     {/* Manga Cover Preview (for new chapter notifications) */}
                                     {notification.mangaCover && (
                                         <div className="flex-shrink-0">
-                                            <img
-                                                src={notification.mangaCover}
-                                                alt=""
-                                                className="h-10 w-7 rounded object-cover sm:h-12 sm:w-8"
-                                            />
+                                            <div className="h-10 w-7 overflow-hidden rounded bg-secondary sm:h-12 sm:w-8">
+                                                <OptimizedImage
+                                                    src={notification.mangaCover}
+                                                    alt={notification.mangaTitle || 'Kapak'}
+                                                    priority
+                                                    allowProxy
+                                                    transform={{ width: 80, quality: 85, format: 'webp', fit: 'cover' }}
+                                                    containerClassName="h-full w-full"
+                                                    placeholderClassName="rounded p-0.5 text-[7px] leading-tight"
+                                                    className="h-full w-full object-cover"
+                                                />
+                                            </div>
                                         </div>
                                     )}
                                 </button>

@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { getMangaTypeLabel } from '@/lib/mangaType';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
 import { cn } from '@/lib/utils';
+import ProxyImage from '@/components/media/ProxyImage';
 
 const AdminDashboard: React.FC = () => {
     const [stats, setStats] = useState<any | null>(null);
@@ -220,9 +221,11 @@ const AdminDashboard: React.FC = () => {
                             to={`/admin/mangas/${manga.id}`}
                             className="flex items-start gap-3 rounded-lg p-2.5 transition-colors hover:bg-secondary/70 sm:items-center sm:p-3"
                         >
-                            <img
+                            <ProxyImage
                                 src={manga.cover}
                                 alt={manga.title}
+                                allowProxy
+                                transform={{ width: 96, quality: 85, format: 'webp', fit: 'cover' }}
                                 className="h-14 w-10 shrink-0 rounded object-cover sm:h-12 sm:w-9"
                             />
                             <div className="min-w-0 flex-1">

@@ -51,6 +51,14 @@ const stripLanguageTags = (value: string) => {
         .trim();
 };
 
+const stripScraperNoise = (value: string) => {
+    return value
+        .replace(/\s*[-–—:|•]?\s*\b(?:read\s*(?:last|first|now|online)|read-(?:first|last)|(?:first|last|latest|new)\s*chapter)\b\s*/gi, ' ')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/^[\s\-–—:|•]+|[\s\-–—:|•]+$/g, '')
+        .trim();
+};
+
 const stripRepeatedChapterPrefix = (title: string, chapterNumberLabel: string) => {
     const trimmedTitle = stripLanguageTags(title.trim());
     const normalizedTitle = trimmedTitle.toLocaleLowerCase('tr-TR');
@@ -121,7 +129,7 @@ export const sanitizeChapterTitle = (chapterNumber: number | string, title?: str
         cleanedTitle = nextTitle;
     }
 
-    return stripLanguageTags(cleanedTitle);
+    return stripScraperNoise(stripLanguageTags(cleanedTitle));
 };
 
 export const formatChapterDisplayTitle = (chapterNumber: number | string, title?: string | null) => {

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BookOpen, Loader2 } from 'lucide-react';
+import OptimizedImage from '@/components/media/OptimizedImage';
 import { searchMangaMentions, MangaMentionResult } from '@/lib/database';
 import { getCompactMangaTypeLabel } from '@/lib/mangaType';
 import { cn } from '@/lib/utils';
@@ -167,11 +168,15 @@ export const SeriesTagPopover: React.FC<SeriesTagPopoverProps> = ({
               >
                 <div className="h-10 w-7 shrink-0 overflow-hidden rounded bg-muted border border-border/40">
                   {item.cover ? (
-                    <img
+                    <OptimizedImage
                       src={item.cover}
                       alt={item.title}
+                      priority
+                      allowProxy
+                      transform={{ width: 72, quality: 86, format: 'webp', fit: 'cover' }}
+                      containerClassName="h-full w-full"
+                      placeholderClassName="rounded p-0.5 text-[7px] leading-tight"
                       className="h-full w-full object-cover"
-                      loading="lazy"
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center">

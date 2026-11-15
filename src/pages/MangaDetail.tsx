@@ -329,11 +329,17 @@ const PreviewPageThumbnail = React.memo(({
       >
         <div className="absolute inset-0 overflow-hidden rounded-[inherit]">
           {shouldMountImage ? (
-            <img
+            <OptimizedImage
               src={page}
               alt={`Bölüm ${chapterNumber} Sayfa ${pageIndex + 1}`}
-              loading="lazy"
-              decoding="async"
+              priority
+              allowProxy
+              transform={{
+                width: cardSize === 'small' ? 240 : cardSize === 'large' ? 480 : 320,
+                quality: 84,
+                format: 'webp',
+                fit: 'cover',
+              }}
               width={cardSize === 'small' ? 160 : cardSize === 'large' ? 420 : 240}
               height={cardSize === 'small' ? 213 : cardSize === 'large' ? 560 : 320}
               sizes={
@@ -344,7 +350,8 @@ const PreviewPageThumbnail = React.memo(({
                     : '(min-width: 1280px) 240px, (min-width: 1024px) 22vw, (min-width: 640px) 30vw, 45vw'
               }
               draggable={false}
-              referrerPolicy="no-referrer"
+              containerClassName="h-full w-full"
+              placeholderClassName="rounded-[inherit]"
               className="block h-full w-full object-cover"
             />
           ) : (
@@ -508,17 +515,19 @@ const BookmarkPagePreview = React.memo(({
       style={{ contentVisibility: 'auto', containIntrinsicSize: '96px 128px' }}
     >
       {isNearViewport && src ? (
-        <img
+        <OptimizedImage
           src={src}
           alt={alt}
-          loading="lazy"
-          decoding="async"
+          priority
+          allowProxy
+          transform={{ width: 240, quality: 85, format: 'webp', fit: 'cover' }}
           width={360}
           height={450}
           sizes="(min-width: 1024px) 128px, (min-width: 640px) 112px, 96px"
           draggable={false}
-          referrerPolicy="no-referrer"
-          className="image-downscale-quality h-full w-full object-cover object-top"
+          containerClassName="h-full w-full"
+          placeholderClassName="rounded-2xl p-1 text-[9px] leading-tight"
+          className="h-full w-full object-cover object-top"
         />
       ) : (
         <div className="flex h-full w-full items-center justify-center bg-secondary/40">
@@ -3893,7 +3902,9 @@ const MangaDetail: React.FC = () => {
                                       <OptimizedImage
                                         src={relation.relatedManga.cover}
                                         alt={relation.relatedManga.title}
+                                        allowProxy
                                         rootMargin="420px 0px"
+                                        transform={{ width: 144, quality: 85, format: 'webp', fit: 'cover' }}
                                         containerClassName="h-full w-full"
                                         placeholderClassName="rounded-none"
                                         className="h-full w-full object-cover"
@@ -4369,9 +4380,10 @@ const MangaDetail: React.FC = () => {
                                     alt={char.name}
                                     allowProxy
                                     rootMargin="420px 0px"
+                                    transform={{ width: 280, quality: 84, format: 'webp', fit: 'cover' }}
                                     containerClassName="h-full w-full"
                                     placeholderClassName="rounded-[inherit]"
-                                    className="h-full w-full object-cover "
+                                    className="h-full w-full object-cover"
                                   />
                                 ) : (
                                   <EntityPlaceholderArt

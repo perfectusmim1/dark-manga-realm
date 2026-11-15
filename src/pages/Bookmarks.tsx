@@ -34,10 +34,17 @@ type EnrichedBookmark = Bookmark & {
 };
 
 const BOOKMARK_PAGE_THUMBNAIL_TRANSFORM = Object.freeze({
-  width: 640,
-  quality: 85,
+  width: 320,
+  quality: 84,
   format: 'webp' as const,
   fit: 'scale-down' as const,
+});
+
+const BOOKMARK_COVER_THUMBNAIL_TRANSFORM = Object.freeze({
+  width: 320,
+  quality: 84,
+  format: 'webp' as const,
+  fit: 'cover' as const,
 });
 
 const Bookmarks: React.FC = () => {
@@ -361,6 +368,7 @@ const Bookmarks: React.FC = () => {
                               src={previewImage}
                               alt={mangaTitle}
                               rootMargin="520px 0px"
+                              transform={hasPagePreview ? BOOKMARK_PAGE_THUMBNAIL_TRANSFORM : BOOKMARK_COVER_THUMBNAIL_TRANSFORM}
                               containerClassName="h-full w-full"
                               placeholderClassName="rounded-none"
                               sizes="(min-width: 1280px) 16vw, (min-width: 1024px) 19vw, (min-width: 768px) 24vw, (min-width: 420px) 32vw, 48vw"
@@ -370,7 +378,7 @@ const Bookmarks: React.FC = () => {
                             <ProxyImage
                               src={previewImage}
                               alt={mangaTitle}
-                              transform={hasPagePreview ? BOOKMARK_PAGE_THUMBNAIL_TRANSFORM : undefined}
+                              transform={hasPagePreview ? BOOKMARK_PAGE_THUMBNAIL_TRANSFORM : BOOKMARK_COVER_THUMBNAIL_TRANSFORM}
                               loading="lazy"
                               decoding="async"
                               fetchPriority="low"

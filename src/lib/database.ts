@@ -3554,10 +3554,21 @@ export const getLatestChapters = async (
     }
 };
 
-let latestChaptersFeedStatsCache: { fetchedAt: number; data: { recent_count: number; total_count: number } } | null = null;
+let latestChaptersFeedStatsCache: {
+    audienceKey: string;
+    fetchedAt: number;
+    data: { recent_count: number; total_count: number };
+} | null = null;
 
 export const getLatestChaptersFeedStats = async (): Promise<{ recentChapterCount: number; totalChaptersCount: number }> => {
-    if (latestChaptersFeedStatsCache && Date.now() - latestChaptersFeedStatsCache.fetchedAt < 60_000) {
+    const { includeAdult } = await resolveMangaVisibilityAccess();
+    const audienceKey = includeAdult ? 'adult' : 'safe';
+
+    if (
+        latestChaptersFeedStatsCache
+        && latestChaptersFeedStatsCache.audienceKey === audienceKey
+        && Date.now() - latestChaptersFeedStatsCache.fetchedAt < 60_000
+    ) {
         return {
             recentChapterCount: latestChaptersFeedStatsCache.data.recent_count,
             totalChaptersCount: latestChaptersFeedStatsCache.data.total_count,
@@ -3565,13 +3576,17 @@ export const getLatestChaptersFeedStats = async (): Promise<{ recentChapterCount
     }
 
     try {
-        const { data, error } = await supabase.rpc('get_latest_chapters_feed_stats', { p_hours: 24 });
+        const { data, error } = await supabase.rpc('get_latest_chapters_feed_stats', {
+            p_hours: 24,
+            p_include_adult: Boolean(includeAdult),
+        });
         if (!error && data) {
             const result = {
                 recent_count: Number(data.recent_count) || 0,
                 total_count: Number(data.total_count) || 0,
             };
             latestChaptersFeedStatsCache = {
+                audienceKey,
                 fetchedAt: Date.now(),
                 data: result,
             };
@@ -8543,7 +8558,7 @@ export const getMangaCatalogPage = async (options: {
     includeAdult?: boolean;
 } = {}): Promise<HomeCatalogPageResult> => {
     const page = Math.max(1, options.page ?? 1);
-    const pageSize = Math.min(Math.max(options.pageSize ?? 24, 6), 48);
+    const pageSize = Math.min(Math.max(options.pageSize ?? 28, 6), 48);
     const sort = options.sort ?? 'updated';
     const includeAdult = Boolean(options.includeAdult);
 

@@ -24,6 +24,8 @@ const getTransformKey = (transform?: ImageProxyTransformOptions) =>
     ? `${transform.width || ''}:${transform.quality || ''}:${transform.format || ''}:${transform.fit || ''}`
     : '';
 
+type ImageFallbackStage = 'primary' | 'raw' | 'worker_proxy' | 'failed';
+
 const OptimizedImage: React.FC<OptimizedImageProps> = ({
   src,
   alt,
@@ -45,67 +47,109 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
     disabled: priority,
     initialVisible: priority,
   });
-  const transformKey = React.useMemo(() => getTransformKey(transform), [transform]);
-  const [shouldBypassProxy, setShouldBypassProxy] = React.useState(false);
-  const [useProxyFallback, setUseProxyFallback] = React.useState(false);
-  const [hasFinalError, setHasFinalError] = React.useState(false);
+  const [measuredWidth, setMeasuredWidth] = React.useState<number | null>(null);
+  const [fallbackStage, setFallbackStage] = React.useState<ImageFallbackStage>('primary');
   const avoidRawFallback = React.useMemo(() => shouldAvoidRawImageFallback(src), [src]);
   const isExternalUrl = React.useMemo(
     () => typeof src === 'string' && (src.startsWith('http://') || src.startsWith('https://')),
     [src],
   );
 
-  const shouldLoad = priority || isNearViewport;
-  const hasTransform = Boolean(transform && (transform.width || transform.quality));
-  const effectiveAllowProxy = allowProxy || avoidRawFallback || hasTransform;
-  const resolvedSrc = React.useMemo(() => {
-    if (useProxyFallback && isExternalUrl) {
-      const proxied = buildProxiedImageUrl(src);
-      if (proxied && proxied !== src) {
-        return proxied;
-      }
+  React.useLayoutEffect(() => {
+    if (priority || transform?.width || !ref.current) {
+      return;
     }
 
-    if (!effectiveAllowProxy || shouldBypassProxy) {
+    const clientWidth = ref.current.clientWidth;
+    if (clientWidth > 0 && clientWidth <= 240) {
+      const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+      const nextWidth = Math.min(480, Math.max(72, Math.round(clientWidth * dpr)));
+      setMeasuredWidth((prev) => (prev === nextWidth ? prev : nextWidth));
+    }
+  }, [priority, ref, transform?.width]);
+
+  const effectiveTransform = React.useMemo<ImageProxyTransformOptions | undefined>(() => {
+    if (transform?.width) {
+      return transform;
+    }
+
+    if (!priority && measuredWidth) {
+      return {
+        ...transform,
+        width: measuredWidth,
+        quality: transform?.quality ?? 85,
+        format: transform?.format ?? 'webp',
+        fit: transform?.fit ?? 'cover',
+      };
+    }
+
+    return transform;
+  }, [measuredWidth, priority, transform]);
+
+  const transformKey = React.useMemo(() => getTransformKey(effectiveTransform), [effectiveTransform]);
+  const shouldLoad = priority || isNearViewport;
+  const hasTransform = Boolean(effectiveTransform && (effectiveTransform.width || effectiveTransform.quality));
+  const effectiveAllowProxy = allowProxy || avoidRawFallback || hasTransform;
+
+  const primarySrc = React.useMemo(() => {
+    if (!effectiveAllowProxy) {
       return src;
     }
 
-    return buildImageProxyUrl(src, transform, {
+    return buildImageProxyUrl(src, effectiveTransform, {
       purpose: 'render',
       surface: 'public_render',
     }) || (avoidRawFallback ? buildProxiedImageUrl(src) : '') || src;
-  }, [avoidRawFallback, effectiveAllowProxy, isExternalUrl, shouldBypassProxy, src, transform, transformKey, useProxyFallback]);
+  }, [avoidRawFallback, effectiveAllowProxy, effectiveTransform, src, transformKey]);
+
+  const resolvedSrc = React.useMemo(() => {
+    if (fallbackStage === 'worker_proxy' && isExternalUrl) {
+      return buildProxiedImageUrl(src) || src;
+    }
+
+    if (fallbackStage === 'raw') {
+      return src;
+    }
+
+    return primarySrc;
+  }, [fallbackStage, isExternalUrl, primarySrc, src]);
 
   React.useEffect(() => {
-    setShouldBypassProxy(false);
-    setUseProxyFallback(false);
-    setHasFinalError(false);
+    setFallbackStage('primary');
   }, [src, transformKey, srcSet]);
 
   const handleError = React.useCallback<React.ReactEventHandler<HTMLImageElement>>(
     (event) => {
-      if (effectiveAllowProxy && !avoidRawFallback && !shouldBypassProxy && resolvedSrc !== src && !useProxyFallback) {
-        setShouldBypassProxy(true);
-        return;
-      }
+      if (fallbackStage === 'primary') {
+        if (!avoidRawFallback && primarySrc !== src) {
+          setFallbackStage('raw');
+          return;
+        }
 
-      if (isExternalUrl && !useProxyFallback) {
+        if (isExternalUrl) {
+          const proxied = buildProxiedImageUrl(src);
+          if (proxied && proxied !== primarySrc) {
+            setFallbackStage('worker_proxy');
+            return;
+          }
+        }
+      } else if (fallbackStage === 'raw' && isExternalUrl) {
         const proxied = buildProxiedImageUrl(src);
-        if (proxied && proxied !== resolvedSrc) {
-          setUseProxyFallback(true);
+        if (proxied && proxied !== primarySrc && proxied !== src) {
+          setFallbackStage('worker_proxy');
           return;
         }
       }
 
-      setHasFinalError(true);
+      setFallbackStage('failed');
       onError?.(event);
     },
-    [avoidRawFallback, effectiveAllowProxy, isExternalUrl, onError, resolvedSrc, shouldBypassProxy, src, useProxyFallback],
+    [avoidRawFallback, fallbackStage, isExternalUrl, onError, primarySrc, src],
   );
 
-  const showFallbackPlaceholder = !resolvedSrc || hasFinalError;
-  const activeSrcSet = shouldBypassProxy || useProxyFallback ? undefined : srcSet;
-  const activeSizes = shouldBypassProxy || useProxyFallback ? undefined : sizes;
+  const showFallbackPlaceholder = !resolvedSrc || fallbackStage === 'failed';
+  const activeSrcSet = fallbackStage !== 'primary' ? undefined : srcSet;
+  const activeSizes = fallbackStage !== 'primary' ? undefined : sizes;
 
   return (
     <div ref={ref} className={cn('h-full w-full', containerClassName)}>

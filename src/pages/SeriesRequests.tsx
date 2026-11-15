@@ -16,6 +16,7 @@ import {
 import { Link } from 'react-router-dom';
 import useDocumentTitle from '@/hooks/useDocumentTitle';
 import Header from '@/components/layout/Header';
+import OptimizedImage from '@/components/media/OptimizedImage';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
@@ -374,11 +375,15 @@ const SeriesRequests: React.FC = () => {
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-start gap-3.5 min-w-0">
                             {fetchedMetadata.coverUrl ? (
-                              <img
+                              <OptimizedImage
                                 src={fetchedMetadata.coverUrl}
                                 alt={fetchedMetadata.title}
-                                referrerPolicy="no-referrer"
-                                className="h-20 w-14 shrink-0 rounded-xl object-cover border border-white/10 shadow-sm"
+                                priority
+                                allowProxy
+                                transform={{ width: 144, quality: 85, format: 'webp', fit: 'cover' }}
+                                containerClassName="h-20 w-14 shrink-0 overflow-hidden rounded-xl border border-white/10 shadow-sm"
+                                placeholderClassName="rounded-xl p-1 text-[8px] leading-tight"
+                                className="h-full w-full object-cover"
                               />
                             ) : null}
                             <div className="min-w-0 space-y-1">
