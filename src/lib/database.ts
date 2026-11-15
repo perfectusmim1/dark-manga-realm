@@ -9098,20 +9098,19 @@ export const getFastHomeCatalogPage = async (options: {
     const triggerUpcomingPrefetch = (totalPages: number) => {
         if (options.skipPrefetch) return;
         if (normalizedPage < totalPages) {
-            prefetchFastHomeCatalogPage({
-                page: normalizedPage + 1,
-                pageSize: normalizedPageSize,
-                sort,
-                includeAdult,
-            });
-        }
-        if (normalizedPage === 1 && totalPages >= 3) {
-            prefetchFastHomeCatalogPage({
-                page: 3,
-                pageSize: normalizedPageSize,
-                sort,
-                includeAdult,
-            });
+            const schedulePrefetch = () => {
+                prefetchFastHomeCatalogPage({
+                    page: normalizedPage + 1,
+                    pageSize: normalizedPageSize,
+                    sort,
+                    includeAdult,
+                });
+            };
+            if (typeof window !== 'undefined') {
+                window.setTimeout(schedulePrefetch, 120);
+            } else {
+                schedulePrefetch();
+            }
         }
     };
 
@@ -9139,7 +9138,27 @@ export const getFastHomeCatalogPage = async (options: {
         const offset = (normalizedPage - 1) * normalizedPageSize;
         let result: HomeCatalogPageResult | null = null;
 
-        if (sort === 'updated' || sort === 'newest') {
+        try {
+            const rpcResult = await getMangaCatalogPage({
+                page: normalizedPage,
+                pageSize: normalizedPageSize,
+                sort,
+                includeAdult,
+            });
+            const uniqueItems = deduplicateHomeCatalogItems(rpcResult.items || []);
+            const totalCount = Math.max(uniqueItems.length, rpcResult.totalCount || 0);
+            result = {
+                items: uniqueItems,
+                totalCount,
+                page: normalizedPage,
+                pageSize: normalizedPageSize,
+                totalPages: Math.max(1, rpcResult.totalPages || Math.ceil(totalCount / normalizedPageSize)),
+            };
+        } catch {
+            // Hızlı RPC kullanılamıyorsa doğrudan sorgu yoluna geri dön.
+        }
+
+        if (!result && (sort === 'updated' || sort === 'newest')) {
             try {
                 const [visibilityColumnAvailable, adultColumnAvailable, accessProfile] = await Promise.all([
                     getMangaVisibilityColumnAvailability(),
@@ -9248,21 +9267,7 @@ export const getFastHomeCatalogPage = async (options: {
         }
 
         if (!result) {
-            const rpcResult = await getMangaCatalogPage({
-                page: normalizedPage,
-                pageSize: normalizedPageSize,
-                sort,
-                includeAdult,
-            });
-            const uniqueItems = deduplicateHomeCatalogItems(rpcResult.items || []);
-            const totalCount = Math.max(uniqueItems.length, rpcResult.totalCount || 0);
-            result = {
-                items: uniqueItems,
-                totalCount,
-                page: normalizedPage,
-                pageSize: normalizedPageSize,
-                totalPages: Math.max(1, rpcResult.totalPages || Math.ceil(totalCount / normalizedPageSize)),
-            };
+            throw new Error('Katalog sayfası yüklenemedi');
         }
 
         writeHomeCatalogMemoryPage(includeAdult, normalizedPage, result, sort);

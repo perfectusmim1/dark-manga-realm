@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Hash, ChevronDown, ChevronUp, TrendingUp, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -95,15 +95,18 @@ const TagFilterPanel: React.FC<TagFilterPanelProps> = ({
     });
   };
 
-  const groupedTags = allTags.reduce((acc, tag) => {
-    if (!acc[tag.category]) acc[tag.category] = [];
-    acc[tag.category].push(tag);
-    return acc;
-  }, {} as Record<string, Tag[]>);
+  const groupedTags = useMemo(() => (
+    allTags.reduce((acc, tag) => {
+      if (!acc[tag.category]) acc[tag.category] = [];
+      acc[tag.category].push(tag);
+      return acc;
+    }, {} as Record<string, Tag[]>)
+  ), [allTags]);
 
-  const trendingTags = [...allTags]
-    .sort((a, b) => b.usageCount - a.usageCount)
-    .slice(0, 12);
+  const trendingTags = useMemo(
+    () => [...allTags].sort((a, b) => b.usageCount - a.usageCount).slice(0, 12),
+    [allTags],
+  );
 
   return (
     <div className="space-y-3">

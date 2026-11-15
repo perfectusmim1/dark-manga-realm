@@ -101,28 +101,41 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
       return;
     }
 
-    const updateWidth = () => {
-      const nextWidth = container.clientWidth;
+    const updateWidth = (measuredWidth?: number) => {
+      const nextWidth = typeof measuredWidth === 'number' && measuredWidth > 0
+        ? Math.round(measuredWidth)
+        : container.clientWidth;
+      if (nextWidth <= 0) {
+        return;
+      }
       setContainerWidth((current) => (
         current === nextWidth ? current : nextWidth
       ));
     };
 
-    updateWidth();
+    const rafId = typeof window !== 'undefined'
+      ? window.requestAnimationFrame(() => updateWidth())
+      : null;
 
     if (typeof ResizeObserver === 'undefined') {
-      window.addEventListener('resize', updateWidth);
+      const handleResize = () => updateWidth();
+      updateWidth();
+      window.addEventListener('resize', handleResize);
       return () => {
-        window.removeEventListener('resize', updateWidth);
+        if (rafId !== null) window.cancelAnimationFrame(rafId);
+        window.removeEventListener('resize', handleResize);
       };
     }
 
-    const observer = new ResizeObserver(() => {
-      updateWidth();
+    const observer = new ResizeObserver((entries) => {
+      updateWidth(entries[0]?.contentRect?.width);
     });
 
     observer.observe(container);
-    return () => observer.disconnect();
+    return () => {
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
   }, []);
 
   useEffect(() => {
@@ -167,14 +180,18 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
     };
   }, [shouldVirtualize]);
 
+  const hasMangaItems = manga.length > 0;
+
   useEffect(() => {
     const probe = probeRef.current;
-    if (!probe) {
+    if (!probe || !hasMangaItems) {
       return;
     }
 
-    const updateHeight = () => {
-      const nextHeight = probe.getBoundingClientRect().height;
+    const updateHeight = (measuredHeight?: number) => {
+      const nextHeight = typeof measuredHeight === 'number' && measuredHeight > 0
+        ? measuredHeight
+        : probe.getBoundingClientRect().height;
       if (nextHeight > 0) {
         setCardHeight((current) => (
           current === nextHeight ? current : nextHeight
@@ -182,22 +199,29 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
       }
     };
 
-    updateHeight();
+    const rafId = typeof window !== 'undefined'
+      ? window.requestAnimationFrame(() => updateHeight())
+      : null;
 
     if (typeof ResizeObserver === 'undefined') {
-      window.addEventListener('resize', updateHeight);
+      const handleResize = () => updateHeight();
+      window.addEventListener('resize', handleResize);
       return () => {
-        window.removeEventListener('resize', updateHeight);
+        if (rafId !== null) window.cancelAnimationFrame(rafId);
+        window.removeEventListener('resize', handleResize);
       };
     }
 
-    const observer = new ResizeObserver(() => {
-      updateHeight();
+    const observer = new ResizeObserver((entries) => {
+      updateHeight(entries[0]?.contentRect?.height);
     });
 
     observer.observe(probe);
-    return () => observer.disconnect();
-  }, [containerWidth, disableHeavyEffects, manga.length]);
+    return () => {
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
+  }, [containerWidth, disableHeavyEffects, hasMangaItems]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !shouldVirtualize) {
@@ -218,13 +242,14 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
       ));
     };
 
-    updateContainerTop();
+    const rafId = window.requestAnimationFrame(updateContainerTop);
     window.addEventListener('resize', updateContainerTop);
 
     return () => {
+      window.cancelAnimationFrame(rafId);
       window.removeEventListener('resize', updateContainerTop);
     };
-  }, [containerWidth, manga.length, shouldVirtualize]);
+  }, [containerWidth, shouldVirtualize]);
 
   const visibleRange = useMemo(() => {
     if (!shouldVirtualize || rowStride <= 0) {

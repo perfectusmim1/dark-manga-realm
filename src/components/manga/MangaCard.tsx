@@ -90,10 +90,15 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   const chapterCount = typeof manga.chapterCount === 'number' ? manga.chapterCount : chapters.length;
   const coverSrcSet = useMemo(() => getManagedArtworkSrcSet(manga.cover), [manga.cover]);
   const latestChapterLinks = useMemo(() => getLatestChapterLinks(chapters), [chapters]);
-  const primaryGenre = useMemo(
-    () => genres.map((genre) => formatGenreDisplayName(genre).trim()).find(Boolean) || '',
-    [genres],
-  );
+  const primaryGenre = useMemo(() => {
+    for (const genre of genres) {
+      const label = formatGenreDisplayName(genre).trim();
+      if (label) {
+        return label;
+      }
+    }
+    return '';
+  }, [genres]);
   const showCoverStatusBadge = manga.status === 'completed' || manga.status === 'hiatus';
 
   const formatViews = (views: number) => {

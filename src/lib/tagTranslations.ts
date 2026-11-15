@@ -493,7 +493,16 @@ const decodeBasicHtmlEntities = (value: string): string =>
  * Translate an English tag slug to Turkish display name.
  * Falls back to the original slug if no translation exists.
  */
+const TAG_DISPLAY_CACHE_MAX_SIZE = 4096;
+const tagDisplayNameCache = new Map<string, string>();
+
 export const getTagDisplayName = (slug?: string | null, fallbackName?: string | null): string => {
+  const cacheKey = `${slug ?? ''}\u0001${fallbackName ?? ''}`;
+  const cached = tagDisplayNameCache.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+
   const cleanFallback = fallbackName ? decodeBasicHtmlEntities(fallbackName).trim() : '';
   const cleanSlug = slug ? decodeBasicHtmlEntities(slug).trim() : '';
   const rawInput = `${cleanSlug || cleanFallback}`.trim();
@@ -513,10 +522,10 @@ export const getTagDisplayName = (slug?: string | null, fallbackName?: string | 
     .replace(/^-|-$/g, '');
 
   const translated = EN_TO_TR[normalizedSlug];
-  if (translated) {
-    return translated;
+  const resolved = translated || cleanFallback || cleanSlug || rawInput;
+  if (tagDisplayNameCache.size >= TAG_DISPLAY_CACHE_MAX_SIZE) {
+    tagDisplayNameCache.clear();
   }
-
-  // Fall back to decoded original name if no translation found
-  return cleanFallback || cleanSlug || rawInput;
+  tagDisplayNameCache.set(cacheKey, resolved);
+  return resolved;
 };

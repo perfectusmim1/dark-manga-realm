@@ -45,7 +45,7 @@ import {
 import TagFilterPanel from '@/components/tags/TagFilterPanel';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
-import { matchesMangaSearch } from '@/lib/searchMatching';
+import { matchesMangaPreparedSearch, prepareSearchQuery } from '@/lib/searchMatching';
 import { useAuth } from '@/contexts/AuthContext';
 import { ADULT_MODE_CHANGED_EVENT } from '@/lib/adultModeEvents';
 import { getMangaTypeLabel } from '@/lib/mangaType';
@@ -139,6 +139,8 @@ interface IndexedBrowseManga {
   chapterCount: number;
   views: number;
 }
+
+const indexedBrowseMangaCache = new WeakMap<Manga, IndexedBrowseManga>();
 
 const getFormatIcon = (typeValue: string) => {
   switch (typeValue) {
@@ -363,6 +365,12 @@ const Browse: React.FC = () => {
       }
       seenMangaIds.add(manga.id);
 
+      const cachedEntry = indexedBrowseMangaCache.get(manga);
+      if (cachedEntry) {
+        entries.push(cachedEntry);
+        continue;
+      }
+
       const normalizedGenres = new Set<string>();
       const lowerGenres = new Set<string>();
       let hasAdultGenreEquivalent = false;
@@ -385,12 +393,12 @@ const Browse: React.FC = () => {
           ? manga.ratings.reduce((sum, r) => sum + r.rating, 0) / manga.ratings.length
           : 0;
 
-      const updatedAtMs = manga.lastUpdated ? new Date(manga.lastUpdated).getTime() || 0 : 0;
-      const createdAtMs = manga.createdAt ? new Date(manga.createdAt).getTime() || 0 : 0;
+      const updatedAtMs = manga.lastUpdated ? Date.parse(manga.lastUpdated) || 0 : 0;
+      const createdAtMs = manga.createdAt ? Date.parse(manga.createdAt) || 0 : 0;
       const chapterCount = typeof manga.chapterCount === 'number' ? manga.chapterCount : manga.chapters.length;
       const views = typeof manga.views === 'number' ? manga.views : 0;
 
-      entries.push({
+      const entry: IndexedBrowseManga = {
         manga,
         normalizedGenres,
         lowerGenres,
@@ -400,7 +408,9 @@ const Browse: React.FC = () => {
         createdAtMs,
         chapterCount,
         views,
-      });
+      };
+      indexedBrowseMangaCache.set(manga, entry);
+      entries.push(entry);
     }
 
     return entries;
@@ -410,7 +420,8 @@ const Browse: React.FC = () => {
     let entries = indexedCatalog;
 
     if (deferredSearchQuery) {
-      entries = entries.filter((entry) => matchesMangaSearch(entry.manga, deferredSearchQuery));
+      const preparedSearch = prepareSearchQuery(deferredSearchQuery);
+      entries = entries.filter((entry) => matchesMangaPreparedSearch(entry.manga, preparedSearch));
     }
 
     if (deferredTypeFilter !== 'all') {

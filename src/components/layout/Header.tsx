@@ -839,7 +839,7 @@ const HeaderContent: React.FC = () => {
     setIsMenuOpen(false);
     setIsRandomDialogOpen(false);
     setIsRandomRolling(false);
-  }, [location.pathname, location.search]);
+  }, [location.pathname]);
 
   useEffect(() => {
     if (isMenuOpen) {
@@ -1178,7 +1178,7 @@ const HeaderContent: React.FC = () => {
           <HeaderQuickSearch
             isOnline={isOnline}
             blurAdultArtworkEnabled={blurAdultArtworkEnabled}
-            navigationKey={`${location.pathname}${location.search}`}
+            navigationKey={location.pathname}
           />
         </div>
 
@@ -1379,7 +1379,7 @@ const HeaderContent: React.FC = () => {
             <HeaderQuickSearch
               isOnline={isOnline}
               blurAdultArtworkEnabled={blurAdultArtworkEnabled}
-              navigationKey={`${location.pathname}${location.search}`}
+              navigationKey={location.pathname}
               enableRandom={false}
               className="w-full"
               inlineDropdown

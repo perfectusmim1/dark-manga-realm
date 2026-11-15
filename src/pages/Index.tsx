@@ -1138,6 +1138,7 @@ const Index: React.FC = () => {
     let active = true;
     const cachedMemoryPage = readHomeCatalogMemoryPage(canSeeAdultContent, catalogPage, 28, 'updated');
     const cachedSeed = catalogPage === 1 ? readHomeCatalogSeed(canSeeAdultContent) : null;
+    const isSeedFresh = Boolean(cachedSeed && Date.now() - cachedSeed.updatedAt < 4 * 60 * 1000);
 
     if (cachedMemoryPage) {
       setCatalogState({
@@ -1164,7 +1165,7 @@ const Index: React.FC = () => {
           pageSize: 28,
           sort: 'updated',
           includeAdult: canSeeAdultContent,
-          forceRefresh: catalogPage === 1 && !cachedMemoryPage,
+          forceRefresh: catalogPage === 1 && !cachedMemoryPage && !isSeedFresh,
         })
       ))
       .then((result) => {

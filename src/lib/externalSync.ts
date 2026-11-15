@@ -222,6 +222,8 @@ export const isExternalProviderSupported = (
   || getExternalSourceLink(sourceLinks, provider)?.url,
 );
 
+export const EXTERNAL_RATING_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
 export const getMangaExternalRatings = (manga?: Pick<Manga, 'details'> | null): ExternalRatingsCache => {
   const rawRatings = manga?.details?.extra?.externalRatings;
   if (!rawRatings || typeof rawRatings !== 'object' || Array.isArray(rawRatings)) {
@@ -229,6 +231,32 @@ export const getMangaExternalRatings = (manga?: Pick<Manga, 'details'> | null): 
   }
 
   return rawRatings as ExternalRatingsCache;
+};
+
+export const areMangaExternalRatingsFresh = (manga?: Pick<Manga, 'details'> | null): boolean => {
+  const sourceLinks = manga?.details?.sourceLinks;
+  const ratings = getMangaExternalRatings(manga);
+  const now = Date.now();
+
+  const isFresh = (entry?: { updatedAt?: string } | null) => {
+    if (!entry?.updatedAt) {
+      return false;
+    }
+    const timestamp = Date.parse(entry.updatedAt);
+    return Number.isFinite(timestamp) && now - timestamp < EXTERNAL_RATING_CACHE_TTL_MS;
+  };
+
+  const hasMal = isExternalProviderSupported(sourceLinks, 'myanimelist');
+  const hasAniList = isExternalProviderSupported(sourceLinks, 'anilist');
+
+  if (hasMal && !isFresh(ratings.myanimelist)) {
+    return false;
+  }
+  if (hasAniList && !isFresh(ratings.anilist)) {
+    return false;
+  }
+
+  return true;
 };
 
 const createFunctionUrl = (functionName: string) => `${supabaseUrl}/functions/v1/${functionName}`;

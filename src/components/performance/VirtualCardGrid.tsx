@@ -44,6 +44,7 @@ function VirtualCardGrid<T>({
   const [containerWidth, setContainerWidth] = useState(getInitialContainerWidth);
   const [windowMetrics, setWindowMetrics] = useState(getWindowMetrics);
   const [itemHeight, setItemHeight] = useState<number | null>(null);
+  const [containerTop, setContainerTop] = useState(0);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -51,25 +52,38 @@ function VirtualCardGrid<T>({
       return;
     }
 
-    const updateWidth = () => {
-      setContainerWidth(container.clientWidth);
+    const updateWidth = (measuredWidth?: number) => {
+      const nextWidth = typeof measuredWidth === 'number' && measuredWidth > 0
+        ? Math.round(measuredWidth)
+        : container.clientWidth;
+      if (nextWidth > 0) {
+        setContainerWidth((current) => (current === nextWidth ? current : nextWidth));
+      }
     };
 
-    updateWidth();
+    const rafId = typeof window !== 'undefined'
+      ? window.requestAnimationFrame(() => updateWidth())
+      : null;
 
     if (typeof ResizeObserver === 'undefined') {
-      window.addEventListener('resize', updateWidth);
+      const handleResize = () => updateWidth();
+      updateWidth();
+      window.addEventListener('resize', handleResize);
       return () => {
-        window.removeEventListener('resize', updateWidth);
+        if (rafId !== null) window.cancelAnimationFrame(rafId);
+        window.removeEventListener('resize', handleResize);
       };
     }
 
-    const observer = new ResizeObserver(() => {
-      updateWidth();
+    const observer = new ResizeObserver((entries) => {
+      updateWidth(entries[0]?.contentRect?.width);
     });
 
     observer.observe(container);
-    return () => observer.disconnect();
+    return () => {
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
   }, []);
 
   useEffect(() => {
@@ -116,49 +130,75 @@ function VirtualCardGrid<T>({
     return Math.max(0, (containerWidth - gapPx * (columns - 1)) / columns);
   }, [columns, containerWidth, gapPx]);
 
+  const hasItems = items.length > 0;
+
   useEffect(() => {
     const probe = probeRef.current;
-    if (!probe) {
+    if (!probe || !hasItems) {
       return;
     }
 
-    const updateHeight = () => {
-      const nextHeight = probe.getBoundingClientRect().height;
+    const updateHeight = (measuredHeight?: number) => {
+      const nextHeight = typeof measuredHeight === 'number' && measuredHeight > 0
+        ? measuredHeight
+        : probe.getBoundingClientRect().height;
       if (nextHeight > 0) {
-        setItemHeight(nextHeight);
+        setItemHeight((current) => (current === nextHeight ? current : nextHeight));
       }
     };
 
-    updateHeight();
+    const rafId = typeof window !== 'undefined'
+      ? window.requestAnimationFrame(() => updateHeight())
+      : null;
 
     if (typeof ResizeObserver === 'undefined') {
-      window.addEventListener('resize', updateHeight);
+      const handleResize = () => updateHeight();
+      window.addEventListener('resize', handleResize);
       return () => {
-        window.removeEventListener('resize', updateHeight);
+        if (rafId !== null) window.cancelAnimationFrame(rafId);
+        window.removeEventListener('resize', handleResize);
       };
     }
 
-    const observer = new ResizeObserver(() => {
-      updateHeight();
+    const observer = new ResizeObserver((entries) => {
+      updateHeight(entries[0]?.contentRect?.height);
     });
 
     observer.observe(probe);
-    return () => observer.disconnect();
-  }, [cardWidth, items]);
+    return () => {
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
+  }, [cardWidth, hasItems]);
 
   const resolvedItemHeight = itemHeight ?? estimatedItemHeight;
   const rowStride = resolvedItemHeight + gapPx;
   const totalRows = Math.ceil(items.length / columns);
   const shouldVirtualize = items.length > columns * minRowsBeforeVirtualize && containerWidth > 0;
 
-  const containerTop = useMemo(() => {
-    const container = containerRef.current;
-    if (!container) {
-      return 0;
+  useEffect(() => {
+    if (typeof window === 'undefined' || !shouldVirtualize) {
+      setContainerTop(0);
+      return;
     }
 
-    return container.getBoundingClientRect().top + windowMetrics.scrollY;
-  }, [containerWidth, windowMetrics.scrollY]);
+    const updateContainerTop = () => {
+      const container = containerRef.current;
+      if (!container) {
+        setContainerTop(0);
+        return;
+      }
+      const nextTop = container.getBoundingClientRect().top + window.scrollY;
+      setContainerTop((current) => (Math.abs(current - nextTop) < 1 ? current : nextTop));
+    };
+
+    const rafId = window.requestAnimationFrame(updateContainerTop);
+    window.addEventListener('resize', updateContainerTop);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', updateContainerTop);
+    };
+  }, [containerWidth, shouldVirtualize]);
 
   const visibleRange = useMemo(() => {
     if (!shouldVirtualize || rowStride <= 0) {

@@ -11,6 +11,12 @@ export interface PreparedSearchQuery {
   tokens: string[];
 }
 
+const NON_PRINTABLE_ASCII_PATTERN = /[^\u0020-\u007e]/;
+const ASCII_TOKEN_SPLIT_PATTERN = /[^a-z0-9]+/;
+const UNICODE_NON_WORD_PATTERN = /[^\p{L}\p{N}]+/gu;
+const NON_LOWER_ALNUM_TEST_PATTERN = /[^a-z0-9]/;
+const NON_LOWER_ALNUM_REPLACE_PATTERN = /[^a-z0-9]/g;
+
 interface IndexedSearchField {
   norm: string;
   loose?: string;
@@ -18,17 +24,27 @@ interface IndexedSearchField {
 }
 
 interface IndexedMangaSearch {
+  manga: Manga;
   title: IndexedSearchField | null;
-  secondary: IndexedSearchField[];
+  secondary?: IndexedSearchField[];
 }
 
 const normalizeSearchValue = (value?: string | null) => normalizeComparableText(value);
 
-const tokenizeNormalizedValue = (normalizedValue: string) => normalizedValue
-  .replace(/[^\p{L}\p{N}]+/gu, ' ')
-  .split(' ')
-  .map((token) => token.trim())
-  .filter(Boolean);
+const tokenizeNormalizedValue = (normalizedValue: string): string[] => {
+  if (!normalizedValue) {
+    return [];
+  }
+
+  if (!NON_PRINTABLE_ASCII_PATTERN.test(normalizedValue)) {
+    return normalizedValue.split(ASCII_TOKEN_SPLIT_PATTERN).filter(Boolean);
+  }
+
+  return normalizedValue
+    .replace(UNICODE_NON_WORD_PATTERN, ' ')
+    .split(' ')
+    .filter(Boolean);
+};
 
 const createIndexedField = (value?: string | null): IndexedSearchField | null => {
   const norm = normalizeSearchValue(value);
@@ -37,7 +53,9 @@ const createIndexedField = (value?: string | null): IndexedSearchField | null =>
 
 const getFieldLoose = (field: IndexedSearchField): string => {
   if (field.loose === undefined) {
-    field.loose = field.norm.replace(/[^a-z0-9]/g, '');
+    field.loose = NON_LOWER_ALNUM_TEST_PATTERN.test(field.norm)
+      ? field.norm.replace(NON_LOWER_ALNUM_REPLACE_PATTERN, '')
+      : field.norm;
   }
   return field.loose;
 };
@@ -49,16 +67,25 @@ const getFieldTokens = (field: IndexedSearchField): string[] => {
   return field.tokens;
 };
 
-const matchesIndexedField = (field: IndexedSearchField, query: PreparedSearchQuery): boolean => {
+const needsTokenScan = (query: PreparedSearchQuery): boolean => (
+  query.tokens.length > 1
+  || (query.tokens.length === 1 && query.tokens[0] !== query.normalized)
+);
+
+const matchesIndexedField = (
+  field: IndexedSearchField,
+  query: PreparedSearchQuery,
+  shouldCheckTokens: boolean,
+): boolean => {
   if (field.norm.includes(query.normalized)) {
     return true;
   }
 
-  if (query.loose && getFieldLoose(field).includes(query.loose)) {
+  if (query.loose && field.norm.length >= query.loose.length && getFieldLoose(field).includes(query.loose)) {
     return true;
   }
 
-  if (query.tokens.length === 0) {
+  if (!shouldCheckTokens || query.tokens.length === 0) {
     return false;
   }
 
@@ -66,28 +93,63 @@ const matchesIndexedField = (field: IndexedSearchField, query: PreparedSearchQue
   return query.tokens.every((queryToken) => valueTokens.some((valueToken) => valueToken.includes(queryToken)));
 };
 
-const getEntityExtraSearchTerms = (entity: SearchableNamedEntity) => (
-  Object.values(entity.details?.extra || {})
-    .flatMap((value) => (Array.isArray(value) ? value : [value]))
-    .map((value) => (typeof value === 'string' || typeof value === 'number' ? String(value) : undefined))
-);
+const pushStringList = (target: Array<string | null | undefined>, values?: readonly (string | null | undefined)[]) => {
+  if (!values || values.length === 0) {
+    return;
+  }
+  for (let index = 0; index < values.length; index += 1) {
+    const value = values[index];
+    if (value) {
+      target.push(value);
+    }
+  }
+};
 
-const getEntitySearchTerms = (entity: SearchableNamedEntity) => ([
-  entity.name,
-  ...(entity.alternativeNames || []),
-  entity.details?.nativeName,
-  entity.details?.englishName,
-  entity.details?.romajiName,
-  entity.details?.gender,
-  entity.details?.role,
-  entity.details?.className,
-  entity.details?.rankTitle,
-  ...(entity.details?.affiliation || []),
-  ...(entity.details?.relatives || []),
-  ...(entity.details?.genres || []),
-  ...(entity.details?.tags || []),
-  ...getEntityExtraSearchTerms(entity),
-]);
+const pushEntitySearchTerms = (
+  target: Array<string | null | undefined>,
+  entity: SearchableNamedEntity | undefined | null,
+) => {
+  if (!entity) {
+    return;
+  }
+
+  if (entity.name) target.push(entity.name);
+  pushStringList(target, entity.alternativeNames);
+
+  const details = entity.details;
+  if (!details) {
+    return;
+  }
+
+  if (details.nativeName) target.push(details.nativeName);
+  if (details.englishName) target.push(details.englishName);
+  if (details.romajiName) target.push(details.romajiName);
+  if (details.gender) target.push(details.gender);
+  if (details.role) target.push(details.role);
+  if (details.className) target.push(details.className);
+  if (details.rankTitle) target.push(details.rankTitle);
+
+  pushStringList(target, details.affiliation);
+  pushStringList(target, details.relatives);
+  pushStringList(target, details.genres);
+  pushStringList(target, details.tags);
+
+  const extra = details.extra;
+  if (extra) {
+    for (const value of Object.values(extra)) {
+      if (Array.isArray(value)) {
+        for (let index = 0; index < value.length; index += 1) {
+          const item = value[index];
+          if (typeof item === 'string' || typeof item === 'number') {
+            target.push(String(item));
+          }
+        }
+      } else if (typeof value === 'string' || typeof value === 'number') {
+        target.push(String(value));
+      }
+    }
+  }
+};
 
 const indexedEntityCache = new WeakMap<object, IndexedSearchField[]>();
 const indexedMangaCache = new WeakMap<object, IndexedMangaSearch>();
@@ -98,9 +160,16 @@ const getIndexedEntityFields = (entity: SearchableNamedEntity): IndexedSearchFie
     return cached;
   }
 
-  const fields = getEntitySearchTerms(entity)
-    .map(createIndexedField)
-    .filter((field): field is IndexedSearchField => field !== null);
+  const terms: Array<string | null | undefined> = [];
+  pushEntitySearchTerms(terms, entity);
+
+  const fields: IndexedSearchField[] = [];
+  for (let index = 0; index < terms.length; index += 1) {
+    const field = createIndexedField(terms[index]);
+    if (field) {
+      fields.push(field);
+    }
+  }
 
   indexedEntityCache.set(entity, fields);
   return fields;
@@ -112,30 +181,50 @@ const getIndexedMangaFields = (manga: Manga): IndexedMangaSearch => {
     return cached;
   }
 
-  const title = createIndexedField(manga.title);
-  const secondaryRawTerms: Array<string | null | undefined> = [
-    manga.author,
-    manga.artist,
-    ...(manga.alternativeTitles || []),
-    ...(manga.authorDetails ? getEntitySearchTerms(manga.authorDetails) : []),
-    ...(manga.artistDetails ? getEntitySearchTerms(manga.artistDetails) : []),
-    ...(manga.authorsDetails?.flatMap((author) => getEntitySearchTerms(author)) || []),
-    ...(manga.artistsDetails?.flatMap((artist) => getEntitySearchTerms(artist)) || []),
-  ];
+  const entry: IndexedMangaSearch = {
+    manga,
+    title: createIndexedField(manga.title),
+  };
+  indexedMangaCache.set(manga, entry);
+  return entry;
+};
 
-  const seenNorms = new Set<string>(title ? [title.norm] : []);
+const getIndexedMangaSecondaryFields = (indexed: IndexedMangaSearch): IndexedSearchField[] => {
+  if (indexed.secondary) {
+    return indexed.secondary;
+  }
+
+  const { manga } = indexed;
+  const secondaryRawTerms: Array<string | null | undefined> = [];
+  if (manga.author) secondaryRawTerms.push(manga.author);
+  if (manga.artist) secondaryRawTerms.push(manga.artist);
+  pushStringList(secondaryRawTerms, manga.alternativeTitles);
+  pushEntitySearchTerms(secondaryRawTerms, manga.authorDetails);
+  pushEntitySearchTerms(secondaryRawTerms, manga.artistDetails);
+
+  if (manga.authorsDetails && manga.authorsDetails.length > 0) {
+    for (let index = 0; index < manga.authorsDetails.length; index += 1) {
+      pushEntitySearchTerms(secondaryRawTerms, manga.authorsDetails[index]);
+    }
+  }
+  if (manga.artistsDetails && manga.artistsDetails.length > 0) {
+    for (let index = 0; index < manga.artistsDetails.length; index += 1) {
+      pushEntitySearchTerms(secondaryRawTerms, manga.artistsDetails[index]);
+    }
+  }
+
+  const seenNorms = new Set<string>(indexed.title ? [indexed.title.norm] : []);
   const secondary: IndexedSearchField[] = [];
-  for (const term of secondaryRawTerms) {
-    const field = createIndexedField(term);
+  for (let index = 0; index < secondaryRawTerms.length; index += 1) {
+    const field = createIndexedField(secondaryRawTerms[index]);
     if (field && !seenNorms.has(field.norm)) {
       seenNorms.add(field.norm);
       secondary.push(field);
     }
   }
 
-  const entry: IndexedMangaSearch = { title, secondary };
-  indexedMangaCache.set(manga, entry);
-  return entry;
+  indexed.secondary = secondary;
+  return secondary;
 };
 
 export const prepareSearchQuery = (rawQuery: string): PreparedSearchQuery => {
@@ -161,9 +250,10 @@ export const matchesNamedEntityPreparedSearch = (
     return false;
   }
 
+  const shouldCheckTokens = needsTokenScan(query);
   const fields = getIndexedEntityFields(entity);
   for (let index = 0; index < fields.length; index += 1) {
-    if (matchesIndexedField(fields[index], query)) {
+    if (matchesIndexedField(fields[index], query, shouldCheckTokens)) {
       return true;
     }
   }
@@ -187,6 +277,7 @@ export const scoreMangaPreparedSearch = (
     return 0;
   }
 
+  const shouldCheckTokens = needsTokenScan(query);
   const indexed = getIndexedMangaFields(manga);
   if (indexed.title) {
     if (indexed.title.norm === query.normalized) {
@@ -198,13 +289,14 @@ export const scoreMangaPreparedSearch = (
     if (indexed.title.norm.includes(query.normalized)) {
       return 300;
     }
-    if (matchesIndexedField(indexed.title, query)) {
+    if (matchesIndexedField(indexed.title, query, shouldCheckTokens)) {
       return 200;
     }
   }
 
-  for (let index = 0; index < indexed.secondary.length; index += 1) {
-    if (matchesIndexedField(indexed.secondary[index], query)) {
+  const secondary = getIndexedMangaSecondaryFields(indexed);
+  for (let index = 0; index < secondary.length; index += 1) {
+    if (matchesIndexedField(secondary[index], query, shouldCheckTokens)) {
       return 100;
     }
   }

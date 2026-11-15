@@ -325,8 +325,30 @@ const genreAliasMap: Record<string, string> = {
 const toGenreKey = (value: string) =>
   value
     .trim()
-    .toLocaleLowerCase('tr-TR')
+    .replace(/\u0130|I\u0307/g, 'i')
+    .replace(/I/g, 'ı')
+    .toLowerCase()
     .replace(/\s+/g, ' ');
+
+const canonicalGenreByKey = new Map<string, string>();
+for (const canonical of allGenres) {
+  canonicalGenreByKey.set(toGenreKey(canonical), canonical);
+}
+for (const [aliasKey, canonical] of Object.entries(genreAliasMap)) {
+  canonicalGenreByKey.set(toGenreKey(aliasKey), canonical);
+}
+
+const GENRE_MEMO_LIMIT = 4096;
+const normalizedGenreCache = new Map<string, string>();
+const formattedGenreCache = new Map<string, string>();
+const knownGenreCache = new Map<string, boolean>();
+
+const setBoundedCache = <K, V>(cache: Map<K, V>, key: K, value: V) => {
+  if (cache.size >= GENRE_MEMO_LIMIT) {
+    cache.clear();
+  }
+  cache.set(key, value);
+};
 
 const BLOCKED_GENRE_KEYS = new Set([
   'bl',
@@ -355,17 +377,21 @@ export const normalizeGenreName = (genre: string): string => {
     return '';
   }
 
-  if (BLOCKED_GENRE_KEYS.has(toGenreKey(trimmed))) {
-    return '';
+  const cached = normalizedGenreCache.get(trimmed);
+  if (cached !== undefined) {
+    return cached;
   }
 
-  const alias = genreAliasMap[toGenreKey(trimmed)];
-  if (alias) {
-    return alias;
+  const key = toGenreKey(trimmed);
+  let resolved = trimmed;
+  if (BLOCKED_GENRE_KEYS.has(key)) {
+    resolved = '';
+  } else {
+    resolved = canonicalGenreByKey.get(key) || trimmed;
   }
 
-  const canonical = allGenres.find((item) => toGenreKey(item) === toGenreKey(trimmed));
-  return canonical || trimmed;
+  setBoundedCache(normalizedGenreCache, trimmed, resolved);
+  return resolved;
 };
 
 const decodeBasicGenreEntities = (value: string): string =>
@@ -375,22 +401,37 @@ const decodeBasicGenreEntities = (value: string): string =>
     .replace(/&amp;|&#0*38;|&#x0*26;/gi, '&');
 
 export const formatGenreDisplayName = (genre?: string | null): string => {
-  const decoded = decodeBasicGenreEntities(`${genre || ''}`).replace(/\s+/g, ' ').trim();
-  if (!decoded) {
+  if (!genre) {
     return '';
   }
 
-  const normalized = normalizeGenreName(decoded);
-  if (normalized && normalized !== decoded) {
-    return normalized;
+  const cached = formattedGenreCache.get(genre);
+  if (cached !== undefined) {
+    return cached;
   }
 
-  const translated = getTagDisplayName(decoded, decoded);
-  return genreAliasMap[toGenreKey(translated)] || translated;
+  const decoded = decodeBasicGenreEntities(genre).replace(/\s+/g, ' ').trim();
+  let resolved = '';
+  if (decoded) {
+    const normalized = normalizeGenreName(decoded);
+    if (normalized && normalized !== decoded) {
+      resolved = normalized;
+    } else {
+      const translated = getTagDisplayName(decoded, decoded);
+      resolved = genreAliasMap[toGenreKey(translated)] || translated;
+    }
+  }
+
+  setBoundedCache(formattedGenreCache, genre, resolved);
+  return resolved;
 };
 
 export const formatMangaStatusLabel = (status?: string | null): string => {
-  const key = `${status || ''}`.trim().toLocaleLowerCase('tr-TR');
+  const raw = status ? status.trim() : '';
+  if (!raw) {
+    return 'Belirsiz';
+  }
+  const key = toGenreKey(raw);
   switch (key) {
     case 'ongoing':
     case 'devam ediyor':
@@ -408,7 +449,7 @@ export const formatMangaStatusLabel = (status?: string | null): string => {
     case 'iptal edildi':
       return 'İptal Edildi';
     default:
-      return `${status || ''}`.trim() || 'Belirsiz';
+      return raw;
   }
 };
 
@@ -418,10 +459,14 @@ export const isKnownGenre = (genre: string): boolean => {
     return false;
   }
 
-  return Boolean(
-    genreAliasMap[toGenreKey(trimmed)]
-    || allGenres.find((item) => toGenreKey(item) === toGenreKey(trimmed)),
-  );
+  const cached = knownGenreCache.get(trimmed);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const known = canonicalGenreByKey.has(toGenreKey(trimmed));
+  setBoundedCache(knownGenreCache, trimmed, known);
+  return known;
 };
 
 export const isAdultMarkerGenre = (genre: string): boolean =>

@@ -169,6 +169,7 @@ import {
 } from '@/lib/characterRoles';
 import { getMangaRelationTypeLabel } from '@/lib/mangaRelations';
 import {
+  areMangaExternalRatingsFresh,
   getExternalSyncStatuses,
   getMangaExternalRatings,
   isExternalProviderSupported,
@@ -1464,7 +1465,7 @@ const MangaDetail: React.FC = () => {
   useEffect(() => {
     let isCancelled = false;
 
-    if (!manga?.id || !isOnline || !hasSupportedExternalProviders) {
+    if (!manga?.id || !isOnline || !hasSupportedExternalProviders || areMangaExternalRatingsFresh(manga)) {
       return () => {
         isCancelled = true;
       };

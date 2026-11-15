@@ -55,17 +55,30 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
     [src],
   );
 
-  React.useLayoutEffect(() => {
-    if (priority || transform?.width || !ref.current) {
+  React.useEffect(() => {
+    if (priority || transform?.width || !ref.current || typeof window === 'undefined') {
       return;
     }
 
-    const clientWidth = ref.current.clientWidth;
-    if (clientWidth > 0 && clientWidth <= 240) {
-      const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
-      const nextWidth = Math.min(480, Math.max(72, Math.round(clientWidth * dpr)));
-      setMeasuredWidth((prev) => (prev === nextWidth ? prev : nextWidth));
-    }
+    let rafId: number | null = window.requestAnimationFrame(() => {
+      rafId = null;
+      const element = ref.current;
+      if (!element) {
+        return;
+      }
+      const clientWidth = element.clientWidth;
+      if (clientWidth > 0 && clientWidth <= 240) {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const nextWidth = Math.min(480, Math.max(72, Math.round(clientWidth * dpr)));
+        setMeasuredWidth((prev) => (prev === nextWidth ? prev : nextWidth));
+      }
+    });
+
+    return () => {
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+      }
+    };
   }, [priority, ref, transform?.width]);
 
   const effectiveTransform = React.useMemo<ImageProxyTransformOptions | undefined>(() => {
