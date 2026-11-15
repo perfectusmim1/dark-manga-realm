@@ -16,7 +16,6 @@ import { clearHeaderShellSnapshot, writeHeaderShellUser } from '@/lib/headerShel
 import { PASSWORD_MIN_LENGTH, translatePasswordPolicyError } from '@/lib/auth/passwordPolicy';
 import { dispatchAdultModeChanged } from '@/lib/adultModeEvents';
 import { isDocumentVisible } from '@/lib/documentVisibility';
-import { getActivePresenceMangaId } from '@/lib/presence';
 import { acknowledgeCurrentUserWarning, getCurrentUserAccessSnapshot, type CurrentUserAccessSnapshot } from '@/lib/userAccess';
 import { toast } from 'sonner';
 
@@ -861,16 +860,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       try {
-        const activeMangaId = getActivePresenceMangaId();
         const callPresenceRpc = supabase.rpc as unknown as (
           fn: string,
           params: Record<string, string>,
         ) => Promise<{ error: unknown }>;
         const { error: presenceError } = await callPresenceRpc(
           'update_user_presence',
-          activeMangaId
-            ? { p_user_id: activeSession.user.id, p_manga_id: activeMangaId }
-            : { p_user_id: activeSession.user.id }
+          { p_user_id: activeSession.user.id },
         );
         if (presenceError && !isExpectedAccessControlError(presenceError)) {
           console.error('Presence heartbeat failed:', presenceError);

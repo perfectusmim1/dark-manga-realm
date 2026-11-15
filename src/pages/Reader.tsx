@@ -22,7 +22,6 @@ import {
   getLatestProgress,
 } from '../lib/storage';
 import { logChapterRead } from '../lib/profile';
-import { setActivePresenceMangaId } from '@/lib/presence';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -633,13 +632,6 @@ const Reader: React.FC = () => {
         toast.info("Gizli mod kapatıldı.");
     }
   };
-
-  useEffect(() => {
-    setActivePresenceMangaId(canUseNetworkReaderFeatures && mangaId ? mangaId : null);
-    return () => {
-      setActivePresenceMangaId(null);
-    };
-  }, [canUseNetworkReaderFeatures, mangaId]);
 
   useEffect(() => {
     if (!mangaId || !canUseNetworkReaderFeatures) {

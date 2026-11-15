@@ -686,14 +686,11 @@ const MangaDetail: React.FC = () => {
   const [togglingChapterLikeId, setTogglingChapterLikeId] = useState<string | null>(null);
   const [detailMeta, setDetailMeta] = useState<MangaDetailMeta | null>(null);
   const [isReadersModalOpen, setIsReadersModalOpen] = useState(false);
-  const [readersTab, setReadersTab] = useState<'reading' | 'library'>('library');
-  const [readersByTab, setReadersByTab] = useState<{
-    reading: { items: MangaReaderItem[]; hasMore: boolean; loaded: boolean };
-    library: { items: MangaReaderItem[]; hasMore: boolean; loaded: boolean };
-  }>({
-    reading: { items: [], hasMore: false, loaded: false },
-    library: { items: [], hasMore: false, loaded: false },
-  });
+  const [libraryReaders, setLibraryReaders] = useState<{
+    items: MangaReaderItem[];
+    hasMore: boolean;
+    loaded: boolean;
+  }>({ items: [], hasMore: false, loaded: false });
   const [isReadersLoading, setIsReadersLoading] = useState(false);
   const [isReadersLoadingMore, setIsReadersLoadingMore] = useState(false);
   const [pendingReaderFollowIds, setPendingReaderFollowIds] = useState<Record<string, boolean>>({});
@@ -701,10 +698,7 @@ const MangaDetail: React.FC = () => {
   useEffect(() => {
     const targetId = manga?.id;
     setIsReadersModalOpen(false);
-    setReadersByTab({
-      reading: { items: [], hasMore: false, loaded: false },
-      library: { items: [], hasMore: false, loaded: false },
-    });
+    setLibraryReaders({ items: [], hasMore: false, loaded: false });
 
     if (!targetId || !isOnline || isOfflineView) {
       setDetailMeta(null);
@@ -755,13 +749,10 @@ const MangaDetail: React.FC = () => {
         libraryAvatars: nextAvatars,
       };
     });
-    setReadersByTab((prev) => ({
-      ...prev,
-      library: { items: [], hasMore: false, loaded: false },
-    }));
+    setLibraryReaders({ items: [], hasMore: false, loaded: false });
   }, [manga?.id, user?.avatar, user?.id, user?.username]);
 
-  const loadReadersPage = React.useCallback(async (tab: 'reading' | 'library', offset = 0, append = false) => {
+  const loadReadersPage = React.useCallback(async (offset = 0, append = false) => {
     if (!manga?.id || !isOnline) return;
     if (append) {
       setIsReadersLoadingMore(true);
@@ -770,9 +761,9 @@ const MangaDetail: React.FC = () => {
     }
 
     try {
-      const result = await getMangaReadersList(manga.id, tab, 30, offset);
-      setReadersByTab((prev) => {
-        const existing = append ? prev[tab].items : [];
+      const result = await getMangaReadersList(manga.id, 'library', 30, offset);
+      setLibraryReaders((prev) => {
+        const existing = append ? prev.items : [];
         const seen = new Set(existing.map((entry) => entry.id));
         const merged = [...existing];
         for (const item of result.items) {
@@ -782,12 +773,9 @@ const MangaDetail: React.FC = () => {
           }
         }
         return {
-          ...prev,
-          [tab]: {
-            items: merged,
-            hasMore: result.hasMore,
-            loaded: true,
-          },
+          items: merged,
+          hasMore: result.hasMore,
+          loaded: true,
         };
       });
     } catch {
@@ -803,14 +791,13 @@ const MangaDetail: React.FC = () => {
 
   useEffect(() => {
     if (!isReadersModalOpen || !manga?.id || !isOnline) return;
-    if (!readersByTab[readersTab].loaded) {
-      void loadReadersPage(readersTab, 0, false);
+    if (!libraryReaders.loaded) {
+      void loadReadersPage(0, false);
     }
-  }, [isOnline, isReadersModalOpen, loadReadersPage, manga?.id, readersByTab, readersTab]);
+  }, [isOnline, isReadersModalOpen, libraryReaders.loaded, loadReadersPage, manga?.id]);
 
   const handleOpenReadersModal = () => {
     if (!isOnline || isOfflineView) return;
-    setReadersTab(detailMeta && detailMeta.activeCount > 0 ? 'reading' : 'library');
     setIsReadersModalOpen(true);
   };
 
@@ -825,11 +812,9 @@ const MangaDetail: React.FC = () => {
     setPendingReaderFollowIds((prev) => ({ ...prev, [reader.id]: true }));
 
     const updateListFollow = (following: boolean) => {
-      const patchItems = (items: MangaReaderItem[]) =>
-        items.map((entry) => (entry.id === reader.id ? { ...entry, isFollowing: following } : entry));
-      setReadersByTab((prev) => ({
-        reading: { ...prev.reading, items: patchItems(prev.reading.items) },
-        library: { ...prev.library, items: patchItems(prev.library.items) },
+      setLibraryReaders((prev) => ({
+        ...prev,
+        items: prev.items.map((entry) => (entry.id === reader.id ? { ...entry, isFollowing: following } : entry)),
       }));
     };
 
@@ -3670,12 +3655,9 @@ const MangaDetail: React.FC = () => {
                       onClick={handleOpenReadersModal}
                       className="inline-flex items-center gap-2 rounded-md py-0.5 text-left text-xs text-white/90 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm"
                     >
-                      {detailMeta.activeCount > 0 ? (
-                        <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.85)]" />
-                      ) : null}
-                      {(detailMeta.activeCount > 0 ? detailMeta.activeAvatars : detailMeta.libraryAvatars).length > 0 ? (
+                      {detailMeta.libraryAvatars.length > 0 ? (
                         <span className="inline-flex shrink-0 items-center -space-x-1.5">
-                          {(detailMeta.activeCount > 0 ? detailMeta.activeAvatars : detailMeta.libraryAvatars)
+                          {detailMeta.libraryAvatars
                             .slice(0, 3)
                             .map((reader) => (
                               <Avatar key={reader.id} className="h-5 w-5 border border-background bg-secondary">
@@ -3690,12 +3672,6 @@ const MangaDetail: React.FC = () => {
                         <Library className="h-4 w-4 shrink-0 text-sky-400" />
                       )}
                       <span className="tracking-tight">
-                        {detailMeta.activeCount > 0 ? (
-                          <>
-                            <strong className="font-semibold text-white">{detailMeta.activeCount}</strong> kişi okuyor
-                            <span className="mx-1.5 text-white/45">·</span>
-                          </>
-                        ) : null}
                         <strong className="font-semibold text-white">{detailMeta.libraryCount}</strong> kitaplıkta
                       </span>
                     </button>
@@ -5402,148 +5378,117 @@ const MangaDetail: React.FC = () => {
         <DialogContent className="flex max-h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-[460px] flex-col gap-0 overflow-hidden rounded-2xl border border-border/80 bg-card p-0">
           <DialogHeader className="border-b border-border/60 px-5 py-4 pr-12 text-left">
             <DialogTitle className="flex items-center gap-2 text-base font-bold sm:text-lg">
-              <BookOpen className="h-4 w-4 text-rose-400" />
-              Okurlar
+              <Library className="h-4 w-4 text-sky-400" />
+              Kitaplığında
+              <span className="text-sm font-semibold text-emerald-400 tabular-nums">
+                {detailMeta?.libraryCount ?? 0}
+              </span>
             </DialogTitle>
             <DialogDescription className="sr-only">
-              Bu seriyi okuyan ve kitaplığında tutan kullanıcılar
+              Bu seriyi kitaplığında tutan kullanıcılar
             </DialogDescription>
           </DialogHeader>
 
-          <div className="px-4 pt-3 pb-2">
-            <Tabs value={readersTab} onValueChange={(value) => setReadersTab(value as 'reading' | 'library')}>
-              <TabsList className="grid h-10 w-full grid-cols-2 rounded-xl border border-border/60 bg-background/70 p-1">
-                <TabsTrigger value="reading" className="rounded-lg text-xs font-semibold sm:text-sm">
-                  Şu anda okuyanlar
-                  <span className="ml-1.5 text-muted-foreground tabular-nums">
-                    {detailMeta?.activeCount ?? 0}
-                  </span>
-                </TabsTrigger>
-                <TabsTrigger value="library" className="rounded-lg text-xs font-semibold sm:text-sm">
-                  Kitaplığında
-                  <span className="ml-1.5 text-emerald-400 tabular-nums">
-                    {detailMeta?.libraryCount ?? 0}
-                  </span>
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </div>
-
-          <div className="min-h-[220px] max-h-[60vh] overflow-y-auto px-4 pb-4 pt-1">
-            {(() => {
-              const currentTabData = readersByTab[readersTab];
-              if (isReadersLoading && currentTabData.items.length === 0) {
-                return (
-                  <div className="space-y-3 py-3">
-                    {Array.from({ length: 5 }).map((_, idx) => (
-                      <div key={idx} className="flex items-center justify-between gap-3 py-1">
-                        <div className="flex items-center gap-3">
-                          <div className="h-9 w-9 animate-pulse rounded-full bg-secondary/70" />
-                          <div className="space-y-1.5">
-                            <div className="h-3.5 w-24 animate-pulse rounded bg-secondary/70" />
-                            <div className="h-2.5 w-16 animate-pulse rounded bg-secondary/50" />
-                          </div>
-                        </div>
-                        <div className="h-8 w-20 animate-pulse rounded-lg bg-secondary/60" />
+          <div className="min-h-[220px] max-h-[60vh] overflow-y-auto px-4 py-3">
+            {isReadersLoading && libraryReaders.items.length === 0 ? (
+              <div className="space-y-3 py-3">
+                {Array.from({ length: 5 }).map((_, idx) => (
+                  <div key={idx} className="flex items-center justify-between gap-3 py-1">
+                    <div className="flex items-center gap-3">
+                      <div className="h-9 w-9 animate-pulse rounded-full bg-secondary/70" />
+                      <div className="space-y-1.5">
+                        <div className="h-3.5 w-24 animate-pulse rounded bg-secondary/70" />
+                        <div className="h-2.5 w-16 animate-pulse rounded bg-secondary/50" />
                       </div>
-                    ))}
-                  </div>
-                );
-              }
-
-              if (currentTabData.items.length === 0) {
-                return (
-                  <div className="flex flex-col items-center justify-center py-12 text-center text-sm text-muted-foreground">
-                    <BookOpen className="mb-2.5 h-8 w-8 opacity-40" />
-                    <p>
-                      {readersTab === 'reading'
-                        ? 'Şu anda bu seriyi okuyan aktif okur yok.'
-                        : 'Bu seriyi henüz kitaplığına ekleyen kimse yok.'}
-                    </p>
-                  </div>
-                );
-              }
-
-              return (
-                <div className="space-y-2 py-1">
-                  {currentTabData.items.map((reader) => {
-                    const isSelf = user?.id === reader.id;
-                    const isPending = Boolean(pendingReaderFollowIds[reader.id]);
-                    const activityLabel = reader.activityAt
-                      ? formatDistanceToNow(new Date(reader.activityAt), { addSuffix: true, locale: tr })
-                      : null;
-
-                    return (
-                      <div
-                        key={reader.id}
-                        className="flex items-center justify-between gap-3 rounded-xl px-1.5 py-1.5 transition-colors hover:bg-secondary/35"
-                      >
-                        <Link
-                          to={`/profile/${reader.id}`}
-                          onClick={() => setIsReadersModalOpen(false)}
-                          className="flex min-w-0 flex-1 items-center gap-3 group"
-                        >
-                          <Avatar className="h-9 w-9 shrink-0 border border-border/60 bg-secondary">
-                            <AvatarImage src={reader.avatar || undefined} alt={reader.username} className="object-cover" />
-                            <AvatarFallback className="bg-secondary text-xs font-bold text-foreground">
-                              {(reader.username || 'O').slice(0, 1).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span
-                                className={cn(
-                                  'truncate text-sm font-semibold group-hover:text-primary transition-colors',
-                                  reader.role ? getStaffTextClassName(reader.role, false) : 'text-foreground',
-                                )}
-                              >
-                                {reader.username}
-                              </span>
-                            </div>
-                            {activityLabel && (
-                              <p className="truncate text-[11px] text-muted-foreground">
-                                {activityLabel}
-                              </p>
-                            )}
-                          </div>
-                        </Link>
-
-                        {!isSelf && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={reader.isFollowing ? 'secondary' : 'default'}
-                            disabled={isPending}
-                            onClick={() => void handleToggleReaderFollow(reader)}
-                            className={cn(
-                              'h-8 shrink-0 rounded-lg px-3.5 text-xs font-semibold',
-                              !reader.isFollowing && 'bg-foreground text-background hover:bg-foreground/90',
-                            )}
-                          >
-                            {reader.isFollowing ? 'Takiptesin' : 'Takip et'}
-                          </Button>
-                        )}
-                      </div>
-                    );
-                  })}
-
-                  {currentTabData.hasMore && (
-                    <div className="pt-2 text-center">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={isReadersLoadingMore}
-                        onClick={() => void loadReadersPage(readersTab, currentTabData.items.length, true)}
-                        className="w-full rounded-xl text-xs"
-                      >
-                        {isReadersLoadingMore ? 'Yükleniyor...' : 'Daha fazla göster'}
-                      </Button>
                     </div>
-                  )}
-                </div>
-              );
-            })()}
+                    <div className="h-8 w-20 animate-pulse rounded-lg bg-secondary/60" />
+                  </div>
+                ))}
+              </div>
+            ) : libraryReaders.items.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center text-sm text-muted-foreground">
+                <Library className="mb-2.5 h-8 w-8 opacity-40" />
+                <p>Bu seriyi henüz kitaplığına ekleyen kimse yok.</p>
+              </div>
+            ) : (
+              <div className="space-y-2 py-1">
+                {libraryReaders.items.map((reader) => {
+                  const isSelf = user?.id === reader.id;
+                  const isPending = Boolean(pendingReaderFollowIds[reader.id]);
+                  const activityLabel = reader.activityAt
+                    ? formatDistanceToNow(new Date(reader.activityAt), { addSuffix: true, locale: tr })
+                    : null;
+
+                  return (
+                    <div
+                      key={reader.id}
+                      className="flex items-center justify-between gap-3 rounded-xl px-1.5 py-1.5 transition-colors hover:bg-secondary/35"
+                    >
+                      <Link
+                        to={`/profile/${reader.id}`}
+                        onClick={() => setIsReadersModalOpen(false)}
+                        className="flex min-w-0 flex-1 items-center gap-3 group"
+                      >
+                        <Avatar className="h-9 w-9 shrink-0 border border-border/60 bg-secondary">
+                          <AvatarImage src={reader.avatar || undefined} alt={reader.username} className="object-cover" />
+                          <AvatarFallback className="bg-secondary text-xs font-bold text-foreground">
+                            {(reader.username || 'O').slice(0, 1).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={cn(
+                                'truncate text-sm font-semibold group-hover:text-primary transition-colors',
+                                reader.role ? getStaffTextClassName(reader.role, false) : 'text-foreground',
+                              )}
+                            >
+                              {reader.username}
+                            </span>
+                          </div>
+                          {activityLabel && (
+                            <p className="truncate text-[11px] text-muted-foreground">
+                              {activityLabel}
+                            </p>
+                          )}
+                        </div>
+                      </Link>
+
+                      {!isSelf && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={reader.isFollowing ? 'secondary' : 'default'}
+                          disabled={isPending}
+                          onClick={() => void handleToggleReaderFollow(reader)}
+                          className={cn(
+                            'h-8 shrink-0 rounded-lg px-3.5 text-xs font-semibold',
+                            !reader.isFollowing && 'bg-foreground text-background hover:bg-foreground/90',
+                          )}
+                        >
+                          {reader.isFollowing ? 'Takiptesin' : 'Takip et'}
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {libraryReaders.hasMore && (
+                  <div className="pt-2 text-center">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={isReadersLoadingMore}
+                      onClick={() => void loadReadersPage(libraryReaders.items.length, true)}
+                      className="w-full rounded-xl text-xs"
+                    >
+                      {isReadersLoadingMore ? 'Yükleniyor...' : 'Daha fazla göster'}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
