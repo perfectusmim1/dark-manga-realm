@@ -14,11 +14,20 @@ dist-ssr/
 *.local
 .vercel/
 
-# Environment variables & Secrets
+# Environment variables, Keys & Secrets
 .env
 .env.*
 !.env.example
 local-scraper.config.json
+credentials.json
+*service-account*.json
+.secrets
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+*.jks
 
 # Local Batch & Shell Scripts (Masaüstü / Yerel Otomasyon Scriptleri)
 *.bat
@@ -35,18 +44,18 @@ supabase/
 docs/
 android/
 
-# Scripts: Otomasyon, crypto ve senkronizasyon motorları
+# Scripts: Otomasyon motoru dışında kalan yerel/tek seferlik scriptler
 scripts/*
 !scripts/auto-catalog-sync.mjs
-!scripts/comix-crypto.mjs
-!scripts/sync-comix-foreign.mjs
-!scripts/harvest-comix-80k.mjs
 
-# Tests, Cache, Dumps & Temporary Files
+# Tests, Cache, Dumps, Diagnostics & Temporary Files
 .cache/
+.eslintcache
 tmp/
 temp/
 coverage/
+playwright-report/
+test-results/
 __tests__/
 tests/
 *.test.*
@@ -55,9 +64,14 @@ test-*
 *.tmp
 *.bak
 *.dump
+*.tsbuildinfo
 *-export.json
 *-checkpoint.json
-.task_checklist.md
+*.jsonl
+*.cpuprofile
+*.heapprofile
+*.heapsnapshot
+.task_checklist*.md
 
 # Python Cache & Databases
 __pycache__/
@@ -86,6 +100,3 @@ $RECYCLE.BIN/
 
 # AI Instructions
 GEMINI.md
-
-
-.vercel
