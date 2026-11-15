@@ -33,7 +33,7 @@ import { toast } from 'sonner';
 type StatusFilterValue = SupportTicketStatus | 'all';
 
 const categoryLabels: Record<SupportTicketCategory, string> = {
-  bug_report: 'Bug Report',
+  bug_report: 'Hata Bildirimi',
   account: 'Hesap',
   content_issue: 'İçerik Sorunu',
   ban_appeal: 'Ban İtirazı',
@@ -54,7 +54,7 @@ const statusMeta: Record<
     icon: CheckCircle2,
   },
   waiting_staff: {
-    label: 'Staff Bekliyor',
+    label: 'Yetkili Bekliyor',
     tone: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
     icon: Clock3,
   },
@@ -73,7 +73,7 @@ const statusMeta: Record<
 const filterLabels: Record<StatusFilterValue, string> = {
   all: 'Tümü',
   open: 'Açık',
-  waiting_staff: 'Staff Bekliyor',
+  waiting_staff: 'Yetkili Bekliyor',
   waiting_user: 'Kullanıcı Bekliyor',
   closed: 'Kapalı',
 };
@@ -81,7 +81,7 @@ const filterLabels: Record<StatusFilterValue, string> = {
 const messageRoleLabels: Record<SupportTicketMessage['authorRole'], string> = {
   user: 'Kullanıcı',
   moderator: 'Moderatör',
-  admin: 'Admin',
+  admin: 'Yönetici',
   system: 'Sistem',
 };
 
@@ -394,7 +394,7 @@ const AdminTickets: React.FC = () => {
             statusFilter === 'waiting_staff' ? 'border-sky-500/40 bg-sky-500/10' : 'border-border bg-card hover:bg-secondary/40'
           )}
         >
-          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Staff Bekliyor</p>
+          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Yetkili Bekliyor</p>
           <p className="mt-2 text-3xl font-black text-sky-300">{counts.waiting_staff}</p>
         </button>
 
@@ -572,7 +572,7 @@ const AdminTickets: React.FC = () => {
                   <p className="text-xs font-semibold text-muted-foreground mb-2">Eklenen Görsel</p>
                   <SupportImageAttachment
                     url={selectedTicket.imageUrl}
-                    alt="Ticket görseli"
+                    alt="Destek talebi görseli"
                     variant="adminCompact"
                     previewClassName="h-36 w-full rounded-xl object-cover"
                   />
