@@ -1421,7 +1421,7 @@ const ForumTopicDetail: React.FC = () => {
                       <Textarea
                         value={replyContent}
                         onChange={(event) => setReplyContent(event.target.value)}
-                        placeholder="Yorumunuzu yazın... (@kullanici ile bahsedebilirsiniz)"
+                        placeholder="Yorumunuzu yazın... (@kullanıcı ile bahsedebilirsiniz)"
                         rows={3}
                         maxLength={MAX_REPLY_LENGTH}
                         disabled={isSubmittingReply}
@@ -1635,8 +1635,8 @@ const ForumTopicDetail: React.FC = () => {
                         {/* Curved L-Connector & Collapsible Reply Toggle */}
                         {hasReplies && (
                           <div className="flex items-center">
-                            <div className="w-[54px] shrink-0 flex justify-start pl-[19.25px]">
-                              <div className="w-6 h-4 border-l-[1.5px] border-b-[1.5px] border-border/75 rounded-bl-xl -mt-1.5" />
+                            <div className="w-8 sm:w-[54px] shrink-0 flex justify-start pl-2.5 sm:pl-[19.25px]">
+                              <div className="w-5 sm:w-6 h-4 border-l-[1.5px] border-b-[1.5px] border-border/75 rounded-bl-xl -mt-1.5" />
                             </div>
                             <button
                               type="button"
@@ -1664,7 +1664,7 @@ const ForumTopicDetail: React.FC = () => {
 
                         {/* Expanded Nested Replies List */}
                         {hasReplies && isExpanded && (
-                          <div className="mt-3 ml-[54px] space-y-4 border-l border-border/50 pl-4">
+                          <div className="mt-3 ml-3 sm:ml-[54px] space-y-4 border-l border-border/50 pl-3 sm:pl-4">
                             {threadReplies.map((reply) => {
                               const isEditingReply = editingPostId === reply.id;
                               const isReplyHighlighted = highlightedPostId === reply.id;

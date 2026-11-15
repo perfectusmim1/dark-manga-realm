@@ -35,7 +35,23 @@ import {
   type FetchedSeriesInfo,
 } from '@/lib/seriesSourceFetch';
 import type { SeriesRequest, SeriesRequestStatus } from '@/lib/types';
+import { formatGenreDisplayName } from '@/lib/mockData';
 import { toast } from 'sonner';
+
+const SOURCE_FORMAT_LABELS: Record<string, string> = {
+  MANGA: 'Manga',
+  MANHWA: 'Manhwa',
+  MANHUA: 'Manhua',
+  ONE_SHOT: 'Tek Bölüm',
+  NOVEL: 'Roman',
+  LIGHT_NOVEL: 'Hafif Roman',
+  DOUJINSHI: 'Doujinshi',
+};
+
+const formatSourceFormatLabel = (value?: string | null) => {
+  if (!value) return '';
+  return SOURCE_FORMAT_LABELS[value.trim().toUpperCase()] || value;
+};
 
 const formatRequestTime = (value: string) => formatDistanceToNow(new Date(value), { addSuffix: true, locale: tr });
 
@@ -274,15 +290,15 @@ const SeriesRequests: React.FC = () => {
 
               <div className="grid grid-cols-3 gap-2 sm:min-w-[20rem]">
                 <div className="rounded-2xl border border-border bg-background px-3 py-3">
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Toplam</p>
+                  <p className="text-xs font-medium text-muted-foreground">Toplam</p>
                   <p className="mt-1 text-xl font-bold">{stats.total}</p>
                 </div>
                 <div className="rounded-2xl border border-border bg-background px-3 py-3">
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Bekleyen</p>
+                  <p className="text-xs font-medium text-muted-foreground">Bekleyen</p>
                   <p className="mt-1 text-xl font-bold">{stats.pending}</p>
                 </div>
                 <div className="rounded-2xl border border-border bg-background px-3 py-3">
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Onay</p>
+                  <p className="text-xs font-medium text-muted-foreground">Onay</p>
                   <p className="mt-1 text-xl font-bold">{stats.approved}</p>
                 </div>
               </div>
@@ -295,31 +311,19 @@ const SeriesRequests: React.FC = () => {
               <p className="mt-3 text-sm text-muted-foreground">Hesap bilgileri hazırlanıyor.</p>
             </section>
           ) : !user ? (
-            <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="rounded-[1.8rem] border border-border bg-card p-6 shadow-sm">
-                <h2 className="text-xl font-semibold">Bu alan sadece kayıtlı kullanıcılar için açık.</h2>
-                <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">
-                  Seri isteklerini hesaba bağlı tutuyorum. Böylece gönderdiğin kayıtlar ve admin geri dönüşleri tek yerde kalıyor.
-                </p>
-                <Button asChild className="mt-5">
-                  <Link to="/auth">Giriş Yap</Link>
-                </Button>
-              </div>
-
-              <div className="rounded-[1.8rem] border border-border bg-card p-6 shadow-sm">
-                <h3 className="text-base font-semibold">Ne bırakmalısın?</h3>
-                <div className="mt-4 space-y-3 text-sm text-muted-foreground">
-                  <p>Seri adını mümkün olduğunca net yaz.</p>
-                  <p>Kontrol edebilmem için bir seri sayfası linki ekle.</p>
-                  <p>Alternatif isim veya not varsa kısa ekle.</p>
-                </div>
-              </div>
+            <section className="rounded-[1.8rem] border border-border bg-card p-6 shadow-sm animate-fade-up">
+              <h2 className="text-xl font-semibold">Bu alan sadece kayıtlı kullanıcılar için açık.</h2>
+              <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">
+                Seri isteği göndermek ve durumunu takip etmek için giriş yapmalısın.
+              </p>
+              <Button asChild className="mt-5">
+                <Link to="/auth">Giriş Yap</Link>
+              </Button>
             </section>
           ) : (
             <>
-              <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-                <div className="rounded-[1.8rem] border border-border bg-card p-5 shadow-sm sm:p-6">
-                  <h2 className="text-lg font-semibold">Yeni istek</h2>
+              <section className="rounded-[1.8rem] border border-border bg-card p-5 shadow-sm sm:p-6 animate-fade-up">
+                <h2 className="text-lg font-semibold">Yeni istek</h2>
                   <div className="mt-5 grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
                       <div className="flex min-h-6 items-center justify-between">
@@ -377,12 +381,12 @@ const SeriesRequests: React.FC = () => {
                             ) : null}
                             <div className="min-w-0 space-y-1">
                               <div className="flex flex-wrap items-center gap-1.5">
-                                <Badge variant="secondary" className="text-[10px] uppercase font-bold tracking-wider">
+                                <Badge variant="secondary" className="text-[11px] font-semibold">
                                   {fetchedMetadata.providerLabel}
                                 </Badge>
                                 {fetchedMetadata.format ? (
-                                  <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                                    {fetchedMetadata.format}
+                                  <Badge variant="outline" className="text-[11px] text-muted-foreground">
+                                    {formatSourceFormatLabel(fetchedMetadata.format)}
                                   </Badge>
                                 ) : null}
                                 {fetchedMetadata.year ? (
@@ -400,8 +404,8 @@ const SeriesRequests: React.FC = () => {
                               {fetchedMetadata.genres.length > 0 ? (
                                 <div className="flex flex-wrap gap-1 pt-0.5">
                                   {fetchedMetadata.genres.slice(0, 4).map((g) => (
-                                    <span key={g} className="rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] text-foreground/80">
-                                      {g}
+                                    <span key={g} className="rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[11px] text-foreground/80">
+                                      {formatGenreDisplayName(g)}
                                     </span>
                                   ))}
                                 </div>
@@ -447,25 +451,6 @@ const SeriesRequests: React.FC = () => {
                       Gönder
                     </Button>
                   </div>
-                </div>
-
-                <div className="rounded-[1.8rem] border border-border bg-card p-5 shadow-sm sm:p-6">
-                  <h3 className="text-base font-semibold">İnceleme akışı</h3>
-                  <div className="mt-4 space-y-4 text-sm text-muted-foreground">
-                    <div>
-                      <p className="font-medium text-foreground">1. Beklemede</p>
-                      <p className="mt-1 leading-6">Kayıt alındı, kontrol sırasına girdi.</p>
-                    </div>
-                    <div>
-                      <p className="font-medium text-foreground">2. İnceleniyor</p>
-                      <p className="mt-1 leading-6">Kaynak link ve seri uygunluğu kontrol ediliyor.</p>
-                    </div>
-                    <div>
-                      <p className="font-medium text-foreground">3. Sonuç</p>
-                      <p className="mt-1 leading-6">Onay veya red ile beraber admin notu burada görünür.</p>
-                    </div>
-                  </div>
-                </div>
               </section>
 
               <section className="rounded-[1.8rem] border border-border bg-card p-5 shadow-sm sm:p-6">
@@ -484,12 +469,16 @@ const SeriesRequests: React.FC = () => {
                 </div>
 
                 <div className="mt-5 space-y-3">
-                  {requests.map((request) => (
-                    <article key={request.id} className="rounded-[1.4rem] border border-border bg-background/70 p-4 sm:p-5">
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                        <div className="min-w-0 flex-1">
+                  {requests.map((request, index) => (
+                    <article
+                      key={request.id}
+                      className={`rounded-2xl border border-border bg-background/70 p-4 animate-fade-up ${index >= 8 ? 'cv-auto-row' : ''}`}
+                      style={{ animationDelay: `${0.03 + Math.min(index, 10) * 0.02}s` }}
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0 flex-1 space-y-1.5">
                           <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="text-lg font-semibold">{request.seriesTitle}</h3>
+                            <h3 className="text-base font-semibold sm:text-lg">{request.seriesTitle}</h3>
                             <StatusBadge status={request.status} />
                             {(() => {
                               const detected = detectSeriesSource(request.referenceUrl);
@@ -510,14 +499,14 @@ const SeriesRequests: React.FC = () => {
                             })()}
                           </div>
 
-                          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                             <span>{formatRequestTime(request.createdAt)}</span>
                             <span>{request.referenceHost}</span>
-                            <span>Son güncelleme: {formatRequestTime(request.updatedAt)}</span>
+                            <span>Güncelleme: {formatRequestTime(request.updatedAt)}</span>
                           </div>
                         </div>
 
-                        <Button asChild variant="outline" size="sm" className="w-full lg:w-auto">
+                        <Button asChild variant="outline" size="sm" className="w-full shrink-0 sm:w-auto">
                           <a href={request.referenceUrl} target="_blank" rel="noreferrer">
                             <ExternalLink className="mr-2 h-4 w-4" />
                             Linki Aç
@@ -525,37 +514,40 @@ const SeriesRequests: React.FC = () => {
                         </Button>
                       </div>
 
-                      <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                        <div className="rounded-2xl border border-border bg-card p-4">
-                          <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Senin notun</p>
-                          <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground/90">
-                            {request.note || 'Not bırakılmadı.'}
-                          </p>
-                        </div>
+                      {(request.note || request.adminNote) ? (
+                        <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
+                          {request.note ? (
+                            <div className="rounded-xl border border-border/70 bg-card px-3.5 py-2.5">
+                              <p className="text-xs font-medium text-muted-foreground">Notun</p>
+                              <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-foreground/90">
+                                {request.note}
+                              </p>
+                            </div>
+                          ) : null}
 
-                        <div className="rounded-2xl border border-border bg-card p-4">
-                          <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Admin notu</p>
-                          <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground/90">
-                            {request.adminNote || 'Henüz admin notu eklenmedi.'}
-                          </p>
-                          {request.reviewedAt ? (
-                            <p className="mt-3 inline-flex items-center gap-2 text-xs text-muted-foreground">
-                              <ShieldCheck className="h-3.5 w-3.5" />
-                              {request.reviewedByName
-                                ? `${request.reviewedByName} tarafından ${formatRequestTime(request.reviewedAt)}`
-                                : formatRequestTime(request.reviewedAt)}
-                            </p>
+                          {request.adminNote ? (
+                            <div className="rounded-xl border border-border/70 bg-card px-3.5 py-2.5">
+                              <p className="text-xs font-medium text-muted-foreground">Yetkili Notu</p>
+                              <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-foreground/90">
+                                {request.adminNote}
+                              </p>
+                              {request.reviewedAt ? (
+                                <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                                  <ShieldCheck className="h-3.5 w-3.5" />
+                                  {request.reviewedByName
+                                    ? `${request.reviewedByName} • ${formatRequestTime(request.reviewedAt)}`
+                                    : formatRequestTime(request.reviewedAt)}
+                                </p>
+                              ) : null}
+                            </div>
                           ) : null}
                         </div>
-                      </div>
+                      ) : null}
 
-                      <div className="mt-4 rounded-2xl border border-border bg-card p-4">
-                        <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Kaynak link</p>
-                        <p className="mt-2 break-all text-sm leading-6 text-foreground/90">
-                          <Link2 className="mr-2 inline h-4 w-4 text-primary" />
-                          {request.referenceUrl}
-                        </p>
-                      </div>
+                      <p className="mt-3 flex items-center gap-1.5 break-all text-xs text-muted-foreground">
+                        <Link2 className="h-3.5 w-3.5 shrink-0 text-primary" />
+                        <span>{request.referenceUrl}</span>
+                      </p>
                     </article>
                   ))}
 

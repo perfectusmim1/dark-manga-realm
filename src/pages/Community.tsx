@@ -102,7 +102,7 @@ const Community: React.FC = () => {
           </nav>
         </div>
 
-        <section aria-live="polite" className="min-w-0">
+        <section key={activeTab} aria-live="polite" className="min-w-0 animate-route-enter">
           {activeTab === 'forum' && <ForumTab />}
           {activeTab === 'tier-lists' && <TierListsDiscoveryTab />}
           {activeTab === 'reading-lists' && <ReadingListsDiscoveryTab />}

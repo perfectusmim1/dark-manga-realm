@@ -182,7 +182,7 @@ const Notifications: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="flex flex-wrap items-center justify-end gap-2">
+                        <div className="flex flex-wrap items-center justify-start sm:justify-end gap-2">
                             <div className="flex flex-wrap items-center gap-1 rounded-xl border border-border bg-card/60 p-1">
                                 {(Object.entries(filterLabels) as [FilterType, string][]).map(([key, label]) => (
                                     <Button
@@ -246,16 +246,16 @@ const Notifications: React.FC = () => {
                             <button
                                 key={notification.id}
                                 onClick={() => handleNotificationClick(notification)}
-                                className={`w-full text-left rounded-xl border transition-all hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 flex gap-4 p-4 group animate-fade-up ${!notification.read
+                                className={`w-full text-left rounded-xl border transition-all hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 flex gap-4 p-4 group animate-fade-up ${index >= 10 ? 'cv-auto-row' : ''} ${!notification.read
                                     ? 'bg-primary/5 border-primary/20'
                                     : 'bg-card/50 border-border'
                                     }`}
-                                style={{ animationDelay: `${0.1 + index * 0.05}s` }}
+                                style={{ animationDelay: `${0.08 + Math.min(index, 12) * 0.03}s` }}
                             >
                                 {/* Icon */}
                                 <div className="flex-shrink-0">
                                     <div
-                                        className={`flex h-12 w-12 items-center justify-center rounded-xl transition-transform group-hover:scale-110 ${notification.type === 'new_chapter'
+                                        className={`flex h-12 w-12 items-center justify-center rounded-xl transition-transform group-hover:scale-110 motion-reduce:transition-none motion-reduce:group-hover:scale-100 ${notification.type === 'new_chapter'
                                             ? 'bg-primary/10'
                                             : notification.type === 'reply'
                                                 ? 'bg-blue-500/10'
@@ -290,7 +290,7 @@ const Notifications: React.FC = () => {
                                         </Badge>
                                         {!notification.read && (
                                             <span className="flex items-center gap-1 text-xs text-primary font-medium">
-                                                <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+                                                <span className="h-2 w-2 rounded-full bg-primary animate-pulse motion-reduce:animate-none" />
                                                 Yeni
                                             </span>
                                         )}
@@ -301,7 +301,7 @@ const Notifications: React.FC = () => {
                                     <p className="text-sm text-muted-foreground mt-1">
                                         {notification.message}
                                     </p>
-                                    <div className="flex items-center gap-3 mt-2">
+                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
                                         <span className="text-xs text-muted-foreground/60">
                                             {formatDistanceToNow(new Date(notification.createdAt), {
                                                 addSuffix: true,

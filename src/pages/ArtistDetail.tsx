@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Heart, BookOpen, ArrowLeft, Calendar } from 'lucide-react';
+import { Heart, BookOpen, ArrowLeft, Calendar, Trophy } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { getArtistById, toggleEntityLike } from '@/lib/database';
@@ -10,10 +11,11 @@ import { toast } from 'sonner';
 import Header from '@/components/layout/Header';
 import CommentSection from '@/components/comments/CommentSection';
 import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
-import EntityDetailRankBadge from '@/components/entities/EntityDetailRankBadge';
 import EntitySeriesGrid from '@/components/entities/EntitySeriesGrid';
 import EntityMetadataGrid from '@/components/entities/EntityMetadataGrid';
 import EntityGalleryGrid from '@/components/entities/EntityGalleryGrid';
+import { formatGenreDisplayName } from '@/lib/mockData';
+import { getTagDisplayName } from '@/lib/tagTranslations';
 import { supabase } from '@/lib/supabase';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
@@ -163,7 +165,10 @@ const ArtistDetail: React.FC = () => {
                                 )}
                                 {artist.rank && artist.rank <= 3 && (
                                     <div className="absolute top-4 left-4">
-                                        <EntityDetailRankBadge rank={artist.rank} />
+                                        <Badge className={`font-bold px-3 py-1 text-sm shadow-lg ${artist.rank === 1 ? 'bg-yellow-500 text-black' : artist.rank === 2 ? 'bg-slate-200 text-slate-950' : 'bg-amber-700 text-amber-50'}`}>
+                                            <Trophy className="mr-1.5 h-4 w-4" />
+                                            {artist.rank}. Sıra
+                                        </Badge>
                                     </div>
                                 )}
                             </div>
@@ -179,7 +184,7 @@ const ArtistDetail: React.FC = () => {
                                 <Heart className={`mr-2 h-5 w-5 ${isLiked ? 'fill-current' : ''}`} />
                                 {artist.likesCount || 0}
                             </Button>
-                            {artist.rank && (
+                            {artist.rank && artist.rank > 3 && (
                                 <div className="w-20 h-11 flex items-center justify-center rounded-xl bg-secondary border border-border">
                                     <span className="text-xl font-bold">#{artist.rank}</span>
                                 </div>
@@ -188,9 +193,9 @@ const ArtistDetail: React.FC = () => {
                     </div>
 
                     {/* Right Side - Info */}
-                    <div className="space-y-8">
+                    <div className="min-w-0 space-y-8 animate-fade-up">
                         <div>
-                            <h1 className="text-4xl md:text-5xl font-black bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
+                            <h1 className="text-3xl sm:text-4xl md:text-5xl font-black bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent break-words">
                                 {artist.name}
                             </h1>
                             <div className="flex items-center gap-4 mt-4 text-muted-foreground">
@@ -202,7 +207,11 @@ const ArtistDetail: React.FC = () => {
                         </div>
 
                         <EntityMetadataGrid
-                            metadata={artist.details}
+                            metadata={artist.details ? {
+                                ...artist.details,
+                                genres: artist.details.genres?.map((genre) => formatGenreDisplayName(genre)).filter(Boolean),
+                                tags: artist.details.tags?.map((tag) => getTagDisplayName(tag, tag)).filter(Boolean),
+                            } : undefined}
                             alternativeNames={artist.alternativeNames}
                             sourceLinks={artist.sourceLinks}
                             title="Çizer Profili"

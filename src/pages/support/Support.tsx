@@ -46,7 +46,7 @@ import { waitForUsableSupabaseSession } from '@/lib/supabase';
 import { toast } from 'sonner';
 
 const categoryLabels: Record<SupportTicketCategory, string> = {
-  bug_report: 'Bug Report',
+  bug_report: 'Hata Bildirimi',
   account: 'Hesap',
   content_issue: 'İçerik Sorunu',
   ban_appeal: 'Ban İtirazı',
@@ -57,7 +57,7 @@ const categoryDescriptions: Record<SupportTicketCategory, string> = {
   bug_report: 'Teknik hata, çökme veya beklenmeyen davranış.',
   account: 'Giriş, profil veya hesap erişimi.',
   content_issue: 'Seri, bölüm veya sayfa sorunu.',
-  ban_appeal: 'Ban itirazısı. Banlanan hesap e-postası zorunlu.',
+  ban_appeal: 'Ban itirazı. Banlanan hesap e-postası zorunlu.',
   other: 'Diğer destek talepleri.',
 };
 
@@ -65,7 +65,7 @@ const supportCategories = Object.keys(categoryLabels) as SupportTicketCategory[]
 
 const statusMeta: Record<SupportTicketStatus, { label: string; tone: string; icon: React.ComponentType<{ className?: string }> }> = {
   open: { label: 'Açık', tone: 'border-green-500/20 bg-green-500/10 text-green-300', icon: Sparkles },
-  waiting_staff: { label: 'Staff Bekliyor', tone: 'border-sky-500/20 bg-sky-500/10 text-sky-300', icon: Clock3 },
+  waiting_staff: { label: 'Yetkili Bekliyor', tone: 'border-sky-500/20 bg-sky-500/10 text-sky-300', icon: Clock3 },
   waiting_user: { label: 'Sıra Sizde', tone: 'border-amber-500/20 bg-amber-500/10 text-amber-200', icon: MessageSquareReply },
   closed: { label: 'Kapalı', tone: 'border-red-500/20 bg-red-500/10 text-red-300', icon: CheckCircle2 },
 };
@@ -73,7 +73,7 @@ const statusMeta: Record<SupportTicketStatus, { label: string; tone: string; ico
 const messageRoleLabels: Record<SupportTicketMessage['authorRole'], string> = {
   user: 'Kullanıcı',
   moderator: 'Moderatör',
-  admin: 'Admin',
+  admin: 'Yönetici',
   system: 'Sistem',
 };
 
@@ -247,10 +247,10 @@ const Support: React.FC = () => {
         setPublicSubmission(createdTicket);
       }
       resetComposeState();
-      toast.success('Destek bileti oluşturuldu');
+      toast.success('Destek talebi oluşturuldu');
     } catch (error) {
       console.error('Create support ticket failed:', error);
-      toast.error(error instanceof Error ? error.message : 'Destek bileti oluşturulamadı');
+      toast.error(error instanceof Error ? error.message : 'Destek talebi oluşturulamadı');
     } finally {
       setIsSubmitting(false);
     }
@@ -259,7 +259,7 @@ const Support: React.FC = () => {
   const handleReply = async () => {
     if (!user || !selectedTicket) return;
     if (selectedTicket.status === 'closed') {
-      toast.error('Kapalı biletlere yanıt verilemez');
+      toast.error('Kapalı taleplere yanıt verilemez');
       return;
     }
     if (!reply.trim()) {
@@ -299,10 +299,10 @@ const Support: React.FC = () => {
       await deleteSupportTicket(targetTicket.id);
       setTickets((current) => current.filter((ticket) => ticket.id !== targetTicket.id));
       setSelectedTicketId((current) => (current === targetTicket.id ? '' : current));
-      toast.success('Ticket silindi');
+      toast.success('Destek talebi silindi');
     } catch (error) {
       console.error('Delete support ticket failed:', error);
-      toast.error(error instanceof Error ? error.message : 'Ticket silinemedi');
+      toast.error(error instanceof Error ? error.message : 'Destek talebi silinemedi');
     } finally {
       setDeletingTicketId(null);
     }
@@ -313,7 +313,7 @@ const Support: React.FC = () => {
       <div className="mb-4 flex items-center gap-3">
         <div className="rounded-2xl bg-primary/10 p-2.5 text-primary"><Plus className="h-4.5 w-4.5" /></div>
         <div>
-          <h2 className="text-base font-semibold">{isGuestMode ? 'Yeni destek talebi' : 'Yeni ticket'}</h2>
+          <h2 className="text-base font-semibold">Yeni Destek Talebi</h2>
 
         </div>
       </div>
@@ -359,11 +359,11 @@ const Support: React.FC = () => {
         <div className="space-y-2 sm:col-span-2">
           <Label>Görsel linki (isteğe bağlı)</Label>
           <Input value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} placeholder="https://..." />
-          {imageUrl.trim() ? <SupportImageAttachment url={imageUrl} alt="Ticket görsel önizlemesi" initialPreview previewClassName="h-32 w-full rounded-2xl object-cover" /> : null}
+          {imageUrl.trim() ? <SupportImageAttachment url={imageUrl} alt="Talep görsel önizlemesi" initialPreview previewClassName="h-32 w-full rounded-2xl object-cover" /> : null}
         </div>
         <Button onClick={handleCreateTicket} className="sm:col-span-2" disabled={isSubmitting}>
           {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-          {isGuestMode ? 'Talebi Gönder' : 'Bilet Oluştur'}
+          {isGuestMode ? 'Talebi Gönder' : 'Talep Oluştur'}
         </Button>
       </div>
     </div>
@@ -385,29 +385,29 @@ const Support: React.FC = () => {
       <Header />
       <main className="container pb-10 pt-20 sm:pt-24">
         <div className="space-y-4 pt-4 sm:space-y-5 sm:pt-6">
-          <section className="rounded-[1.75rem] border border-border bg-card/80 p-4 shadow-xl sm:p-5">
+          <section className="rounded-[1.75rem] border border-border bg-card/80 p-4 shadow-xl sm:p-5 animate-fade-up">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
               <div>
                 <h1 className="text-2xl font-black tracking-tight sm:text-3xl">Destek Talepleri</h1>
               </div>
               {user ? (
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  <div className="rounded-2xl border border-border bg-background/70 px-3 py-2.5"><p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Açık</p><p className="mt-1 text-lg font-bold">{stats.open}</p></div>
-                  <div className="rounded-2xl border border-border bg-background/70 px-3 py-2.5"><p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Staff</p><p className="mt-1 text-lg font-bold">{stats.waitingStaff}</p></div>
-                  <div className="rounded-2xl border border-border bg-background/70 px-3 py-2.5"><p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Sizde</p><p className="mt-1 text-lg font-bold">{stats.waitingUser}</p></div>
-                  <div className="rounded-2xl border border-border bg-background/70 px-3 py-2.5"><p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Kapalı</p><p className="mt-1 text-lg font-bold">{stats.closed}</p></div>
+                  <div className="rounded-2xl border border-border bg-background/70 px-3 py-2.5"><p className="text-xs font-medium text-muted-foreground">Açık</p><p className="mt-1 text-lg font-bold">{stats.open}</p></div>
+                  <div className="rounded-2xl border border-border bg-background/70 px-3 py-2.5"><p className="text-xs font-medium text-muted-foreground">Yetkili</p><p className="mt-1 text-lg font-bold">{stats.waitingStaff}</p></div>
+                  <div className="rounded-2xl border border-border bg-background/70 px-3 py-2.5"><p className="text-xs font-medium text-muted-foreground">Sizde</p><p className="mt-1 text-lg font-bold">{stats.waitingUser}</p></div>
+                  <div className="rounded-2xl border border-border bg-background/70 px-3 py-2.5"><p className="text-xs font-medium text-muted-foreground">Kapalı</p><p className="mt-1 text-lg font-bold">{stats.closed}</p></div>
                 </div>
               ) : (
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3"><p className="text-[10px] uppercase tracking-[0.2em] text-primary/80">Misafir mod</p><p className="mt-1 text-sm font-semibold">Ticket açabilirsin</p></div>
-                  <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3"><p className="text-[10px] uppercase tracking-[0.2em] text-amber-200/80">Ban itirazı</p><p className="mt-1 text-sm font-semibold">Hesap e-postası zorunlu</p></div>
+                  <div className="rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3"><p className="text-xs font-medium text-primary/80">Misafir erişimi</p><p className="mt-1 text-sm font-semibold">Destek talebi açabilirsin</p></div>
+                  <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3"><p className="text-xs font-medium text-amber-200/80">Ban itirazı</p><p className="mt-1 text-sm font-semibold">Hesap e-postası zorunlu</p></div>
                 </div>
               )}
             </div>
           </section>
 
           {isGuestMode ? (
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)] animate-fade-up">
               {composeCard}
               <div className="space-y-4">
                 {publicSubmission && (
@@ -416,7 +416,7 @@ const Support: React.FC = () => {
                       <div className="rounded-2xl bg-emerald-500/15 p-2.5 text-emerald-300"><CheckCircle2 className="h-5 w-5" /></div>
                       <div className="space-y-2">
                         <p className="text-sm font-semibold text-emerald-100">Talep alındı</p>
-                        <p className="text-sm text-emerald-50/85">Ticket ID: <span className="font-mono">{publicSubmission.id.slice(0, 8).toUpperCase()}</span></p>
+                        <p className="text-sm text-emerald-50/85">Talep No: <span className="font-mono">{publicSubmission.id.slice(0, 8).toUpperCase()}</span></p>
                         <p className="text-xs leading-6 text-emerald-50/75">Yeni bir kayıt açmadan önce mevcut talebin işlenmesini bekle.</p>
                       </div>
                     </div>
@@ -427,13 +427,13 @@ const Support: React.FC = () => {
                     <div className="rounded-2xl bg-primary/10 p-2.5 text-primary"><ShieldAlert className="h-5 w-5" /></div>
                     <div>
                       <h2 className="text-base font-semibold">Misafir destek akışı</h2>
-                      <p className="text-sm text-muted-foreground">Özellikle logout sonrası ban itirazısı için.</p>
+                      <p className="text-sm text-muted-foreground">Oturum açmadan destek talebi ve ban itirazı gönderebilirsiniz.</p>
                     </div>
                   </div>
                   <div className="space-y-3 text-sm text-muted-foreground">
                     <p className="flex items-start gap-2"><Mail className="mt-0.5 h-4 w-4 shrink-0 text-primary" />İletişim e-postasını doğru gir.</p>
-                    <p className="flex items-start gap-2"><FileText className="mt-0.5 h-4 w-4 shrink-0 text-primary" />Ban itirazısında banlanan hesabın e-postasını ayrıca yaz.</p>
-                    <p className="flex items-start gap-2"><Link2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />Görsel linkleri sadece `http/https` kabul edilir.</p>
+                    <p className="flex items-start gap-2"><FileText className="mt-0.5 h-4 w-4 shrink-0 text-primary" />Ban itirazında banlanan hesabın e-postasını ayrıca yaz.</p>
+                    <p className="flex items-start gap-2"><Link2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />Görsel linkleri yalnızca http veya https olmalıdır.</p>
                   </div>
                   <Separator className="my-4" />
                   <Button asChild variant="secondary" size="sm"><Link to="/auth">Giriş Yap</Link></Button>
@@ -441,16 +441,15 @@ const Support: React.FC = () => {
               </div>
             </div>
           ) : (
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,340px)_minmax(0,1fr)] animate-fade-up">
               <div className="space-y-4">
                 {composeCard}
                 <div className="rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-5">
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <div>
-                      <h2 className="text-base font-semibold">Ticket listesi</h2>
-                      <p className="text-sm text-muted-foreground">{isLoadingTickets ? 'Biletler yükleniyor...' : visibleTickets.length > 0 ? 'Açtığın kayıtlar burada görünür.' : 'Henüz ticket yok.'}</p>
+                      <h2 className="text-base font-semibold">Destek Talepleri</h2>
+                      <p className="text-sm text-muted-foreground">{isLoadingTickets ? 'Talepler yükleniyor...' : visibleTickets.length > 0 ? 'Açtığın kayıtlar burada görünür.' : 'Henüz destek talebin yok.'}</p>
                     </div>
-                    <Badge variant="outline">{visibleTickets.length}</Badge>
                   </div>
                   <div className="space-y-2.5">
                     {visibleTickets.map((ticket) => (
@@ -491,7 +490,7 @@ const Support: React.FC = () => {
                             setTicketToDelete(ticket);
                           }}
                           disabled={deletingTicketId === ticket.id}
-                          aria-label="Ticket sil"
+                          aria-label="Talebi sil"
                         >
                           {deletingTicketId === ticket.id ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -504,7 +503,7 @@ const Support: React.FC = () => {
                     {visibleTickets.length === 0 && (
                       <div className="rounded-2xl border border-dashed border-border p-6 text-center">
                         <LifeBuoy className="mx-auto h-10 w-10 text-muted-foreground/40" />
-                        <p className="mt-3 font-medium">{isLoadingTickets ? 'Ticketler yükleniyor' : 'Ticket bulunamadı'}</p>
+                        <p className="mt-3 font-medium">{isLoadingTickets ? 'Talepler yükleniyor' : 'Destek talebi bulunamadı'}</p>
                       </div>
                     )}
                   </div>
@@ -528,7 +527,7 @@ const Support: React.FC = () => {
                         <div className="xl:w-56">
                           <SupportImageAttachment
                             url={selectedTicket.imageUrl}
-                            alt="Ticket görseli"
+                            alt="Talep görseli"
                             variant="adminCompact"
                             previewClassName="h-32 w-full rounded-xl object-cover"
                           />
@@ -547,11 +546,11 @@ const Support: React.FC = () => {
                               <div className={`flex min-w-0 max-w-[92%] flex-col gap-2 rounded-[1.35rem] border px-3.5 py-3 sm:max-w-[78%] ${isOwn ? 'ml-6 items-end rounded-br-md text-right sm:ml-10' : 'mr-6 items-start rounded-bl-md text-left sm:mr-10'} ${bubble}`}>
                                 <div className={`flex flex-wrap items-center gap-2 ${isOwn ? 'justify-end' : 'justify-start'}`}>
                                   <span className="text-sm font-semibold text-foreground">{item.authorName}</span>
-                                  <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] ${roleTone}`}>{messageRoleLabels[item.authorRole]}</span>
+                                  <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${roleTone}`}>{messageRoleLabels[item.authorRole]}</span>
                                 </div>
                                 <p className={`w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm leading-6 ${isOwn ? 'text-right text-foreground' : 'text-left text-foreground/90'}`}>{item.content}</p>
-                                {item.imageUrl ? <SupportImageAttachment url={item.imageUrl} alt="Bilet görseli" className="mt-1 w-full" /> : null}
-                                <p className={`w-full text-[10px] uppercase tracking-[0.2em] text-muted-foreground ${isOwn ? 'text-right' : 'text-left'}`}>{formatTicketTime(item.createdAt)}</p>
+                                {item.imageUrl ? <SupportImageAttachment url={item.imageUrl} alt="Mesaj görseli" className="mt-1 w-full" /> : null}
+                                <p className={`w-full text-[11px] text-muted-foreground ${isOwn ? 'text-right' : 'text-left'}`}>{formatTicketTime(item.createdAt)}</p>
                               </div>
                             </article>
                           );
@@ -559,9 +558,9 @@ const Support: React.FC = () => {
                       </div>
                     </ScrollArea>
                     <div className="rounded-3xl border border-border bg-background/70 p-4">
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground"><MessageSquareReply className="h-4 w-4" />{selectedTicket.status === 'closed' ? 'Bu bilet kapalı.' : 'Yanıt gönder ve akışı sürdür.'}</div>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground"><MessageSquareReply className="h-4 w-4" />{selectedTicket.status === 'closed' ? 'Bu talep kapalı.' : 'Yanıt gönder ve akışı sürdür.'}</div>
                       <div className="mt-3 space-y-3">
-                        <Textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder={selectedTicket.status === 'closed' ? 'Kapalı bilette yanıt yazılamaz' : 'Yanıtını yaz'} className="min-h-24 resize-none" disabled={selectedTicket.status === 'closed'} />
+                        <Textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder={selectedTicket.status === 'closed' ? 'Kapalı talepte yanıt yazılamaz' : 'Yanıtını yaz'} className="min-h-24 resize-none" disabled={selectedTicket.status === 'closed'} />
                         <div className="space-y-2">
                           <Label>Yanıt görsel linki (isteğe bağlı)</Label>
                           <Input value={replyImageUrl} onChange={(event) => setReplyImageUrl(event.target.value)} placeholder="https://..." disabled={selectedTicket.status === 'closed'} />
@@ -579,7 +578,7 @@ const Support: React.FC = () => {
                 ) : (
                   <div className="flex min-h-[460px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-background/40 p-8 text-center">
                     <LifeBuoy className="h-12 w-12 text-muted-foreground/40" />
-                    <h3 className="mt-4 text-xl font-semibold">Bir ticket seç</h3>
+                    <h3 className="mt-4 text-xl font-semibold">Bir destek talebi seç</h3>
                     <p className="mt-2 max-w-md text-sm text-muted-foreground">Soldan bir destek kaydı seç veya yeni bir kayıt aç.</p>
                   </div>
                 )}
@@ -590,7 +589,7 @@ const Support: React.FC = () => {
           <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
             <div className="flex items-start gap-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <p>Banlanan kullanıcılar uyarıyı gördükten sonra oturumdan çıkarılır; destek ve ban itirazısı akışı ise misafir modunda da açık kalır.</p>
+              <p>Banlanan kullanıcılar uyarıyı gördükten sonra oturumdan çıkarılır; destek ve ban itirazı akışı ise misafir modunda da açık kalır.</p>
             </div>
           </div>
         </div>
@@ -603,13 +602,13 @@ const Support: React.FC = () => {
             setTicketToDelete(null);
           }
         }}
-        title="Ticket silinsin mi?"
+        title="Destek talebi silinsin mi?"
         description={
           ticketToDelete
-            ? `"${ticketToDelete.subject}" başlıklı ticket ve içindeki mesajlar kalıcı olarak silinecek.`
+            ? `"${ticketToDelete.subject}" başlıklı destek talebi ve içindeki mesajlar kalıcı olarak silinecek.`
             : ''
         }
-        confirmLabel="Ticketı Sil"
+        confirmLabel="Talebi Sil"
         cancelLabel="Vazgeç"
         onConfirm={() => {
           void handleDeleteTicket();

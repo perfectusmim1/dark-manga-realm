@@ -385,7 +385,7 @@ const ReadingListsDiscoveryTab: React.FC = () => {
         </div>
 
         <Select value={sort} onValueChange={(value) => setSort(value as ReadingListDiscoverySort)}>
-          <SelectTrigger className="w-[165px] h-10 bg-card/60 shrink-0" aria-label="Listeleri sırala">
+          <SelectTrigger className="w-full sm:w-[165px] h-10 bg-card/60 shrink-0" aria-label="Listeleri sırala">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -442,13 +442,17 @@ const ReadingListsDiscoveryTab: React.FC = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {items.map((item) => {
+          {items.map((item, index) => {
             const dateLabel = formatRelativeDate(item.createdAt);
 
             return (
               <article
                 key={item.id}
-                className="rounded-xl border border-border/60 bg-card/60 hover:border-primary/40 transition-colors flex flex-col justify-between overflow-hidden min-w-0"
+                className={cn(
+                  'rounded-xl border border-border/60 bg-card/60 hover:border-primary/40 transition-colors flex flex-col justify-between overflow-hidden min-w-0 animate-fade-up',
+                  index >= 9 && 'cv-auto-card',
+                )}
+                style={{ animationDelay: `${0.04 + Math.min(index, 12) * 0.025}s` }}
               >
                 <Link to={`/reading-lists/${item.id}`} className="block group min-w-0 focus-visible:outline-none">
                   <div className="border-b border-border/50 overflow-hidden">

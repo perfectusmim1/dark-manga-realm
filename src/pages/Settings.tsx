@@ -174,6 +174,11 @@ const buildPreferenceState = (preferences?: AppUser['preferences']): PreferenceS
 
 const sanitizeTotpCode = (value: string) => value.replace(/\D/g, '').slice(0, 6);
 
+const SAFE_QR_RASTER_DATA_URL_REGEX = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/i;
+
+const hasUnsafeSvgContent = (svgText: string) =>
+    /<script[\s>]|<foreignObject[\s>]|on[a-z]+\s*=|javascript:/i.test(svgText);
+
 const getTotpQrImageSrc = (qrCode: string | undefined) => {
     const normalized = qrCode?.trim();
 
@@ -181,15 +186,37 @@ const getTotpQrImageSrc = (qrCode: string | undefined) => {
         return null;
     }
 
-    if (normalized.startsWith('data:image/')) {
+    if (SAFE_QR_RASTER_DATA_URL_REGEX.test(normalized)) {
         return normalized;
     }
 
+    if (normalized.startsWith('data:image/svg+xml')) {
+        const commaIndex = normalized.indexOf(',');
+        if (commaIndex === -1) {
+            return null;
+        }
+        try {
+            const payload = normalized.slice(commaIndex + 1);
+            const decoded = normalized.slice(0, commaIndex).includes(';base64')
+                ? atob(payload)
+                : decodeURIComponent(payload);
+            if (!decoded.includes('<svg') || hasUnsafeSvgContent(decoded)) {
+                return null;
+            }
+            return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(decoded)}`;
+        } catch {
+            return null;
+        }
+    }
+
     if (normalized.startsWith('<svg') || normalized.startsWith('<?xml')) {
+        if (!normalized.includes('<svg') || hasUnsafeSvgContent(normalized)) {
+            return null;
+        }
         return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(normalized)}`;
     }
 
-    return normalized;
+    return null;
 };
 
 const getNextUsernameChangeDate = (usernameChangedAt?: string) => {
@@ -251,6 +278,7 @@ const Settings: React.FC = () => {
         secret: string;
         uri: string;
     } | null>(null);
+    const [rasterQrDataUrl, setRasterQrDataUrl] = useState<string | null>(null);
     const [isTwoFactorBusy, setIsTwoFactorBusy] = useState(false);
 
     // Notification state
@@ -768,14 +796,14 @@ const Settings: React.FC = () => {
             const { error } = await unblockUser(user.id, blockedId);
 
             if (error) {
-                toast.error('Engel kaldirilemedi');
+                toast.error('Engel kaldırılamadı');
                 return;
             }
 
             setBlockedUsers((prev) => prev.filter((blockedUser) => blockedUser.id !== blockedId));
-            toast.success('Engel kaldirildi');
+            toast.success('Engel kaldırıldı');
         } catch {
-            toast.error('Islem basarisiz oldu');
+            toast.error('İşlem başarısız oldu');
         } finally {
             setUnblockingUserId(null);
         }
@@ -1003,14 +1031,9 @@ const Settings: React.FC = () => {
                             ))}
                         </div>
 
-                        {provider === 'myanimelist' && (
-                            <p className="text-sm text-muted-foreground">
-                                MyAnimeList resmi API&apos;si liste alanlarını yazabiliyor, fakat favori ekleme/çıkarma için resmi yazılabilir bir uç nokta sunmuyor.
-                            </p>
-                        )}
-
-                        <p className="text-sm text-muted-foreground">
-                            İçe aktarma yalnızca sitede {label} bağlantısı bulunan serilerde çalışır; kapalı alanları atlar ve mevcut yerel veriyi ezmeden yalnızca izin verilen eksik alanları doldurur.
+                        <p className="text-xs text-muted-foreground">
+                            İçe aktarma yalnızca sitede {label} bağlantısı eşleşen serilerde açık alanlardaki eksikleri doldurur.
+                            {provider === 'myanimelist' ? ' MyAnimeList API yalnızca liste alanlarını günceller, favori bilgisini desteklemez.' : ''}
                         </p>
                     </div>
                 </CardContent>
@@ -1035,7 +1058,7 @@ const Settings: React.FC = () => {
                         onClick={() => handleUpdatePreferences({
                             ...prefs,
                             privacy: { ...prefs.privacy, [key]: option.value }
-                        }, 'Gizlilik ayarlari guncellendi')}
+                        }, 'Gizlilik ayarları güncellendi')}
                         className={`w-full rounded-md px-3 py-2 text-xs font-bold transition-all lg:py-1.5 ${
                             prefs.privacy?.[key] === option.value
                                 ? 'bg-background text-foreground shadow-sm'
@@ -1061,6 +1084,49 @@ const Settings: React.FC = () => {
     }
 
     const qrCodeDataUrl = getTotpQrImageSrc(pendingEnrollment?.qrCodeSvg);
+
+    useEffect(() => {
+        if (!qrCodeDataUrl) {
+            setRasterQrDataUrl(null);
+            return;
+        }
+
+        if (SAFE_QR_RASTER_DATA_URL_REGEX.test(qrCodeDataUrl)) {
+            setRasterQrDataUrl(qrCodeDataUrl);
+            return;
+        }
+
+        let cancelled = false;
+        const img = new Image();
+        img.onload = () => {
+            if (cancelled) {
+                return;
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = 320;
+            canvas.height = 320;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                return;
+            }
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const pngUrl = canvas.toDataURL('image/png');
+            setRasterQrDataUrl(SAFE_QR_RASTER_DATA_URL_REGEX.test(pngUrl) ? pngUrl : null);
+        };
+        img.onerror = () => {
+            if (!cancelled) {
+                setRasterQrDataUrl(null);
+            }
+        };
+        img.src = qrCodeDataUrl;
+
+        return () => {
+            cancelled = true;
+        };
+    }, [qrCodeDataUrl]);
+
     const activeTotpFactor = mfaState.factors.find((factor) => factor.status === 'verified') || null;
     const authProviders = Array.isArray((supabaseUser?.app_metadata as any)?.providers)
         ? ((supabaseUser?.app_metadata as any)?.providers as string[]).map((provider) => provider.toLowerCase())
@@ -1073,10 +1139,14 @@ const Settings: React.FC = () => {
     const shouldShowPasswordSettings = hasEmailAuth || !hasGoogleAuth;
 
     const openQrInNewTab = () => {
-        if (!qrCodeDataUrl) {
+        const candidateSrc = rasterQrDataUrl || qrCodeDataUrl;
+        if (!candidateSrc || !SAFE_QR_RASTER_DATA_URL_REGEX.test(candidateSrc)) {
+            toast.error('QR görseli güvenli biçimde hazırlanamadı.');
             return;
         }
 
+        const safeQrCodeSrc = candidateSrc;
+        // 'noopener' forces window.open('', '_blank', ...) to return null per spec; set opener=null right after opening so we can safely populate DOM nodes without document.write/innerHTML.
         const popup = window.open('', '_blank');
 
         if (!popup) {
@@ -1084,30 +1154,28 @@ const Settings: React.FC = () => {
             return;
         }
 
-        const safeQrCodeSrc = qrCodeDataUrl.replace(/"/g, '&quot;');
-        const qrMarkup = `<img src="${safeQrCodeSrc}" alt="Google Authenticator QR" style="width:320px;height:320px;display:block;" />`;
+        popup.opener = null;
 
-        popup.document.write(`
-          <!doctype html>
-          <html lang="tr">
-            <head>
-              <meta charset="utf-8" />
-              <title>Google Authenticator QR</title>
-              <style>
-                body {
-                  margin: 0;
-                  min-height: 100vh;
-                  display: flex;
-                  align-items: center;
-                  justify-content: center;
-                  background: #ffffff;
-                }
-              </style>
-            </head>
-            <body>${qrMarkup}</body>
-          </html>
-        `);
-        popup.document.close();
+        const doc = popup.document;
+        doc.documentElement.lang = 'tr';
+        doc.title = 'Google Authenticator QR';
+
+        const metaCharset = doc.createElement('meta');
+        metaCharset.setAttribute('charset', 'utf-8');
+        const metaReferrer = doc.createElement('meta');
+        metaReferrer.name = 'referrer';
+        metaReferrer.content = 'no-referrer';
+        const styleEl = doc.createElement('style');
+        styleEl.textContent = 'body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#ffffff;}';
+        doc.head.replaceChildren(metaCharset, metaReferrer, styleEl);
+
+        const img = doc.createElement('img');
+        img.src = safeQrCodeSrc;
+        img.alt = 'Google Authenticator QR';
+        img.style.width = '320px';
+        img.style.height = '320px';
+        img.style.display = 'block';
+        doc.body.replaceChildren(img);
     };
 
     return (
@@ -1156,7 +1224,7 @@ const Settings: React.FC = () => {
                         </TabsTrigger>
                     </TabsList>
 
-                    <TabsContent value="profile" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <TabsContent value="profile" className="mt-0 animate-route-enter">
                         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
                             <CardHeader>
                                 <CardTitle>Genel Bilgiler</CardTitle>
@@ -1210,7 +1278,7 @@ const Settings: React.FC = () => {
                         </Card>
                     </TabsContent>
 
-                    <TabsContent value="security" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <TabsContent value="security" className="mt-0 animate-route-enter">
                         <div className="grid gap-6">
                             {/* Email Section */}
                             <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
@@ -1312,11 +1380,6 @@ const Settings: React.FC = () => {
                                                 onChange={(e) => setConfirmPassword(e.target.value)}
                                             />
                                         </div>
-                                        {!user.twoFactorEnabled && (
-                                            <div className="rounded-lg border border-dashed border-border/60 bg-background/30 p-4 text-sm text-muted-foreground">
-                                                Mevcut şifrenizi hatırlamıyorsanız e-posta adresinize şifre sıfırlama bağlantısı gönderebilirsiniz. O bağlantı açılınca yeni şifre ekranı gelir ve eski şifre istenmez.
-                                            </div>
-                                        )}
                                     </CardContent>
                                     <CardFooter className="flex-col gap-3 border-t border-border/50 pt-6 sm:flex-row">
                                         {!user.twoFactorEnabled && (
@@ -1354,12 +1417,6 @@ const Settings: React.FC = () => {
                                     </div>
                                 </CardHeader>
                                 <CardContent className="space-y-4">
-                                    <div className="rounded-lg border border-primary/10 bg-primary/5 p-4">
-                                        <p className="text-sm text-primary/90">
-                                            2FA etkin olduğunda giriş şifreniz doğru olsa bile Google Authenticator uygulamasındaki 6 haneli kod olmadan hesabınıza erişilemez.
-                                        </p>
-                                    </div>
-
                                     {activeTotpFactor ? (
                                         <div className="rounded-xl border border-white/10 bg-white/5 p-4">
                                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1391,9 +1448,6 @@ const Settings: React.FC = () => {
                                         </div>
                                     ) : (
                                         <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-4">
-                                            <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-muted-foreground">
-                                                Authenticator uygulamasında bu kayıt `ToonParrot` olarak görünecek ve hesap etiketi olarak `{user.email || 'e-posta adresiniz'}` kullanılacak.
-                                            </div>
                                             <Button
                                                 type="button"
                                                 className="w-full gap-2 sm:w-auto"
@@ -1529,7 +1583,7 @@ const Settings: React.FC = () => {
                         </div>
                     </TabsContent>
 
-                    <TabsContent value="notifications" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <TabsContent value="notifications" className="mt-0 animate-route-enter">
                         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
@@ -1602,7 +1656,7 @@ const Settings: React.FC = () => {
                             </CardContent>
                         </Card>
                     </TabsContent>
-                    <TabsContent value="privacy" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <TabsContent value="privacy" className="mt-0 animate-route-enter">
                         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
@@ -1650,7 +1704,7 @@ const Settings: React.FC = () => {
                             </CardContent>
                         </Card>
                     </TabsContent>
-                    <TabsContent value="sync" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <TabsContent value="sync" className="mt-0 animate-route-enter">
                         <div className="space-y-6">
                             <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
                                 <CardHeader>
@@ -1701,7 +1755,7 @@ const Settings: React.FC = () => {
                             )}
                         </div>
                     </TabsContent>
-                    <TabsContent value="devices" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <TabsContent value="devices" className="mt-0 animate-route-enter">
                         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
                             <CardHeader>
                                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1816,7 +1870,7 @@ const Settings: React.FC = () => {
                             </CardContent>
                         </Card>
                     </TabsContent>
-                    <TabsContent value="preferences" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <TabsContent value="preferences" className="mt-0 animate-route-enter">
                         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
@@ -1953,7 +2007,7 @@ const Settings: React.FC = () => {
                             </CardContent>
                         </Card>
                     </TabsContent>
-                    <TabsContent value="blocked" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <TabsContent value="blocked" className="mt-0 animate-route-enter">
                         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
@@ -1966,14 +2020,14 @@ const Settings: React.FC = () => {
                                 {isBlockedUsersLoading ? (
                                     <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                        Engellenenler yukleniyor...
+                                        Engellenenler yükleniyor...
                                     </div>
                                 ) : blockedUsers.length > 0 ? (
                                     blockedUsers.map((blockedUser) => (
                                         <div key={blockedUser.id} className="flex flex-col gap-4 rounded-xl border border-border/60 bg-background/40 p-4 sm:flex-row sm:items-center sm:justify-between">
                                             <div className="flex items-center gap-3">
                                                 <Avatar className="h-12 w-12 border border-border/60">
-                                                    <AvatarImage src={blockedUser.avatar} />
+                                                    <AvatarImage src={blockedUser.avatar || undefined} />
                                                     <AvatarFallback>{blockedUser.username?.slice(0, 2).toUpperCase() || '??'}</AvatarFallback>
                                                 </Avatar>
                                                 <div>
@@ -1991,9 +2045,9 @@ const Settings: React.FC = () => {
                                                 {unblockingUserId === blockedUser.id ? (
                                                     <>
                                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                        Kaldiriliyor...
+                                                        Kaldırılıyor...
                                                     </>
-                                                ) : 'Engeli Kaldir'}
+                                                ) : 'Engeli Kaldır'}
                                             </Button>
                                         </div>
                                     ))

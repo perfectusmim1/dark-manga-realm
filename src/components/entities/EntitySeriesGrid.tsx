@@ -2,6 +2,7 @@ import React from 'react';
 import MangaCard from '@/components/manga/MangaCard';
 import { Manga } from '@/lib/types';
 import { useTopTenWeekIds } from '@/hooks/useTopTenWeekIds';
+import { formatGenreDisplayName } from '@/lib/mockData';
 
 interface EntitySeriesGridProps {
   mangas?: Manga[];
@@ -10,14 +11,23 @@ interface EntitySeriesGridProps {
 
 const EntitySeriesGrid: React.FC<EntitySeriesGridProps> = ({ mangas, emptyText }) => {
   const topTenWeekIds = useTopTenWeekIds(Boolean(mangas?.length));
+  const localizedMangas = React.useMemo(
+    () => (mangas || []).map((manga) => ({
+      ...manga,
+      genres: Array.isArray(manga.genres)
+        ? manga.genres.map((genre) => formatGenreDisplayName(genre)).filter(Boolean)
+        : manga.genres,
+    })),
+    [mangas],
+  );
 
-  if (!mangas || mangas.length === 0) {
+  if (localizedMangas.length === 0) {
     return <p className="text-muted-foreground">{emptyText}</p>;
   }
 
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-4">
-      {mangas.map((manga, index) => (
+      {localizedMangas.map((manga, index) => (
         <MangaCard
           key={manga.id}
           manga={manga}

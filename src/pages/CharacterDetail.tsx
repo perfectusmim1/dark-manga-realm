@@ -21,6 +21,42 @@ import OptimizedImage from '@/components/media/OptimizedImage';
 import DeferredMount from '@/components/performance/DeferredMount';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { normalizeEntityDisplayText } from '@/lib/entityMetadata';
+import { formatGenreDisplayName, formatMangaStatusLabel } from '@/lib/mockData';
+import { getTagDisplayName } from '@/lib/tagTranslations';
+import type { EntityMetadata } from '@/lib/types';
+
+const KNOWN_STATUS_KEYS = new Set(['ongoing', 'completed', 'hiatus', 'cancelled', 'canceled', 'publishing', 'finished', 'devam ediyor', 'tamamlandı', 'ara verdi', 'iptal edildi']);
+
+const localizeEntityMetadata = (metadata?: EntityMetadata): EntityMetadata | undefined => {
+    if (!metadata) {
+        return undefined;
+    }
+
+    const normalizedGender = metadata.gender?.trim().toLowerCase();
+    const localizedGender = normalizedGender === 'unknown' || normalizedGender === 'unspecified'
+        ? 'Belirtilmedi'
+        : normalizedGender === 'other'
+            ? 'Diğer'
+            : metadata.gender;
+
+    const normalizedStatus = metadata.status?.trim().toLowerCase();
+    const mappedStatus = normalizedStatus === 'publishing'
+        ? 'ongoing'
+        : normalizedStatus === 'finished'
+            ? 'completed'
+            : normalizedStatus;
+    const localizedStatus = mappedStatus && KNOWN_STATUS_KEYS.has(mappedStatus)
+        ? formatMangaStatusLabel(mappedStatus)
+        : metadata.status;
+
+    return {
+        ...metadata,
+        gender: localizedGender,
+        status: localizedStatus,
+        genres: metadata.genres?.map((genre) => formatGenreDisplayName(genre)).filter(Boolean),
+        tags: metadata.tags?.map((tag) => getTagDisplayName(tag, tag)).filter(Boolean),
+    };
+};
 
 interface RelativeLinkEntry {
     text: string;
@@ -263,7 +299,7 @@ const CharacterDetail: React.FC = () => {
                                     <div className="absolute top-4 left-4">
                                         <Badge className="bg-yellow-500 text-black font-bold px-3 py-1 text-sm shadow-lg">
                                             <Trophy className="mr-2 h-4 w-4" />
-                                            #1 RANK
+                                            1. Sıra
                                         </Badge>
                                     </div>
                                 )}
@@ -280,7 +316,7 @@ const CharacterDetail: React.FC = () => {
                                 <Heart className={`mr-2 h-5 w-5 ${isLiked ? 'fill-current' : ''}`} />
                                 {character.likesCount}
                             </Button>
-                            {character.rank && (
+                            {character.rank && character.rank > 1 && (
                                 <div className="w-20 h-11 flex items-center justify-center rounded-xl bg-secondary border border-border">
                                     <span className="text-xl font-bold">#{character.rank}</span>
                                 </div>
@@ -289,11 +325,11 @@ const CharacterDetail: React.FC = () => {
                     </div>
 
                     {/* Right Side - Info */}
-                    <div className="space-y-8">
+                    <div className="min-w-0 space-y-8 animate-fade-up">
                         <Tabs value={activeDetailTab} onValueChange={(value) => setActiveDetailTab(value as 'general' | 'series' | 'gallery')} className="space-y-8">
                             <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
                                 <div className="min-w-0">
-                                    <h1 className="text-4xl md:text-5xl font-black bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
+                                    <h1 className="text-3xl sm:text-4xl md:text-5xl font-black bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent break-words">
                                         {character.name}
                                     </h1>
                                     <div className="flex items-center gap-4 mt-4 text-muted-foreground">
@@ -328,10 +364,10 @@ const CharacterDetail: React.FC = () => {
                                 </div>
                             </div>
 
-                            <TabsContent value="general" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            <TabsContent value="general" className="mt-0 animate-route-enter">
                                 <div className="space-y-8">
                                     <EntityMetadataGrid
-                                        metadata={character.details}
+                                        metadata={localizeEntityMetadata(character.details)}
                                         alternativeNames={character.alternativeNames}
                                         sourceLinks={character.sourceLinks}
                                         title="Karakter Profili"
@@ -342,7 +378,7 @@ const CharacterDetail: React.FC = () => {
                                 </div>
                             </TabsContent>
 
-                            <TabsContent value="series" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            <TabsContent value="series" className="mt-0 animate-route-enter">
                                 <div className="space-y-4">
                                     <h2 className="text-2xl font-bold flex items-center gap-2">
                                         <BookOpen className="h-6 w-6 text-primary" />
@@ -355,7 +391,7 @@ const CharacterDetail: React.FC = () => {
                                 </div>
                             </TabsContent>
 
-                            <TabsContent value="gallery" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            <TabsContent value="gallery" className="mt-0 animate-route-enter">
                                 <EntityGalleryGrid
                                     images={character.gallery}
                                     title="Karakter Galerisi"

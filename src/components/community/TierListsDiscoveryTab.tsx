@@ -361,7 +361,7 @@ const TierListsDiscoveryTab: React.FC = () => {
           </div>
 
           <Select value={sort} onValueChange={(value) => setSort(value as TierListDiscoverySort)}>
-            <SelectTrigger className="w-[155px] h-10 bg-card/60" aria-label="Sıralama ölçütü">
+            <SelectTrigger className="flex-1 min-w-[140px] sm:flex-initial sm:w-[155px] h-10 bg-card/60" aria-label="Sıralama ölçütü">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -396,11 +396,11 @@ const TierListsDiscoveryTab: React.FC = () => {
         <div className="rounded-xl border border-border/60 bg-card/40 p-10 text-center space-y-3">
           <Layers className="h-9 w-9 mx-auto text-muted-foreground/60" />
           <div className="space-y-1">
-            <p className="text-base font-semibold">Tier list bulunamadı</p>
+            <p className="text-base font-semibold">Tier listesi bulunamadı</p>
             <p className="text-sm text-muted-foreground">
               {debouncedSearch || typeFilter !== 'all'
                 ? 'Filtrelerinize uygun herkese açık sıralama bulunamadı.'
-                : 'Henüz herkese açık paylaşılan bir tier list bulunmuyor.'}
+                : 'Henüz herkese açık paylaşılan bir tier listesi bulunmuyor.'}
             </p>
           </div>
           {(debouncedSearch || typeFilter !== 'all') && (
@@ -419,7 +419,7 @@ const TierListsDiscoveryTab: React.FC = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {items.map((item) => {
+          {items.map((item, index) => {
             const visiblePreviewTiers = item.previewTiers
               .filter((tierRow) => tierRow.items && tierRow.items.length > 0)
               .slice(0, 3);
@@ -428,7 +428,11 @@ const TierListsDiscoveryTab: React.FC = () => {
             return (
               <article
                 key={item.id}
-                className="rounded-xl border border-border/60 bg-card/60 hover:border-primary/40 transition-colors flex flex-col justify-between overflow-hidden min-w-0"
+                className={cn(
+                  'rounded-xl border border-border/60 bg-card/60 hover:border-primary/40 transition-colors flex flex-col justify-between overflow-hidden min-w-0 animate-fade-up',
+                  index >= 9 && 'cv-auto-card',
+                )}
+                style={{ animationDelay: `${0.04 + Math.min(index, 12) * 0.025}s` }}
               >
                 <Link to={`/tier-lists/${item.id}`} className="block p-4 space-y-3 group focus-visible:outline-none">
                   {/* S / A / B Mini Preview Strips */}

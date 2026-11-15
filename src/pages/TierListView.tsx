@@ -11,7 +11,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, Edit, Globe, Heart, Lock, Trophy, User } from 'lucide-react';
+import { ArrowLeft, Edit, Heart, User } from 'lucide-react';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import TierItemCard from '@/components/tierlist/TierItemCard';
@@ -183,14 +183,14 @@ export default function TierListView() {
     <div className="min-h-screen bg-background">
       <Header />
       <main className="container py-24 flex flex-col gap-6">
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+        <div className="flex items-start justify-between flex-wrap gap-4">
+          <div className="flex items-start gap-3 sm:gap-4 min-w-0">
+            <Button variant="ghost" size="icon" className="shrink-0" onClick={() => navigate(-1)}>
               <ArrowLeft className="w-5 h-5" />
             </Button>
-            <div>
-              <h1 className="text-3xl font-bold">{tierList.title}</h1>
-              <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
+            <div className="min-w-0">
+              <h1 className="text-2xl sm:text-3xl font-bold break-words">{tierList.title}</h1>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-sm text-muted-foreground">
                 <Link to={`/profile/${tierList.user_id}`} className="flex items-center gap-1 hover:text-primary transition-colors">
                   <User className="w-3.5 h-3.5" />
                   {ownerName}
@@ -229,13 +229,13 @@ export default function TierListView() {
           </div>
         </div>
 
-        <div className="bg-card/50 border border-border rounded-xl shadow-xl overflow-hidden flex flex-col">
+        <div className="bg-card/50 border border-border rounded-xl shadow-xl overflow-hidden flex flex-col animate-fade-up">
           {defaultTiers.map(tier => {
             const items = tierState[tier.id] || [];
             const tierLabel = tierLabels[tier.id]?.trim() || tier.id;
             return (
               <div key={tier.id} className="flex border-b border-border min-h-[90px] last:border-b-0">
-                <div className={`w-24 ${tier.color} shrink-0 overflow-hidden shadow-inner`}>
+                <div className={`w-16 sm:w-24 ${tier.color} shrink-0 overflow-hidden shadow-inner`}>
                   <div className="flex h-full items-center justify-center px-2 py-3">
                     <span
                       title={tierLabel}

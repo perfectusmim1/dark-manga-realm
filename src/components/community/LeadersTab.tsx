@@ -359,7 +359,7 @@ const LeadersTab: React.FC = () => {
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Liderler</h2>
         </div>
 
-        <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-card/60 px-4 py-2.5 text-sm shrink-0 w-fit">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border/60 bg-card/60 px-4 py-2.5 text-sm shrink-0 max-w-full w-fit">
           <div className="flex items-center gap-2">
             <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 shrink-0" />
             <span className="text-muted-foreground">Aktif:</span>
@@ -441,10 +441,11 @@ const LeadersTab: React.FC = () => {
                 <div
                   key={entry.id}
                   className={cn(
-                    'group relative overflow-hidden rounded-xl border p-4 sm:p-5 flex flex-col items-center text-center gap-3 min-w-0 cursor-pointer transition-colors hover:border-primary/50',
+                    'group relative overflow-hidden rounded-xl border p-4 sm:p-5 flex flex-col items-center text-center gap-3 min-w-0 cursor-pointer transition-colors hover:border-primary/50 animate-fade-up',
                     rankAccentClass,
                     desktopOrderClass,
                   )}
+                  style={{ animationDelay: `${0.04 + index * 0.04}s` }}
                 >
                   {renderBannerBackdrop(entry, {
                     priority: true,
@@ -459,7 +460,7 @@ const LeadersTab: React.FC = () => {
 
                   <div
                     className={cn(
-                      'pointer-events-none relative z-20 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider',
+                      'pointer-events-none relative z-20 flex items-center gap-1.5 text-xs font-bold',
                       hasBanner ? cn('text-white/90', BANNER_TEXT_SHADOW_CLASS) : 'text-muted-foreground',
                     )}
                   >
@@ -557,9 +558,11 @@ const LeadersTab: React.FC = () => {
                   <div
                     key={entry.id}
                     className={cn(
-                      'group relative overflow-hidden flex items-center justify-between gap-3 px-4 py-3 transition-colors min-w-0 cursor-pointer',
+                      'group relative overflow-hidden flex items-center justify-between gap-3 px-4 py-3 transition-colors min-w-0 cursor-pointer animate-fade-up',
                       !hasBanner && 'hover:bg-muted/20',
+                      idx >= 8 && 'cv-auto-row',
                     )}
+                    style={{ animationDelay: `${0.04 + Math.min(idx, 10) * 0.02}s` }}
                   >
                     {renderBannerBackdrop(entry, {
                       scrimClassName:

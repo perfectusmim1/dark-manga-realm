@@ -563,7 +563,7 @@ const ForumTab: React.FC = () => {
             <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Forum</h2>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:shrink-0">
             <Button
               type="button"
               onClick={handleOpenComposer}
@@ -574,7 +574,7 @@ const ForumTab: React.FC = () => {
             </Button>
 
             <Select value={sort} onValueChange={(value) => setSort(value as ForumSortOption)}>
-              <SelectTrigger className="w-[165px] h-9 bg-card/60" aria-label="Konuları sırala">
+              <SelectTrigger className="flex-1 min-w-[140px] sm:flex-initial sm:w-[165px] h-9 bg-card/60" aria-label="Konuları sırala">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -774,7 +774,7 @@ const ForumTab: React.FC = () => {
           </div>
         ) : (
           <div className="rounded-xl border border-border/60 bg-card/40 divide-y divide-border/50">
-            {topics.map((topic) => {
+            {topics.map((topic, index) => {
               const categoryMeta = FORUM_CATEGORY_MAP[topic.category];
               const createdLabel = formatRelativeTime(topic.createdAt);
               const lastActivityLabel = formatRelativeTime(topic.lastPostAt || topic.createdAt);
@@ -782,7 +782,11 @@ const ForumTab: React.FC = () => {
               return (
                 <article
                   key={topic.id}
-                  className="p-4 sm:px-5 hover:bg-muted/20 transition-colors min-w-0"
+                  className={cn(
+                    'p-4 sm:px-5 hover:bg-muted/20 transition-colors min-w-0 animate-fade-up',
+                    index >= 10 && 'cv-auto-row',
+                  )}
+                  style={{ animationDelay: `${0.03 + Math.min(index, 12) * 0.02}s` }}
                 >
                   {/* Author + Time + Status */}
                   <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">

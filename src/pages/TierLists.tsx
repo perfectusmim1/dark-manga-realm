@@ -143,7 +143,7 @@ const TierLists: React.FC = () => {
                                 className="group animate-fade-up relative overflow-hidden rounded-xl border border-border bg-card p-6 transition-all hover:border-primary/50"
                                 style={{ animationDelay: `${0.08 + Math.min(index, 10) * 0.03}s` }}
                             >
-                                <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="absolute top-4 right-4 flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity">
                                     <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:bg-secondary hover:text-foreground" onClick={() => navigate(`/tier-lists/${list.id}/edit`)}>
                                         <Edit2 className="w-4 h-4" />
                                     </Button>
@@ -179,7 +179,7 @@ const TierLists: React.FC = () => {
             <AlertDialog open={!!deleteConfirmId} onOpenChange={() => setDeleteConfirmId(null)}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Tier Listesini silmek istediğinize emin misiniz?</AlertDialogTitle>
+                        <AlertDialogTitle>Tier listesini silmek istediğinize emin misiniz?</AlertDialogTitle>
                         <AlertDialogDescription>Bu işlem geri alınamaz. Liste kalıcı olarak silinecektir.</AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

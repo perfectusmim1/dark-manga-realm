@@ -5,7 +5,7 @@ import { tr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
 import HeatMap from '@/components/profile/HeatMap';
-import { Shield, Settings, Calendar, BookOpen, Trophy, Info, Book, MessageSquare, History, Globe, Lock, ChevronRight, List, Sparkles, Image as ImageIcon, Film, Reply, Clock3, Flag, Star, ThumbsUp, User as UserIcon } from 'lucide-react';
+import { Shield, Settings, Calendar, BookOpen, Trophy, Book, MessageSquare, History, Globe, Lock, ChevronRight, List, Sparkles, Image as ImageIcon, Film, Reply, Clock3, Flag, Star, ThumbsUp, User as UserIcon } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -23,6 +23,7 @@ import StaffBadge from '@/components/user/StaffBadge';
 import { getStaffTextClassName } from '@/lib/staffRoles';
 import { cn } from '@/lib/utils';
 import { getMangaTypeLabel } from '@/lib/mangaType';
+import { formatMangaStatusLabel } from '@/lib/mockData';
 import { UserPlus, UserMinus, ShieldAlert, ShieldCheck, Loader2 } from 'lucide-react';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
@@ -188,15 +189,13 @@ const Profile: React.FC = () => {
 
     return updatedAt - createdAt > 1000;
   };
-  const getMangaStatusLabel = (status?: string | null) => (
-    status === 'ongoing'
-      ? 'Devam Ediyor'
-      : status === 'completed'
-        ? 'Tamamlandı'
-        : status === 'hiatus'
-          ? 'Ara Verdi'
-          : null
-  );
+  const getMangaStatusLabel = (status?: string | null) => {
+    if (!status) {
+      return null;
+    }
+    const label = formatMangaStatusLabel(status);
+    return label === 'Belirsiz' ? null : label;
+  };
 
   const openProfileReportDialog = () => {
     if (!currentUser) {
@@ -459,10 +458,10 @@ const Profile: React.FC = () => {
             onValueChange={(value) => setSearchParams({ tab: value })}
             className="mt-8"
           >
-            <TabsList className="bg-transparent border-b border-border w-full justify-start rounded-none p-0 h-auto gap-8 mb-8 overflow-x-auto custom-scrollbar">
+            <TabsList className="bg-transparent border-b border-border w-full justify-start rounded-none p-0 h-auto gap-5 sm:gap-8 mb-8 overflow-x-auto custom-scrollbar">
               <TabsTrigger 
                 value="overview" 
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-base font-semibold transition-all"
+                className="shrink-0 whitespace-nowrap rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-sm sm:text-base font-semibold transition-all"
               >
                 Genel Bakış
               </TabsTrigger>
@@ -470,7 +469,7 @@ const Profile: React.FC = () => {
               {canViewAchievements && (
                 <TabsTrigger 
                   value="achievements" 
-                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-base font-semibold transition-all"
+                  className="shrink-0 whitespace-nowrap rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-sm sm:text-base font-semibold transition-all"
                 >
                   Başarımlar
                 </TabsTrigger>
@@ -478,7 +477,7 @@ const Profile: React.FC = () => {
               {canViewAnyLists && (
                 <TabsTrigger 
                   value="tierlists" 
-                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-base font-semibold transition-all flex items-center gap-2"
+                  className="shrink-0 whitespace-nowrap rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-sm sm:text-base font-semibold transition-all flex items-center gap-2"
                 >
                   Listelerim
                 </TabsTrigger>
@@ -486,7 +485,7 @@ const Profile: React.FC = () => {
               {canViewComments && (
                 <TabsTrigger 
                   value="comments" 
-                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-base font-semibold transition-all"
+                  className="shrink-0 whitespace-nowrap rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-sm sm:text-base font-semibold transition-all"
                 >
                   Yorumlar
                 </TabsTrigger>
@@ -494,7 +493,7 @@ const Profile: React.FC = () => {
               {canViewReviews && (
                 <TabsTrigger 
                   value="reviews" 
-                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-base font-semibold transition-all"
+                  className="shrink-0 whitespace-nowrap rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-sm sm:text-base font-semibold transition-all"
                 >
                   İncelemeler
                 </TabsTrigger>
@@ -502,14 +501,14 @@ const Profile: React.FC = () => {
               {canViewFollowedManga && (
                 <TabsTrigger 
                   value="following-manga" 
-                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-base font-semibold transition-all"
+                  className="shrink-0 whitespace-nowrap rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-sm sm:text-base font-semibold transition-all"
                 >
                   Takip Edilenler
                 </TabsTrigger>
               )}
             </TabsList>
             
-            <TabsContent value="overview" className="mt-0 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <TabsContent value="overview" className="mt-0 space-y-8 animate-route-enter">
               {/* Detailed Stats Grid */}
               <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
                 <div className="rounded-xl border border-border bg-card/50 p-6 flex flex-col justify-center items-center text-center">
@@ -602,16 +601,8 @@ const Profile: React.FC = () => {
               )}
             </TabsContent>
             
-            <TabsContent value="favorites" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
-               <div className="text-center py-16 rounded-xl border border-border bg-card/50">
-                 <Info className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-                 <h3 className="text-lg font-medium">Yakında</h3>
-                 <p className="text-muted-foreground mt-2 max-w-md mx-auto">Kullanıcının kendine özel manga sıralamaları ve Tier List'leri burada sergilenecek.</p>
-               </div>
-            </TabsContent>
-            
             {canViewAchievements && (
-            <TabsContent value="achievements" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <TabsContent value="achievements" className="mt-0 animate-route-enter">
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                  {Object.values(ACHIEVEMENTS).map((achievement) => {
                    const unlockedRecord = achievements.find(a => a.achievement_id === achievement.id);
@@ -670,7 +661,7 @@ const Profile: React.FC = () => {
             </TabsContent>
             )}
             {canViewAnyLists && (
-            <TabsContent value="tierlists" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <TabsContent value="tierlists" className="mt-0 animate-route-enter">
                <div className="space-y-8">
                  {canViewReadingLists && (
                    <div className="rounded-xl border border-border bg-card/50 p-6 md:p-8 shadow-sm">
@@ -707,7 +698,7 @@ const Profile: React.FC = () => {
                                </div>
                                <p className="text-sm text-muted-foreground line-clamp-2 mb-4 h-10">{list.description || 'Açıklama belirtilmemiş.'}</p>
                                <div className="flex justify-between items-center text-xs text-muted-foreground">
-                                 <span>{new Date(list.created_at).toLocaleDateString()}</span>
+                                 <span>{new Date(list.created_at).toLocaleDateString('tr-TR')}</span>
                                  <span className="flex items-center text-primary font-medium">İncele <ChevronRight className="w-3 h-3 ml-1" /></span>
                                </div>
                              </div>
@@ -753,7 +744,7 @@ const Profile: React.FC = () => {
                              <p className="text-sm text-muted-foreground line-clamp-2 mb-4 h-10">Kendi sıralamasını oluşturdu.</p>
                              <div className="flex justify-between items-center text-xs text-muted-foreground border-t border-border pt-3">
                                <span>Sıralamayı Göster <ChevronRight className="w-3 h-3 inline pb-0.5" /></span>
-                               <span>{new Date(list.created_at).toLocaleDateString()}</span>
+                               <span>{new Date(list.created_at).toLocaleDateString('tr-TR')}</span>
                              </div>
                            </div>
                          ))}
@@ -765,16 +756,11 @@ const Profile: React.FC = () => {
              </TabsContent>
             )}
             {canViewComments && (
-            <TabsContent value="comments" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <TabsContent value="comments" className="mt-0 animate-route-enter">
                 <div className="rounded-xl border border-border bg-card/50 p-4 shadow-sm sm:p-6 md:p-8">
-                 <div className="mb-4 flex items-center justify-between gap-3 sm:mb-6">
-                   <div className="flex items-center gap-2">
-                     <MessageSquare className="w-5 h-5 text-primary" />
-                     <h3 className="text-xl font-bold">Son Yorumlar</h3>
-                   </div>
-                   <Badge variant="secondary" className="rounded-full px-3 py-1">
-                     {Math.max(profileData.stats?.totalComments || 0, profileData.recentComments?.length || 0)} yorum
-                   </Badge>
+                 <div className="mb-4 flex items-center gap-2 sm:mb-6">
+                   <MessageSquare className="w-5 h-5 text-primary" />
+                   <h3 className="text-xl font-bold">Son Yorumlar</h3>
                  </div>
 
                  {profileData.recentComments?.length > 0 ? (
@@ -913,16 +899,11 @@ const Profile: React.FC = () => {
              </TabsContent>
             )}
             {canViewReviews && (
-            <TabsContent value="reviews" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <TabsContent value="reviews" className="mt-0 animate-route-enter">
                 <div className="rounded-xl border border-border bg-card/50 p-4 shadow-sm sm:p-6 md:p-8">
-                 <div className="mb-4 flex items-center justify-between gap-3 sm:mb-6">
-                   <div className="flex items-center gap-2">
-                     <Star className="w-5 h-5 text-yellow-400" />
-                     <h3 className="text-xl font-bold">Son İncelemeler</h3>
-                   </div>
-                   <Badge variant="secondary" className="rounded-full px-3 py-1">
-                     {profileReviews.length || 0} inceleme
-                   </Badge>
+                 <div className="mb-4 flex items-center gap-2 sm:mb-6">
+                   <Star className="w-5 h-5 text-yellow-400" />
+                   <h3 className="text-xl font-bold">Son İncelemeler</h3>
                  </div>
 
                  {profileReviews.length > 0 ? (
@@ -1021,7 +1002,7 @@ const Profile: React.FC = () => {
                                </div>
 
                                <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/70 pt-4 text-xs text-muted-foreground">
-                                 <span>{review.dislikes || 0} dislike</span>
+                                 <span>{review.dislikes || 0} beğenmeme</span>
                                  <span className="flex items-center font-medium text-primary">
                                    Seriye Git
                                    <ChevronRight className="ml-1 h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
@@ -1044,16 +1025,11 @@ const Profile: React.FC = () => {
              </TabsContent>
             )}
             {canViewFollowedManga && (
-            <TabsContent value="following-manga" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <TabsContent value="following-manga" className="mt-0 animate-route-enter">
                 <div className="rounded-xl border border-border bg-card/50 p-6 md:p-8 shadow-sm">
-                 <div className="mb-6 flex items-center justify-between gap-3">
-                   <div className="flex items-center gap-2">
-                     <BookOpen className="w-5 h-5 text-primary" />
-                     <h3 className="text-xl font-bold">Takip Edilen İçerikler</h3>
-                   </div>
-                   <Badge variant="secondary" className="rounded-full px-3 py-1">
-                     {profileData.followedManga?.length || 0} seri
-                   </Badge>
+                 <div className="mb-6 flex items-center gap-2">
+                   <BookOpen className="w-5 h-5 text-primary" />
+                   <h3 className="text-xl font-bold">Takip Edilen İçerikler</h3>
                  </div>
 
                  {profileData.followedManga?.length > 0 ? (
@@ -1088,7 +1064,7 @@ const Profile: React.FC = () => {
                                {manga.status && (
                                  <>
                                    <span className="text-muted-foreground/50">•</span>
-                                   <span>{manga.status === 'ongoing' ? 'Devam Ediyor' : manga.status === 'completed' ? 'Tamamlandi' : 'Ara Verdi'}</span>
+                                   <span>{formatMangaStatusLabel(manga.status)}</span>
                                  </>
                                )}
                              </div>
@@ -1100,8 +1076,8 @@ const Profile: React.FC = () => {
                  ) : (
                    <div className="rounded-xl border border-border border-dashed bg-card/10 p-12 text-center">
                      <BookOpen className="w-10 h-10 mx-auto text-muted-foreground/60 mb-4" />
-                     <h3 className="text-lg font-semibold">Henuz takip edilen seri yok</h3>
-                     <p className="text-muted-foreground mt-2">Favorilere eklenenler degil, sadece takip edilen seriler burada gorunecek.</p>
+                     <h3 className="text-lg font-semibold">Henüz takip edilen seri yok</h3>
+                     <p className="text-muted-foreground mt-2">Favorilere eklenenler değil, sadece takip edilen seriler burada görünecek.</p>
                    </div>
                  )}
                 </div>

@@ -8,7 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { getAllMangas, getCharacters, getCharacterSeriesMap } from '@/lib/database';
-import { Save, Search, ArrowLeft, Image as ImageIcon } from 'lucide-react';
+import { Save, Search, ArrowLeft, Image as ImageIcon, X } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
@@ -480,12 +480,12 @@ export default function TierListEditor() {
       if (!id || id === 'create') {
          const { error } = await supabase.from('tier_lists').insert([payload]);
          if (error) throw error;
-         toast.success('Tier Listesi oluşturuldu!');
+         toast.success('Tier listesi oluşturuldu!');
          navigate('/tier-lists');
       } else {
          const { error } = await supabase.from('tier_lists').update(payload).eq('id', id);
          if (error) throw error;
-         toast.success('Tier Listesi güncellendi!');
+         toast.success('Tier listesi güncellendi!');
       }
     } catch (err) {
        console.error(err);
@@ -602,8 +602,18 @@ export default function TierListEditor() {
                   value={poolSearch}
                   onChange={(e) => setPoolSearch(e.target.value)}
                   placeholder={type === 'character' ? "Karakter veya seri ara..." : "Manga ara..."}
-                  className="pl-9"
+                  className="pl-9 pr-9"
                 />
+                {poolSearch ? (
+                  <button
+                    type="button"
+                    onClick={() => setPoolSearch('')}
+                    aria-label="Aramayı temizle"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-0.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
               </div>
             </div>
             <div 
