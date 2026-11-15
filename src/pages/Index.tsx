@@ -587,7 +587,14 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
     viewportWidth: typeof window === 'undefined' ? 1024 : window.innerWidth,
   }));
   const showArrowControls = !isCoarsePointer && !disableHeavyEffects;
-  const visibleManga = manga;
+  const visibleManga = useMemo(() => {
+    const seen = new Set<string>();
+    return manga.filter((item) => {
+      if (!item?.id || seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+  }, [manga]);
   const visibleCoverPriorityCount = Math.max(
     priorityCount,
     getInitialVisibleHomeSectionCardCount(scrollMetrics.viewportWidth, isCoarsePointer),
@@ -763,7 +770,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
               exit={{ opacity: 0 }}
               onClick={() => scroll('left')}
               style={posterCenterY ? { top: `${posterCenterY}px` } : undefined}
-              className="group/arrow absolute left-2 sm:left-3 top-[calc((100%-7.25rem)/2)] z-40 -mt-[18px] sm:-mt-5 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-slate-950/80 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur-md transition-all duration-200 hover:scale-105 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="group/arrow absolute left-2 sm:left-3 top-[calc((100%-7.25rem)/2)] z-40 -mt-[18px] sm:-mt-5 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-slate-950/80 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur-md transition-[transform,opacity,background-color,border-color,box-shadow] duration-200 hover:scale-105 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               aria-label={`${title} sola kaydır`}
             >
               <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5 -translate-x-[0.5px] transition-transform duration-200 group-hover/arrow:-translate-x-0.5" strokeWidth={2.25} />
@@ -778,7 +785,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
               exit={{ opacity: 0 }}
               onClick={() => scroll('right')}
               style={posterCenterY ? { top: `${posterCenterY}px` } : undefined}
-              className="group/arrow absolute right-2 sm:right-3 top-[calc((100%-7.25rem)/2)] z-40 -mt-[18px] sm:-mt-5 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-slate-950/80 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur-md transition-all duration-200 hover:scale-105 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="group/arrow absolute right-2 sm:right-3 top-[calc((100%-7.25rem)/2)] z-40 -mt-[18px] sm:-mt-5 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-slate-950/80 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur-md transition-[transform,opacity,background-color,border-color,box-shadow] duration-200 hover:scale-105 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               aria-label={`${title} sağa kaydır`}
             >
               <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 translate-x-[0.5px] transition-transform duration-200 group-hover/arrow:translate-x-0.5" strokeWidth={2.25} />
@@ -830,7 +837,7 @@ const Index: React.FC = () => {
   useDocumentTitle('ToonParrot - Ücretsiz Türkçe Manga & Webtoon Oku', false);
   const { user, isLoading: authLoading } = useAuth();
   const { snapshot: offlineSnapshot, isOnline } = useOfflineLibrary();
-  const { disableHeavyEffects, isCoarsePointer } = useDeviceProfile();
+  const { disableHeavyEffects, prefersReducedMotion, isCoarsePointer } = useDeviceProfile();
   const appearancePreferences = useBootstrappedAppearancePreferences({ user, authLoading });
   const adultModeEnabled = Boolean(user?.id) && user?.preferences?.content?.adult_mode === true;
   const canSeeAdultContent = adultModeEnabled;
@@ -1300,50 +1307,67 @@ const Index: React.FC = () => {
     writePersistedContinueReadingCache(user.id, nextEntries);
   }, [continueReadingSeed, mangaById, user?.id]);
 
-  const continueReading = useMemo<ContinueReadingEntry[]>(() => (
-    continueReadingSeed
-      .map((entry) => {
-        const liveManga = mangaById.get(entry.mangaId) ?? null;
-        const snapshotManga = entry.mangaSnapshot
-          ? buildContinueReadingMangaFromSnapshot(entry.mangaSnapshot)
-          : null;
-        const manga = liveManga
-          || snapshotManga
-          || buildContinueReadingFallbackManga(entry);
+  const continueReading = useMemo<ContinueReadingEntry[]>(() => {
+    const seenMangaIds = new Set<string>();
+    const items: ContinueReadingEntry[] = [];
 
-        if (!adultModeEnabled) {
-          if (
-            liveManga?.isAdult === true
-            || entry.mangaSnapshot?.isAdult === true
-            || manga?.isAdult === true
-            || manga?.type === 'webtoon_hentai'
-            || manga?.type === 'manga_hentai'
-          ) {
-            return null;
-          }
+    for (const entry of continueReadingSeed) {
+      if (!entry.mangaId || seenMangaIds.has(entry.mangaId)) {
+        continue;
+      }
 
-          if (!liveManga && !entry.mangaSnapshot) {
-            return null;
-          }
+      const liveManga = mangaById.get(entry.mangaId) ?? null;
+      const snapshotManga = entry.mangaSnapshot
+        ? buildContinueReadingMangaFromSnapshot(entry.mangaSnapshot)
+        : null;
+      const manga = liveManga
+        || snapshotManga
+        || buildContinueReadingFallbackManga(entry);
+
+      if (!adultModeEnabled) {
+        if (
+          liveManga?.isAdult === true
+          || entry.mangaSnapshot?.isAdult === true
+          || manga?.isAdult === true
+          || manga?.type === 'webtoon_hentai'
+          || manga?.type === 'manga_hentai'
+        ) {
+          continue;
         }
 
-        if (!manga) {
-          return null;
+        if (!liveManga && !entry.mangaSnapshot) {
+          continue;
         }
+      }
 
-        return {
-          manga,
-          chapterId: entry.chapterId,
-          chapterNumber: entry.chapterNumber,
-          page: entry.page,
-          progressPercent: typeof entry.progressPercent === 'number' && Number.isFinite(entry.progressPercent)
-            ? Math.min(100, Math.max(0, entry.progressPercent))
-            : undefined,
-          lastRead: entry.lastRead,
-        } satisfies ContinueReadingEntry;
-      })
-      .filter(Boolean) as ContinueReadingEntry[]
-  ), [adultModeEnabled, continueReadingSeed, mangaById]);
+      if (!manga || !manga.id || seenMangaIds.has(manga.id)) {
+        continue;
+      }
+
+      seenMangaIds.add(manga.id);
+      items.push({
+        manga,
+        chapterId: entry.chapterId,
+        chapterNumber: entry.chapterNumber,
+        page: entry.page,
+        progressPercent: typeof entry.progressPercent === 'number' && Number.isFinite(entry.progressPercent)
+          ? Math.min(100, Math.max(0, entry.progressPercent))
+          : undefined,
+        lastRead: entry.lastRead,
+      } satisfies ContinueReadingEntry);
+    }
+
+    return items;
+  }, [adultModeEnabled, continueReadingSeed, mangaById]);
+
+  const uniqueTrendingTags = useMemo(() => {
+    const seenIds = new Set<string>();
+    return trendingTags.filter((tag) => {
+      if (!tag?.id || seenIds.has(tag.id)) return false;
+      seenIds.add(tag.id);
+      return true;
+    });
+  }, [trendingTags]);
 
   const {
     trendingManga,
@@ -1361,7 +1385,7 @@ const Index: React.FC = () => {
   const shouldRenderContinueReadingSlot = shouldShowContinueReading || showContinueReadingSkeleton;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen overflow-x-clip bg-background">
       <Header />
 
       <main className="container pb-10 pt-20">
@@ -1475,10 +1499,14 @@ const Index: React.FC = () => {
                 <div className={`flex flex-wrap gap-2 rounded-2xl border border-border/60 bg-card/50 p-3.5 sm:p-5 ${disableHeavyEffects ? '' : 'backdrop-blur-sm'}`}>
                   {tagsLoading ? (
                     Array.from({ length: 15 }).map((_, i) => (
-                      <div key={i} className="h-7 animate-pulse rounded-full bg-secondary/40" style={{ width: `${56 + (i % 5) * 18}px` }} />
+                      <div
+                        key={i}
+                        className={cn('h-7 rounded-full bg-secondary/40', !prefersReducedMotion && 'animate-pulse')}
+                        style={{ width: `${56 + (i % 5) * 18}px` }}
+                      />
                     ))
                   ) : (
-                    trendingTags.map((tag) => (
+                    uniqueTrendingTags.map((tag) => (
                       <Link
                         key={tag.id}
                         to={`/browse?tags=${tag.slug}`}
@@ -1526,7 +1554,8 @@ const Index: React.FC = () => {
                 <>
                   <div
                     className={cn(
-                      'grid grid-cols-2 gap-2.5 min-[390px]:grid-cols-3 sm:grid-cols-4 sm:gap-3.5 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 transition-opacity duration-200',
+                      'grid grid-cols-2 gap-2.5 min-[390px]:grid-cols-3 sm:grid-cols-4 sm:gap-3.5 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7',
+                      !prefersReducedMotion && 'transition-opacity duration-200',
                       catalogState.loading ? 'opacity-60' : 'opacity-100',
                     )}
                   >
@@ -1612,7 +1641,7 @@ const Index: React.FC = () => {
           <div className="flex flex-col items-center justify-between gap-4 md:flex-row">
             <div className="text-center md:text-left">
               <h3 className="text-lg font-bold">
-                <img src="/logo.webp" alt="Logo" className="mx-auto h-12 w-auto object-contain md:mx-0" loading="lazy" decoding="async" />
+                <img src="/logo.webp" alt="ToonParrot" className="mx-auto h-12 w-auto object-contain md:mx-0" loading="lazy" decoding="async" />
               </h3>
               <p className="mt-1 text-sm text-muted-foreground">
                 En iyi manga, manhwa, manhua ve webtoon okuma deneyimi

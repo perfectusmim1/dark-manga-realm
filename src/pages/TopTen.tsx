@@ -18,6 +18,7 @@ import { ADULT_MODE_CHANGED_EVENT, AdultModeChangedDetail } from '@/lib/adultMod
 import { getTopTenPageData } from '@/lib/database';
 import { getManagedArtworkSrcSet } from '@/lib/managedArtwork';
 import { getMangaTypeLabel, isAdultMangaType } from '@/lib/mangaType';
+import { formatGenreDisplayName } from '@/lib/mockData';
 import { Manga } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
@@ -139,11 +140,13 @@ const TopTenTimeframeTabs: React.FC<{
   activeTimeframe: TopTenTimeframe;
   onChange: (timeframe: TopTenTimeframe) => void;
   disableHeavyEffects: boolean;
+  prefersReducedMotion?: boolean;
 }> = ({
   audience,
   activeTimeframe,
   onChange,
   disableHeavyEffects,
+  prefersReducedMotion = false,
 }) => {
   const activePillClassName = audience === 'adult'
     ? 'bg-rose-500 text-white shadow-sm'
@@ -168,7 +171,8 @@ const TopTenTimeframeTabs: React.FC<{
               onChange(timeframe);
             }}
             className={cn(
-              'relative min-h-8 flex-1 overflow-hidden whitespace-nowrap rounded-lg px-2.5 py-1.5 text-center text-xs font-medium transition-colors duration-150 sm:flex-initial sm:px-3',
+              'relative min-h-8 flex-1 overflow-hidden whitespace-nowrap rounded-lg px-2.5 py-1.5 text-center text-xs font-medium sm:flex-initial sm:px-3',
+              !prefersReducedMotion && 'transition-colors duration-150',
               isActive
                 ? audience === 'adult'
                   ? 'text-white'
@@ -179,12 +183,14 @@ const TopTenTimeframeTabs: React.FC<{
           >
             {isActive ? (
               <motion.span
-                layoutId={`top-ten-page-timeframe-pill-${audience}`}
+                layoutId={prefersReducedMotion ? undefined : `top-ten-page-timeframe-pill-${audience}`}
                 className={`absolute inset-0 rounded-lg ${activePillClassName}`}
                 transition={
-                  disableHeavyEffects
-                    ? { duration: 0.16, ease: 'easeOut' }
-                    : { type: 'spring', stiffness: 380, damping: 30, mass: 0.72 }
+                  prefersReducedMotion
+                    ? { duration: 0 }
+                    : disableHeavyEffects
+                      ? { duration: 0.16, ease: 'easeOut' }
+                      : { type: 'spring', stiffness: 380, damping: 30, mass: 0.72 }
                 }
               />
             ) : null}
@@ -307,7 +313,7 @@ const TopTenCard: React.FC<{
 
         <div className="flex items-center justify-between gap-1.5 border-t border-border/60 px-2 py-1.5 text-[10px] text-muted-foreground sm:px-2.5 sm:py-2 sm:text-[11px]">
           <span className="min-w-0 truncate">
-            {manga.genres?.[0] || 'Arşiv Seçkisi'}
+            {manga.genres?.map((genre) => formatGenreDisplayName(genre)).find(Boolean) || 'Arşiv Seçkisi'}
           </span>
           <span className={cn('shrink-0 font-medium', chapterCountClassName)}>
             {manga.chapterCount || manga.chapters?.length || 0} bölüm
@@ -325,6 +331,7 @@ const TopTenAudienceBlock: React.FC<{
   manga: Manga[];
   isLoading: boolean;
   disableHeavyEffects: boolean;
+  prefersReducedMotion?: boolean;
   isCoarsePointer: boolean;
   isSinglePanel?: boolean;
 }> = ({
@@ -334,6 +341,7 @@ const TopTenAudienceBlock: React.FC<{
   manga,
   isLoading,
   disableHeavyEffects,
+  prefersReducedMotion = false,
   isCoarsePointer,
   isSinglePanel = false,
 }) => {
@@ -430,9 +438,9 @@ const TopTenAudienceBlock: React.FC<{
 
   return (
     <section
-      className={`min-w-0 ${disableHeavyEffects ? '' : 'animate-fade-up'}`}
+      className={cn('min-w-0', !prefersReducedMotion && !disableHeavyEffects && 'animate-fade-up')}
       style={
-        disableHeavyEffects
+        prefersReducedMotion || disableHeavyEffects
           ? undefined
           : {
               animationDelay: audience === 'safe' ? '0.02s' : '0.05s',
@@ -455,22 +463,27 @@ const TopTenAudienceBlock: React.FC<{
                 activeTimeframe={timeframe}
                 onChange={onTimeframeChange}
                 disableHeavyEffects={disableHeavyEffects}
+                prefersReducedMotion={prefersReducedMotion}
               />
             </div>
           </div>
 
           <div className="relative min-w-0 overflow-visible group/carousel">
             {/* Sola Kaydır Butonu */}
-            <AnimatePresence>
+            <AnimatePresence initial={false}>
               {showLeftArrow && (
                 <motion.button
                   type="button"
-                  initial={{ opacity: 0, scale: 0.8 }}
+                  initial={prefersReducedMotion ? false : { opacity: 0, scale: disableHeavyEffects ? 1 : 0.88 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.8 }}
-                  transition={{ duration: 0.15 }}
+                  exit={prefersReducedMotion ? undefined : { opacity: 0, scale: disableHeavyEffects ? 1 : 0.88 }}
+                  transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.15 }}
                   onClick={() => scroll('left')}
-                  className="absolute left-1 sm:left-2 top-[54%] -translate-y-1/2 z-30 flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-full bg-background/90 text-foreground border border-border/70 shadow-lg backdrop-blur-md transition-colors duration-150 hover:bg-primary hover:border-primary/50 hover:text-primary-foreground active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                  className={cn(
+                    'absolute left-1 sm:left-2 top-[54%] -translate-y-1/2 z-30 flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-full bg-background/90 text-foreground border border-border/70 shadow-lg transition-colors duration-150 hover:bg-primary hover:border-primary/50 hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+                    !disableHeavyEffects && 'backdrop-blur-md',
+                    !prefersReducedMotion && 'active:scale-95',
+                  )}
                   aria-label="Sola kaydır"
                 >
                   <ChevronLeft className="h-4 w-4 -translate-x-[0.5px]" strokeWidth={2.25} />
@@ -479,16 +492,20 @@ const TopTenAudienceBlock: React.FC<{
             </AnimatePresence>
 
             {/* Sağa Kaydır Butonu */}
-            <AnimatePresence>
+            <AnimatePresence initial={false}>
               {showRightArrow && (
                 <motion.button
                   type="button"
-                  initial={{ opacity: 0, scale: 0.8 }}
+                  initial={prefersReducedMotion ? false : { opacity: 0, scale: disableHeavyEffects ? 1 : 0.88 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.8 }}
-                  transition={{ duration: 0.15 }}
+                  exit={prefersReducedMotion ? undefined : { opacity: 0, scale: disableHeavyEffects ? 1 : 0.88 }}
+                  transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.15 }}
                   onClick={() => scroll('right')}
-                  className="absolute right-1 sm:right-2 top-[54%] -translate-y-1/2 z-30 flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-full bg-background/90 text-foreground border border-border/70 shadow-lg backdrop-blur-md transition-colors duration-150 hover:bg-primary hover:border-primary/50 hover:text-primary-foreground active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                  className={cn(
+                    'absolute right-1 sm:right-2 top-[54%] -translate-y-1/2 z-30 flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-full bg-background/90 text-foreground border border-border/70 shadow-lg transition-colors duration-150 hover:bg-primary hover:border-primary/50 hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+                    !disableHeavyEffects && 'backdrop-blur-md',
+                    !prefersReducedMotion && 'active:scale-95',
+                  )}
                   aria-label="Sağa kaydır"
                 >
                   <ChevronRight className="h-4 w-4 translate-x-[0.5px]" strokeWidth={2.25} />
@@ -502,7 +519,10 @@ const TopTenAudienceBlock: React.FC<{
                 className="flex w-full max-w-full min-w-0 gap-2.5 overflow-x-auto pb-1.5 scrollbar-hide sm:gap-3.5 sm:pb-2"
               >
                 {Array.from({ length: 6 }).map((_, index) => (
-                  <div key={`${audience}-${timeframe}-skeleton-${index}`} className={`shrink-0 ${TOP_TEN_CARD_WIDTH_CLASS} animate-pulse`}>
+                  <div
+                    key={`${audience}-${timeframe}-skeleton-${index}`}
+                    className={cn('shrink-0', TOP_TEN_CARD_WIDTH_CLASS, !prefersReducedMotion && 'animate-pulse')}
+                  >
                     <div className="mb-1.5 flex h-8 items-end justify-between sm:mb-2 sm:h-10">
                       <div className="h-6 w-8 rounded bg-white/10 sm:h-7" />
                       <div className="h-5 w-14 rounded-full bg-white/10" />
@@ -521,9 +541,9 @@ const TopTenAudienceBlock: React.FC<{
                 {uniqueMangas.length > 0 ? (
                   <motion.div
                     key={`${audience}-${timeframe}-content`}
-                    initial={{ opacity: 0 }}
+                    initial={prefersReducedMotion ? false : { opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    transition={{ duration: 0.16, ease: 'easeOut' }}
+                    transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.16, ease: 'easeOut' }}
                     className="min-w-0"
                   >
                     <div
@@ -551,9 +571,9 @@ const TopTenAudienceBlock: React.FC<{
                 ) : (
                   <motion.div
                     key={`${audience}-${timeframe}-empty`}
-                    initial={{ opacity: 0, y: disableHeavyEffects ? 0 : 8 }}
+                    initial={prefersReducedMotion ? false : { opacity: 0, y: disableHeavyEffects ? 0 : 8 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: disableHeavyEffects ? 0.12 : 0.16 }}
+                    transition={prefersReducedMotion ? { duration: 0 } : { duration: disableHeavyEffects ? 0.12 : 0.16 }}
                     className="rounded-xl border border-dashed border-border/60 bg-background/40 p-6 text-center sm:p-8"
                   >
                     <p className="text-xs text-muted-foreground sm:text-sm">
@@ -571,7 +591,7 @@ const TopTenAudienceBlock: React.FC<{
 };
 
 const TopTen: React.FC = () => {
-  const { disableHeavyEffects, isCoarsePointer } = useDeviceProfile();
+  const { disableHeavyEffects, prefersReducedMotion, isCoarsePointer } = useDeviceProfile();
   const { isOnline } = useEffectiveOnlineStatus();
   const { user } = useAuth();
   const [activeTimeframes, setActiveTimeframes] = useState<Record<TopTenAudience, TopTenTimeframe>>({
@@ -688,6 +708,7 @@ const TopTen: React.FC = () => {
             manga={sections.safe[activeTimeframes.safe]}
             isLoading={isLoading}
             disableHeavyEffects={disableHeavyEffects}
+            prefersReducedMotion={prefersReducedMotion}
             isCoarsePointer={isCoarsePointer}
             isSinglePanel={!adultModeEnabled}
           />
@@ -700,6 +721,7 @@ const TopTen: React.FC = () => {
               manga={sections.adult[activeTimeframes.adult]}
               isLoading={isLoading}
               disableHeavyEffects={disableHeavyEffects}
+              prefersReducedMotion={prefersReducedMotion}
               isCoarsePointer={isCoarsePointer}
             />
           ) : null}

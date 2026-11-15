@@ -21,6 +21,7 @@ import { normalizeComparableText, normalizeLooseComparableText } from '@/lib/tex
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
+import { useDeviceProfile } from '@/hooks/use-device-profile';
 
 const PAGE_SIZE = 30;
 const LATEST_CHAPTERS_PAGE_CACHE_TTL_MS = 3 * 60_000;
@@ -80,6 +81,8 @@ const LatestChaptersSkeleton: React.FC = () => (
 const LatestChapters: React.FC = () => {
     const { isOnline } = useEffectiveOnlineStatus();
     const { user } = useAuth();
+    const { disableHeavyEffects, prefersReducedMotion } = useDeviceProfile();
+    const reduceMotion = prefersReducedMotion || disableHeavyEffects;
     const [searchParams, setSearchParams] = useSearchParams();
     const pageParam = parseInt(searchParams.get('page') || '1', 10);
     const currentPage = isNaN(pageParam) || pageParam < 1 ? 1 : pageParam;
@@ -304,11 +307,16 @@ const LatestChapters: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen bg-background">
+        <div className="min-h-screen overflow-x-clip bg-background">
             <Header />
 
             <main className="container pb-12 pt-20">
-                <div className="mb-5 rounded-2xl border border-border/60 bg-card/55 p-4 sm:p-5 animate-fade-up">
+                <div
+                    className={cn(
+                        'mb-5 rounded-2xl border border-border/60 bg-card/55 p-4 sm:p-5',
+                        !prefersReducedMotion && (disableHeavyEffects ? 'animate-route-fade' : 'animate-fade-up'),
+                    )}
+                >
                     <div className="flex flex-col gap-3.5 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex min-w-0 items-center gap-3">
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -359,7 +367,8 @@ const LatestChapters: React.FC = () => {
                                     key={chapter.chapterId}
                                     to={`/manga/${chapter.mangaId}/chapter/${chapter.chapterId}`}
                                     className={cn(
-                                        'group flex items-center gap-3 rounded-xl border border-border/60 bg-card/80 p-2.5 sm:p-3 transition-colors hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background animate-card-reveal-fast',
+                                        'group flex items-center gap-3 rounded-xl border border-border/60 bg-card/80 p-2.5 sm:p-3 transition-colors hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                                        !reduceMotion && 'animate-card-reveal-fast',
                                         index >= 12 && 'cv-auto-row',
                                     )}
                                 >
@@ -442,7 +451,12 @@ const LatestChapters: React.FC = () => {
 
                                             <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-semibold text-primary">
                                                 Oku
-                                                <ChevronRight className="h-3.5 w-3.5 transition-transform duration-150 group-hover:translate-x-0.5" />
+                                                <ChevronRight
+                                                    className={cn(
+                                                        'h-3.5 w-3.5',
+                                                        !reduceMotion && 'transition-transform duration-150 group-hover:translate-x-0.5',
+                                                    )}
+                                                />
                                             </span>
                                         </div>
                                     </div>

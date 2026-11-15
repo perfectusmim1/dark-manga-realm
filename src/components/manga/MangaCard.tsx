@@ -13,6 +13,7 @@ import OptimizedImage from '@/components/media/OptimizedImage';
 import { getMangaTypeLabel, isAdultMangaType } from '@/lib/mangaType';
 import { useAdultImageBlurPreference } from '@/hooks/useAdultImageBlurPreference';
 import { getSeriesLanguageInfo } from '@/lib/seriesLanguage';
+import { formatGenreDisplayName, formatMangaStatusLabel } from '@/lib/mockData';
 
 export interface MangaCardProps {
   manga: Manga;
@@ -179,7 +180,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
       <Link
         to={`/manga/${manga.id}`}
         aria-label={`${manga.title} detay sayfasını aç`}
-        className="absolute inset-0 z-[1] rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        className="peer absolute inset-0 z-[1] rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       />
 
       <div className="pointer-events-none relative aspect-[2/3] w-full overflow-hidden bg-card">
@@ -273,7 +274,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
             )}
           >
             <span className="truncate">
-              {manga.status === 'completed' ? 'Tamamlandı' : manga.status === 'ongoing' ? 'Devam Ediyor' : 'Ara'}
+              {formatMangaStatusLabel(manga.status)}
             </span>
           </Badge>
 
@@ -308,8 +309,8 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
         )}
       </div>
 
-      <div className="pointer-events-none p-2 sm:p-2.5">
-        <h3 className="min-h-[1.15rem] line-clamp-1 text-xs font-semibold leading-snug text-foreground transition-colors group-hover:text-primary group-focus-visible:text-primary sm:text-[13px]">
+      <div className="pointer-events-none p-2 sm:p-2.5 peer-focus-visible:[&_h3]:text-primary">
+        <h3 className="min-h-[1.15rem] line-clamp-1 text-xs font-semibold leading-snug text-foreground transition-colors group-hover:text-primary sm:text-[13px]">
           {manga.title}
         </h3>
         <p className="mt-0.5 min-h-[14px] line-clamp-1 text-[10px] text-muted-foreground sm:text-[11px]">
@@ -318,14 +319,18 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
 
         {genres.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-1">
-            {genres.slice(0, 1).map((genre) => (
-              <span
-                key={genre}
-                className="max-w-full truncate rounded bg-secondary/50 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground"
-              >
-                {genre}
-              </span>
-            ))}
+            {genres.slice(0, 1).map((genre) => {
+              const formattedGenre = formatGenreDisplayName(genre).trim();
+              if (!formattedGenre) return null;
+              return (
+                <span
+                  key={genre}
+                  className="max-w-full truncate rounded bg-secondary/50 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground"
+                >
+                  {formattedGenre}
+                </span>
+              );
+            })}
           </div>
         )}
 

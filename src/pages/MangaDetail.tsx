@@ -151,9 +151,12 @@ import OptimizedImage from '@/components/media/OptimizedImage';
 import DeferredMount from '@/components/performance/DeferredMount';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
 import { useBootstrappedAppearancePreferences } from '@/hooks/useBootstrappedAppearancePreferences';
+import { formatGenreDisplayName, formatMangaStatusLabel } from '@/lib/mockData';
+import { getOfflineDownloadStatusLabel } from '@/lib/offline/statusLabels';
 import {
   getCharacterListingRoleLabel,
   getCharacterListingRoleSectionTitle,
+  normalizeCharacterListingRole,
   type CharacterListingRole,
 } from '@/lib/characterRoles';
 import { getMangaRelationTypeLabel } from '@/lib/mangaRelations';
@@ -536,7 +539,13 @@ const BookmarkPagePreview = React.memo(({
 const MangaDetail: React.FC = () => {
   const { mangaId } = useParams<{ mangaId: string }>();
   const location = useLocation();
-  const { disableHeavyEffects, isMobile } = useDeviceProfile();
+  const { disableHeavyEffects, prefersReducedMotion, isMobile } = useDeviceProfile();
+  const reduceMotion = prefersReducedMotion || disableHeavyEffects;
+  const tabContentAnimationClass = prefersReducedMotion
+    ? ''
+    : disableHeavyEffects
+      ? 'animate-route-fade'
+      : 'animate-route-enter';
   const [manga, setManga] = useState<Manga | undefined>();
   useDocumentTitle(manga ? manga.title : null);
   const { user, isLoading: authLoading } = useAuth();
@@ -1975,7 +1984,7 @@ const MangaDetail: React.FC = () => {
     }
 
     if (!isOnline) {
-      toast.error('Seri indirmek icin internete baglanmalisin');
+      toast.error('Seri indirmek için internete bağlanmalısın.');
       return;
     }
 
@@ -2044,7 +2053,7 @@ const MangaDetail: React.FC = () => {
     }
 
     if (!isOnline) {
-      toast.error('Bölüm indirmek icin internete baglanmalisin');
+      toast.error('Bölüm indirmek için internete bağlanmalısın.');
       return;
     }
 
@@ -2368,7 +2377,7 @@ const MangaDetail: React.FC = () => {
 
   const handleRating = async (rating: number) => {
     if (!isOnline) {
-      toast.error('Puan vermek icin internet baglantisi gerekli');
+      toast.error('Puan vermek için internet bağlantısı gerekli.');
       return;
     }
 
@@ -2423,7 +2432,7 @@ const MangaDetail: React.FC = () => {
 
   const handleReviewSubmit = async () => {
     if (!isOnline) {
-      toast.error('Inceleme gondermek icin internet baglantisi gerekli');
+      toast.error('İnceleme göndermek için internet bağlantısı gerekli.');
       return;
     }
 
@@ -3098,8 +3107,8 @@ const MangaDetail: React.FC = () => {
                   </Badge>
                 )}
                 {offlineChapterMap[chapter.id] && (
-                  <Badge variant="outline" className="text-[10px] capitalize">
-                    {offlineChapterMap[chapter.id].downloadStatus}
+                  <Badge variant="outline" className="text-[10px]">
+                    {getOfflineDownloadStatusLabel(offlineChapterMap[chapter.id].downloadStatus)}
                   </Badge>
                 )}
               </div>
@@ -3225,7 +3234,7 @@ const MangaDetail: React.FC = () => {
   const shouldBlurAdultArtwork = appearancePreferences.adult_cover_blur && user?.preferences?.content?.adult_mode === true && manga.isAdult === true;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen overflow-x-clip bg-background">
       <Header />
 
       <main className="pt-16">
@@ -3259,7 +3268,7 @@ const MangaDetail: React.FC = () => {
           <div className="container relative z-10 py-6 sm:py-8">
             <div className="flex flex-col gap-6 md:flex-row md:gap-8">
               {/* Cover */}
-              <div className="mx-auto w-36 sm:w-44 shrink-0 animate-fade-up md:mx-0 md:w-52 lg:w-56">
+              <div className={cn('mx-auto w-36 sm:w-44 shrink-0 md:mx-0 md:w-52 lg:w-56', !reduceMotion && 'animate-fade-up')}>
                 <OptimizedImage
                   src={manga.cover}
                   alt={manga.title}
@@ -3274,7 +3283,7 @@ const MangaDetail: React.FC = () => {
               </div>
 
               {/* Info */}
-              <div className="min-w-0 flex flex-1 flex-col gap-4 animate-fade-up">
+              <div className={cn('min-w-0 flex flex-1 flex-col gap-4', !reduceMotion && 'animate-fade-up')}>
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge
                     variant="default"
@@ -3289,7 +3298,7 @@ const MangaDetail: React.FC = () => {
                     {getMangaTypeLabel(manga.type)}
                   </Badge>
                   <Badge variant="outline">
-                    {manga.status === 'completed' ? 'Tamamlandı' : manga.status === 'ongoing' ? 'Devam Ediyor' : 'Ara Verildi'}
+                    {formatMangaStatusLabel(manga.status)}
                   </Badge>
                 </div>
 
@@ -3500,22 +3509,32 @@ const MangaDetail: React.FC = () => {
                       Çevrimdışı görünüm
                     </div>
                     <p className="mt-1 text-blue-100/80">
-                      Bu seri yerel cache&apos;ten açıldı. Yalnızca indirilen bölümler garanti edilir; yorum, bildirim ve topluluk verileri çevrimdışında güncellenmez.
+                      Bu seri yerel önbellekten açıldı. Yalnızca indirilen bölümler garanti edilir; yorum, bildirim ve topluluk verileri çevrimdışında güncellenmez.
                     </p>
                   </div>
                 )}
 
                 <div className="flex flex-wrap gap-2">
-                  {manga.genres.map((genre) => (
-                    <Link key={genre} to={`/browse?genre=${encodeURIComponent(genre)}`}>
-                      <Badge
-                        variant="secondary"
-                        className="cursor-pointer hover:bg-secondary/80 transition-colors"
-                      >
-                        {genre}
-                      </Badge>
-                    </Link>
-                  ))}
+                  {(() => {
+                    const seenGenres = new Set<string>();
+                    return manga.genres.flatMap((genre) => {
+                      const label = formatGenreDisplayName(genre).trim();
+                      if (!label) return [];
+                      const key = label.toLocaleLowerCase('tr-TR');
+                      if (seenGenres.has(key)) return [];
+                      seenGenres.add(key);
+                      return (
+                        <Link key={genre} to={`/browse?genre=${encodeURIComponent(genre)}`}>
+                          <Badge
+                            variant="secondary"
+                            className="cursor-pointer transition-colors hover:bg-secondary/80"
+                          >
+                            {label}
+                          </Badge>
+                        </Link>
+                      );
+                    });
+                  })()}
                 </div>
 
                 <div className="pt-3">
@@ -3626,7 +3645,7 @@ const MangaDetail: React.FC = () => {
         {/* Tabs System */}
         <div className="container py-8">
           <Tabs value={activeTab} className="w-full" onValueChange={handleActiveTabChange}>
-            <div className="-mx-4 mb-5 overflow-x-auto px-4 pb-2 sm:mx-0 sm:mb-8 sm:px-0">
+            <div className="-mx-4 mb-5 overflow-x-auto scrollbar-hide px-4 pb-2 sm:mx-0 sm:mb-8 sm:px-0">
               <TabsList className="h-auto min-w-full w-max justify-start gap-3 rounded-none border-b bg-transparent p-0 sm:gap-8">
                 <TabsTrigger
                   value="overview"
@@ -3693,7 +3712,7 @@ const MangaDetail: React.FC = () => {
               </TabsList>
             </div>
 
-            <TabsContent value="overview" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <TabsContent value="overview" className={tabContentAnimationClass}>
               {isOverviewTabActive ? (
                 <>
                   <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3 lg:gap-8">
@@ -3769,7 +3788,7 @@ const MangaDetail: React.FC = () => {
                                   ))}
                                 </div>
                               )}
-                              <div className="relative flex-1 sm:w-60">
+                              <div className="relative w-full sm:w-60 sm:flex-initial">
                                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                                 <Input
                                   placeholder="Bölüm ara (örn: 97)"
@@ -3879,7 +3898,7 @@ const MangaDetail: React.FC = () => {
                                       {relation.relatedManga.title}
                                     </p>
                                     <p className="mt-2 text-sm text-muted-foreground">
-                                      {relation.relatedManga.type} {relation.relatedManga.releaseYear ? `• ${relation.relatedManga.releaseYear}` : ''}
+                                      {getMangaTypeLabel(relation.relatedManga.type)}{relation.relatedManga.releaseYear ? ` • ${relation.relatedManga.releaseYear}` : ''}
                                     </p>
                                   </div>
                                 </Link>
@@ -3899,7 +3918,12 @@ const MangaDetail: React.FC = () => {
                       >
                         <h2 className="mb-3 text-lg font-semibold text-center transition-colors group-hover:text-primary sm:mb-4">
                           {userRating ? 'Puanınız' : 'Puan Ver'}
-                          <ArrowRight className="inline-block ml-2 h-4 w-4 opacity-0 group-hover:opacity-100 transition-all -translate-x-2 group-hover:translate-x-0" />
+                          <ArrowRight
+                            className={cn(
+                              'ml-2 inline-block h-4 w-4 opacity-0 group-hover:opacity-100',
+                              !reduceMotion && 'transition-[transform,opacity] duration-150 -translate-x-2 group-hover:translate-x-0',
+                            )}
+                          />
                         </h2>
                         <div className="flex flex-col gap-4">
                           <div className="flex flex-wrap justify-center gap-1">
@@ -4051,7 +4075,7 @@ const MangaDetail: React.FC = () => {
               ) : null}
             </TabsContent>
 
-            <TabsContent value="preview" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <TabsContent value="preview" className={tabContentAnimationClass}>
               {isPreviewTabActive ? (
               !isOnline ? (
                 <OfflineNotice
@@ -4159,7 +4183,7 @@ const MangaDetail: React.FC = () => {
               ) : null}
             </TabsContent>
 
-            <TabsContent value="gallery" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <TabsContent value="gallery" className={tabContentAnimationClass}>
               {isGalleryTabActive ? (
                 <Suspense
                   fallback={(
@@ -4177,7 +4201,7 @@ const MangaDetail: React.FC = () => {
               ) : null}
             </TabsContent>
 
-            <TabsContent value="bookmarks" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <TabsContent value="bookmarks" className={tabContentAnimationClass}>
               {isBookmarksTabActive ? (
               <div className="mx-auto max-w-6xl space-y-6">
                 {!user ? (
@@ -4218,8 +4242,11 @@ const MangaDetail: React.FC = () => {
                             pageOffsetRatio: bookmark.pageOffsetRatio,
                             progressPercent: bookmark.progressPercent,
                           })}
-                          className="group flex min-h-[176px] gap-4 rounded-2xl border border-border bg-card/50 p-4 shadow-sm transition-colors hover:border-primary/30 hover:bg-card/70 sm:min-h-[204px] sm:gap-5 sm:p-5 lg:p-6 animate-fade-up"
-                          style={{ animationDelay: `${0.08 + index * 0.04}s` }}
+                          className={cn(
+                            'group flex min-h-[176px] gap-4 rounded-2xl border border-border bg-card/50 p-4 shadow-sm transition-colors hover:border-primary/30 hover:bg-card/70 sm:min-h-[204px] sm:gap-5 sm:p-5 lg:p-6',
+                            !reduceMotion && 'animate-fade-up',
+                          )}
+                          style={reduceMotion ? undefined : { animationDelay: `${0.08 + index * 0.04}s` }}
                         >
                           <BookmarkPagePreview
                             src={previewImage}
@@ -4228,21 +4255,19 @@ const MangaDetail: React.FC = () => {
                             progressPercent={bookmark.progressPercent}
                           />
 
-                          <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 flex-1 flex-col">
                             <div className="flex items-start justify-between gap-3">
-                              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80 sm:text-sm">Yer İmi</p>
+                              <h3 className="line-clamp-2 text-lg font-semibold transition-colors group-hover:text-primary group-focus-visible:text-primary sm:text-xl">
+                                {chapterLabel}
+                              </h3>
                               {typeof bookmark.progressPercent === 'number' && (
-                                <span className="rounded-md bg-primary/15 px-2 py-0.5 text-xs font-bold tabular-nums text-primary">
+                                <span className="shrink-0 rounded-md bg-primary/15 px-2 py-0.5 text-xs font-bold tabular-nums text-primary">
                                   %{bookmark.progressPercent.toFixed(1)}
                                 </span>
                               )}
                             </div>
 
-                            <h3 className="mt-2 line-clamp-2 text-lg font-semibold transition-colors group-hover:text-primary group-focus-visible:text-primary sm:mt-3 sm:text-xl">
-                              {chapterLabel}
-                            </h3>
-
-                            <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground sm:text-base">
+                            <div className="mt-2.5 flex items-center gap-2 text-sm text-muted-foreground sm:text-base">
                               <span>
                                 {chapter
                                   ? (getKnownChapterPageCount(chapter)
@@ -4258,11 +4283,16 @@ const MangaDetail: React.FC = () => {
                               </div>
                             )}
 
-                            <div className="mt-auto flex items-center justify-between gap-3 pt-4 text-sm text-muted-foreground sm:pt-5 sm:text-base">
+                            <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-4 text-xs text-muted-foreground sm:pt-5 sm:text-sm">
                               <span>{createdAtLabel}</span>
-                              <span className="inline-flex items-center gap-1 text-primary transition-all group-hover:gap-1.5">
+                              <span className="inline-flex items-center gap-1 text-primary">
                                 Yer imine git
-                                <ArrowRight className="h-4 w-4" />
+                                <ArrowRight
+                                  className={cn(
+                                    'h-4 w-4',
+                                    !reduceMotion && 'transition-transform duration-150 group-hover:translate-x-0.5',
+                                  )}
+                                />
                               </span>
                             </div>
                           </div>
@@ -4287,7 +4317,7 @@ const MangaDetail: React.FC = () => {
               ) : null}
             </TabsContent>
 
-            <TabsContent value="characters" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <TabsContent value="characters" className={tabContentAnimationClass}>
               {isCharactersTabActive ? (
                 <div className="space-y-8">
                   {isCharsLoading ? (
@@ -4348,9 +4378,22 @@ const MangaDetail: React.FC = () => {
                               </div>
                               <div className="space-y-1 text-center">
                                 <h3 className="truncate font-bold text-sm group-hover:text-primary transition-colors">{char.name}</h3>
-                                {char.details?.role ? (
-                                  <p className="truncate text-xs text-muted-foreground">{char.details.role}</p>
-                                ) : null}
+                                {(() => {
+                                  const rawRole = char.details?.role?.trim();
+                                  if (!rawRole) return null;
+                                  const normalizedRole = normalizeCharacterListingRole(rawRole);
+                                  const displayRole = normalizedRole
+                                    ? getCharacterListingRoleLabel(normalizedRole)
+                                    : rawRole;
+                                  const groupLabel = getCharacterListingRoleLabel(group.role);
+                                  if (
+                                    !displayRole
+                                    || displayRole.toLocaleLowerCase('tr-TR') === groupLabel.toLocaleLowerCase('tr-TR')
+                                  ) {
+                                    return null;
+                                  }
+                                  return <p className="truncate text-xs text-muted-foreground">{displayRole}</p>;
+                                })()}
                               </div>
                             </Link>
                           ))}
@@ -4374,7 +4417,7 @@ const MangaDetail: React.FC = () => {
               ) : null}
             </TabsContent>
 
-            <TabsContent value="reviews" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <TabsContent value="reviews" className={tabContentAnimationClass}>
               {isReviewsTabActive ? (
                 !isOnline ? (
                   <OfflineNotice
@@ -4783,7 +4826,7 @@ const MangaDetail: React.FC = () => {
               ) : null}
             </TabsContent>
 
-            <TabsContent value="discover" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <TabsContent value="discover" className={tabContentAnimationClass}>
               {isDiscoverTabActive ? (
                 !isOnline ? (
                   <OfflineNotice

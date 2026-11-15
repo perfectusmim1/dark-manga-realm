@@ -9,7 +9,8 @@ import AppPagination from '@/components/ui/AppPagination';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { allGenres, normalizeGenreName } from '@/lib/mockData';
+import { AnimatePresence, motion } from 'framer-motion';
+import { allGenres, formatGenreDisplayName, normalizeGenreName } from '@/lib/mockData';
 import { getMangaSummaries, getMangasByMultipleTags } from '@/lib/database';
 import { Manga } from '@/lib/types';
 import {
@@ -26,6 +27,7 @@ import { matchesMangaSearch } from '@/lib/searchMatching';
 import { useAuth } from '@/contexts/AuthContext';
 import { ADULT_MODE_CHANGED_EVENT } from '@/lib/adultModeEvents';
 import { getMangaTypeLabel } from '@/lib/mangaType';
+import { useDeviceProfile } from '@/hooks/use-device-profile';
 
 type BrowseAudienceCacheKey = 'safe' | 'adult';
 type BrowseContentFilter = 'all' | 'safe' | 'adult';
@@ -116,6 +118,7 @@ const Browse: React.FC = () => {
   useDocumentTitle('Keşfet');
   const { user } = useAuth();
   const { isOnline } = useEffectiveOnlineStatus();
+  const { disableHeavyEffects, prefersReducedMotion } = useDeviceProfile();
   const [searchParams, setSearchParams] = useSearchParams();
   const isAuthenticatedViewer = Boolean(user?.id);
   const canSeeAdultContent = isAuthenticatedViewer && user?.preferences?.content?.adult_mode === true;
@@ -145,16 +148,6 @@ const Browse: React.FC = () => {
   const [isLoading, setIsLoading] = useState(() => !browsePageCache[browseAudienceKey]);
   const [isHydratingFullCollection, setIsHydratingFullCollection] = useState(() => !browsePageCache[browseAudienceKey]);
   const deferredSearchQuery = useDeferredValue(searchQuery);
-
-  if (!isOnline) {
-    return (
-      <OfflineRequiredScreen
-        description="Keşfet sayfası internet bağlantısı gerektirir."
-        actionHref="/downloads"
-        actionLabel="İndirilenlere Git"
-      />
-    );
-  }
 
   useEffect(() => {
     if (!canSeeAdultContent && contentFilter === 'adult') {
@@ -439,8 +432,18 @@ const Browse: React.FC = () => {
     }
   };
 
+  if (!isOnline) {
+    return (
+      <OfflineRequiredScreen
+        description="Keşfet sayfası internet bağlantısı gerektirir."
+        actionHref="/downloads"
+        actionLabel="İndirilenlere Git"
+      />
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen overflow-x-clip bg-background">
       <Header />
 
       <main className="container pb-12 pt-16">
@@ -631,29 +634,38 @@ const Browse: React.FC = () => {
         </div>
 
         {/* Genre Filters */}
-        {showFilters && (
-          <div className="mb-5 flex flex-wrap gap-2 rounded-2xl border border-border/60 bg-card/50 p-3.5 sm:p-4">
-            {allGenres.map((genre) => {
-              const isSelected = selectedGenres.includes(genre);
-              return (
-                <button
-                  key={genre}
-                  type="button"
-                  onClick={() => toggleGenre(genre)}
-                  aria-pressed={isSelected}
-                  className={cn(
-                    "cursor-pointer px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                    isSelected
-                      ? "border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground hover:border-primary"
-                      : "border-border/60 bg-background/50 text-foreground hover:border-primary/50 hover:bg-secondary/70"
-                  )}
-                >
-                  {genre}
-                </button>
-              );
-            })}
-          </div>
-        )}
+        <AnimatePresence initial={false}>
+          {showFilters && (
+            <motion.div
+              key="browse-genre-drawer"
+              initial={prefersReducedMotion ? false : { opacity: 0, y: disableHeavyEffects ? 0 : -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={prefersReducedMotion ? undefined : { opacity: 0, y: disableHeavyEffects ? 0 : -6 }}
+              transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.16, ease: 'easeOut' }}
+              className="mb-5 flex flex-wrap gap-2 rounded-2xl border border-border/60 bg-card/50 p-3.5 sm:p-4"
+            >
+              {allGenres.map((genre) => {
+                const isSelected = selectedGenres.includes(genre);
+                return (
+                  <button
+                    key={genre}
+                    type="button"
+                    onClick={() => toggleGenre(genre)}
+                    aria-pressed={isSelected}
+                    className={cn(
+                      "cursor-pointer px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                      isSelected
+                        ? "border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground hover:border-primary"
+                        : "border-border/60 bg-background/50 text-foreground hover:border-primary/50 hover:bg-secondary/70"
+                    )}
+                  >
+                    {formatGenreDisplayName(genre)}
+                  </button>
+                );
+              })}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Tag Filters */}
         <div className="mb-5">
@@ -675,7 +687,7 @@ const Browse: React.FC = () => {
           <BrowseGridSkeleton gridDensity={gridDensity} />
         ) : filteredManga.length === 0 ? (
           <div className="py-16 text-center">
-            <p className="text-base text-muted-foreground">Arama kriterlerinize uygun manga bulunamadı.</p>
+            <p className="text-base text-muted-foreground">Arama kriterlerinize uygun seri bulunamadı.</p>
             {hasActiveFilters && (
               <Button variant="outline" size="sm" onClick={clearFilters} className="mt-4 h-9 text-xs">
                 Filtreleri Temizle
@@ -693,7 +705,8 @@ const Browse: React.FC = () => {
                   <MangaCard
                     manga={item}
                     index={idx}
-                    enableEntryAnimation
+                    disableHeavyEffects={disableHeavyEffects || prefersReducedMotion}
+                    enableEntryAnimation={!prefersReducedMotion}
                     entryAnimationClassName="animate-card-reveal-fast"
                     entryAnimationDelayStepMs={10}
                     entryAnimationDurationMs={170}
