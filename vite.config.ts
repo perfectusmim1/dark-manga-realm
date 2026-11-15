@@ -196,6 +196,22 @@ export default defineConfig(({ mode }) => ({
             return "icons";
           }
 
+          if (
+            normalizedId.includes("/node_modules/react/")
+            || normalizedId.includes("/node_modules/react-dom/")
+            || normalizedId.includes("/node_modules/scheduler/")
+          ) {
+            return "react-core";
+          }
+
+          if (normalizedId.includes("/node_modules/lodash")) {
+            return "lodash";
+          }
+
+          if (normalizedId.includes("victory-vendor") || normalizedId.includes("/d3-")) {
+            return "charts-d3";
+          }
+
           if (normalizedId.includes("recharts")) {
             return "charts";
           }

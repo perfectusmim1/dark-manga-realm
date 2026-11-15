@@ -8828,7 +8828,9 @@ const mapReaderAvatars = (raw: unknown): MangaReaderAvatar[] =>
 const callUntypedRpc = <T = unknown>(
     fn: string,
     params: Record<string, unknown>,
-) => (supabase.rpc as unknown as (name: string, args: Record<string, unknown>) => Promise<{ data: T | null; error: unknown }>)(fn, params);
+) => (supabase as unknown as {
+    rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: T | null; error: unknown }>;
+}).rpc(fn, params);
 
 export const invalidateMangaDetailMetaCache = (mangaId?: string) => {
     if (!mangaId) {

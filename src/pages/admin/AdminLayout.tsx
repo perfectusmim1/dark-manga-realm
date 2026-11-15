@@ -20,6 +20,7 @@ import {
     Bot,
     Send,
     Star,
+    Activity,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
@@ -83,6 +84,7 @@ const AdminLayout: React.FC = () => {
         ...(canUseScrapers ? [{ icon: Download, label: 'Meta Veri Aktarımı', path: '/admin/metadata-import' }] : []),
         ...(canUseScrapers ? [{ icon: RefreshCw, label: 'Bölüm Çekme', path: '/admin/chapter-scraper' }] : []),
         ...(canUseScrapers ? [{ icon: Bot, label: 'Otomasyon', path: '/admin/automation' }] : []),
+        ...(canUseScrapers ? [{ icon: Activity, label: 'Performans Testi', path: '/admin/benchmark' }] : []),
         { icon: MessageSquare, label: 'Yorumlar', path: '/admin/comments' },
         { icon: Star, label: 'İncelemeler', path: '/admin/reviews' },
         { icon: Users, label: 'Karakter & Sanatçı', path: '/admin/entities' },

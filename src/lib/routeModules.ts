@@ -55,6 +55,7 @@ export const routeModuleLoaders = {
     AdminSiteSettings: () => import('@/pages/admin/AdminSiteSettings'),
     AdminTickets: () => import('@/pages/admin/AdminTickets'),
     AdminSeriesRequests: () => import('@/pages/admin/AdminSeriesRequests'),
+    AdminBenchmark: () => import('@/pages/admin/AdminBenchmark'),
 };
 
 const prefetchedLoaders = new Set<ModuleLoader>();

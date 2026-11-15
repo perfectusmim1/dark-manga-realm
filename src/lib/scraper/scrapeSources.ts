@@ -1193,6 +1193,10 @@ const extractDetailCover = (doc: Document, source: ScrapeSource) => {
 
 const extractDescription = (doc: Document, source: ScrapeSource) => {
   const selectors = [
+    '.panel-story-description .ss-manga p',
+    '.panel-story-description .ss-manga',
+    '.ss-manga p',
+    '.ss-manga',
     '.manga-description',
     '.comic-description',
     '.manga-excerpt.summary__content.show-more p',
@@ -1206,18 +1210,21 @@ const extractDescription = (doc: Document, source: ScrapeSource) => {
     '.post-content_item p',
   ];
 
+  const isPlaceholderDesc = (text: string) => /^(?:n\/a|na|yok|belirtilmemiş|açıklama yok)\.{0,3}$/i.test(text.trim());
+
   for (const selector of selectors) {
     const element = doc.querySelector(selector);
     const value = normalizeScrapedText(element?.textContent);
-    if (value && value.length > 10) {
+    if (value && value.length > 10 && !isPlaceholderDesc(value)) {
       return value;
     }
   }
 
-  return normalizeScrapedText(
+  const metaFallback = normalizeScrapedText(
     doc.querySelector('meta[property="og:description"]')?.getAttribute('content')
     || doc.querySelector('meta[name="description"]')?.getAttribute('content'),
   );
+  return metaFallback && !isPlaceholderDesc(metaFallback) ? metaFallback : '';
 };
 
 const extractDetailStatus = (doc: Document) => {

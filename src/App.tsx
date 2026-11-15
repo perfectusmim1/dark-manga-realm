@@ -129,6 +129,7 @@ const AdminReports = lazy(routeModuleLoaders.AdminReports);
 const AdminSiteSettings = lazy(routeModuleLoaders.AdminSiteSettings);
 const AdminTickets = lazy(routeModuleLoaders.AdminTickets);
 const AdminSeriesRequests = lazy(routeModuleLoaders.AdminSeriesRequests);
+const AdminBenchmark = lazy(routeModuleLoaders.AdminBenchmark);
 const LazyDownloadDock = lazy(() => import("@/components/offline/DownloadDock"));
 const LazyAdBlockWarning = lazy(() => import("@/components/security/AdBlockWarning"));
 
@@ -438,6 +439,7 @@ const App = () => (
                       <Route path="tickets" element={<AdminTickets />} />
                       <Route path="series-requests" element={<AdminSeriesRequests />} />
                       <Route path="site-settings" element={<AdminSiteSettings />} />
+                      <Route path="benchmark" element={<AdminBenchmark />} />
                     </Route>
 
                               <Route path="*" element={<NotFound />} />

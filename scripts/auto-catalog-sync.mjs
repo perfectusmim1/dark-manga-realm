@@ -552,6 +552,8 @@ const stripTags = (html) => {
     .replace(/&#8211;|&ndash;/gi, '-')
     .replace(/&#8212;|&mdash;/gi, '-')
     .replace(/&#8217;|&#8216;|&rsquo;|&lsquo;/gi, "'")
+    .replace(/&#8220;|&#8221;|&ldquo;|&rdquo;/gi, '"')
+    .replace(/&#8230;|&hellip;/gi, '...')
     .replace(/&#39;|&apos;/gi, "'")
     .replace(/&quot;/gi, '"')
     .replace(/&amp;/gi, '&')
@@ -1577,16 +1579,29 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
     // Tam açıklama: MangaDass'ta tam metin class="ss-manga" içinde yer alır (og:description yarım kesilidir)
     const ssMatch = /<div class="[^"]*ss-manga[^"]*">([\s\S]*?)<\/div>/i.exec(html) ||
                     /<div class="[^"]*panel-story-description[^"]*">([\s\S]*?)<\/div>/i.exec(html);
-    let description = ssMatch ? stripTags(ssMatch[1].replace(/<div class="section-heading[\s\S]*?<\/div>/i, '')).trim() : '';
-    if (!description || description.length < 20) {
+    let rawDescription = ssMatch ? stripTags(ssMatch[1].replace(/<div class="section-heading[\s\S]*?<\/div>/i, '')).trim() : '';
+    if (!rawDescription || rawDescription.length < 20 || /^(?:n\/a|na)\.{0,3}$/i.test(rawDescription)) {
       const ogDesc = /<meta property="og:description" content="([^"]+)"/i.exec(html);
-      description = ogDesc ? stripTags(ogDesc[1]).trim() : '';
+      const ogClean = ogDesc ? stripTags(ogDesc[1]).trim() : '';
+      rawDescription = ogClean && !/^(?:n\/a|na)\.{0,3}$/i.test(ogClean) ? ogClean : '';
     }
+    let description = rawDescription;
+    let descriptionEn = '';
     if (description && !isLikelyTurkish(description)) {
+      descriptionEn = description;
       try {
         description = (await translateTextGtx(description)) || description;
       } catch {}
     }
+
+    // Türler: MangaDass'ta türler .genres-content içinde yer alır
+    const genresBlockMatch = /<div class="[^"]*genres-content[^"]*">([\s\S]*?)<\/div>/i.exec(html);
+    const extractedGenres = genresBlockMatch
+      ? extractRegexMatches(genresBlockMatch[1], /<a\b[^>]*>([\s\S]*?)<\/a>/gi)
+          .map((m) => stripTags(m[1]).trim())
+          .filter(Boolean)
+      : [];
+
     // Mangadass
     const mdCoverMatch = /<meta property="og:image" content="([^"]+)"/i.exec(html);
     const cover = mdCoverMatch ? mdCoverMatch[1].trim() : fallbackCover;
@@ -1613,6 +1628,12 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
     }
     const rawChapters = Array.from(chapterMap.values()).sort((a, b) => a.chapterNumber - b.chapterNumber);
     const isRaw = title.toLowerCase().includes('(raw)') || seriesUrl.includes('/raw-manhwa') || seriesUrl.endsWith('-raw');
+    const combinedGenres = Array.from(new Set([
+      ...extractedGenres,
+      '+18',
+      'Mature',
+      isRaw ? 'RAW' : 'İngilizce',
+    ]));
     return {
       source: 'mangadass',
       title: isRaw && !title.toLowerCase().includes('(raw)') ? `${title} (Raw)` : title,
@@ -1622,10 +1643,13 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
       alternativeTitles: [],
       author: 'Bilinmiyor',
       status: 'ongoing',
-      genres: isRaw ? ['+18', 'Mature', 'RAW'] : ['+18', 'Mature', 'İngilizce'],
+      genres: combinedGenres,
       isAdult: true,
       chapters: rawChapters,
-      details: { language: isRaw ? 'raw' : 'en' },
+      details: {
+        language: isRaw ? 'raw' : 'en',
+        ...(descriptionEn ? { descriptionEn } : {}),
+      },
     };
   }
 

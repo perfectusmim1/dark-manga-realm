@@ -860,11 +860,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       try {
-        const callPresenceRpc = supabase.rpc as unknown as (
-          fn: string,
-          params: Record<string, string>,
-        ) => Promise<{ error: unknown }>;
-        const { error: presenceError } = await callPresenceRpc(
+        const rpcClient = supabase as unknown as {
+          rpc: (fn: string, params: Record<string, unknown>) => Promise<{ error: unknown }>;
+        };
+        const { error: presenceError } = await rpcClient.rpc(
           'update_user_presence',
           { p_user_id: activeSession.user.id },
         );
