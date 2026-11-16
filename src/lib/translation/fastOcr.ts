@@ -250,6 +250,14 @@ export const runFastWebtoonOcr = async (
                   x1: l.bbox.x1,
                   y1: l.bbox.y1 + y0,
                 },
+                ...(l.rotRect
+                  ? {
+                      rotRect: {
+                        ...l.rotRect,
+                        cy: l.rotRect.cy + y0,
+                      },
+                    }
+                  : {}),
               };
               const nearSeam =
                 (idx > 0 && shifted.bbox.y0 - y0 <= 6) ||

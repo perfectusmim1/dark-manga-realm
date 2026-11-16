@@ -10,6 +10,14 @@ export interface OcrBubbleLineBox {
   text: string;
   confidence?: number;
   angleDeg?: number;
+  /** Eğik telefon/arayüz metinlerinde (deskew ROI) normalize 0..1000 merkez + genişlik/yükseklik dikdörtgeni */
+  rotRect?: {
+    cx: number;
+    cy: number;
+    w: number;
+    h: number;
+    angleDeg: number;
+  };
 }
 
 export interface TranslationLineStyle {

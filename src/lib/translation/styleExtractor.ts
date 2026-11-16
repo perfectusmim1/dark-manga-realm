@@ -523,9 +523,37 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     }
   }
 
-  const fillR = coreRs.length > 0 ? Math.round(medianOf(coreRs)) : isDarkBg ? 255 : 12;
-  const fillG = coreGs.length > 0 ? Math.round(medianOf(coreGs)) : isDarkBg ? 255 : 12;
-  const fillB = coreBs.length > 0 ? Math.round(medianOf(coreBs)) : isDarkBg ? 255 : 12;
+  let fillR = coreRs.length > 0 ? Math.round(medianOf(coreRs)) : isDarkBg ? 255 : 12;
+  let fillG = coreGs.length > 0 ? Math.round(medianOf(coreGs)) : isDarkBg ? 255 : 12;
+  let fillB = coreBs.length > 0 ? Math.round(medianOf(coreBs)) : isDarkBg ? 255 : 12;
+
+  if (!isDarkBg && rgbSaturation(fillR, fillG, fillB) >= 0.28 && maxDist >= 3) {
+    const neuRs: number[] = [];
+    const neuGs: number[] = [];
+    const neuBs: number[] = [];
+    let chromD2 = 0;
+    for (let i = 0; i < numPixels; i += 1) {
+      if (!rawGlyphMask[i] || dist[i] < 2) continue;
+      const cIdx = i * 3;
+      const pr = winRgb[cIdx];
+      const pg = winRgb[cIdx + 1];
+      const pb = winRgb[cIdx + 2];
+      const pLum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+      const pChr = Math.max(pr, pg, pb) - Math.min(pr, pg, pb);
+      if (pLum <= 95 && pChr <= 32) {
+        neuRs.push(pr);
+        neuGs.push(pg);
+        neuBs.push(pb);
+      } else if (rgbSaturation(pr, pg, pb) >= 0.28 && pChr >= 36) {
+        chromD2 += 1;
+      }
+    }
+    if (neuRs.length >= Math.max(40, Math.round(chromD2 * 2.5))) {
+      fillR = Math.round(medianOf(neuRs));
+      fillG = Math.round(medianOf(neuGs));
+      fillB = Math.round(medianOf(neuBs));
+    }
+  }
 
   const edgeR = edgeRs.length > 0 ? Math.round(medianOf(edgeRs)) : fillR;
   const edgeG = edgeGs.length > 0 ? Math.round(medianOf(edgeGs)) : fillG;
@@ -639,7 +667,9 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     ((!hasClosedBubbleWalls &&
       ((bgLum <= 245 &&
         (haloLum >= bgLum + 6 || haloToBgDist >= 15 || ringStd >= 11)) ||
-        (haloLum >= 230 && ringStd >= 9 && bgLum <= 253))) ||
+        (haloLum >= 230 && ringStd >= 9 && bgLum <= 253) ||
+        (fillChroma >= 60 && whiteHaloRatio >= 0.45 && bgLum <= 249 && haloLum >= Math.max(246, bgLum + 2)) ||
+        (fillChroma >= 80 && fillLum <= 110 && whiteHaloRatio >= 0.55 && bgLum <= 253 && haloLum >= Math.max(248, bgLum + 1)))) ||
       (haloLum >= 232 && ringStd >= 10 && haloToFillDist >= 110) ||
       (bgLum <= 228 && haloLum >= bgLum + 16 && haloToBgDist >= 18) ||
       (bgLum <= 242 && haloLum >= 238 && whiteHaloRatio >= 0.52 && haloToBgDist >= 10));
@@ -824,7 +854,42 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
       fillSat >= 0.42 &&
       fillToBgDist >= 80;
 
-    if (isDarkInkOnColorBanner) {
+    let whiteStrokeColoredFillHex: string | undefined;
+    if (edgeLum >= 195 && rgbSaturation(edgeR, edgeG, edgeB) < 0.28) {
+      const chRs: number[] = [];
+      const chGs: number[] = [];
+      const chBs: number[] = [];
+      const cStep = Math.max(1, Math.floor(numPixels / 4500));
+      for (let i = 0; i < numPixels; i += cStep) {
+        if (!rawGlyphMask[i]) continue;
+        const c3 = i * 3;
+        const pr = winRgb[c3];
+        const pg = winRgb[c3 + 1];
+        const pb = winRgb[c3 + 2];
+        const maxC = Math.max(pr, pg, pb);
+        const minC = Math.min(pr, pg, pb);
+        const lum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+        if (maxC >= 68 && maxC - minC >= 36 && lum <= 165) {
+          chRs.push(pr);
+          chGs.push(pg);
+          chBs.push(pb);
+        }
+      }
+      if (chRs.length >= 16) {
+        whiteStrokeColoredFillHex = rgbToHex(
+          Math.round(medianOf(chRs)),
+          Math.round(medianOf(chGs)),
+          Math.round(medianOf(chBs)),
+        );
+      }
+    }
+
+    if (whiteStrokeColoredFillHex) {
+      finalTextColor = whiteStrokeColoredFillHex;
+      hasOutline = true;
+      finalStrokeColor = '#ffffff';
+      strokeWidthEm = 0.14;
+    } else if (isDarkInkOnColorBanner) {
       finalTextColor = '#0c0c0c';
     } else if (isWarmGoldText) {
       const boost = fillLum < 225 ? (225 - fillLum) * 0.5 : 0;
@@ -850,34 +915,50 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
       finalStrokeColor = '#0a0a0c';
       strokeWidthEm = 0.14;
     } else if (finalTextColor === '#ffffff' && (bgChroma >= 18 || edgeChroma >= 22)) {
+      const bgSat = rgbSaturation(ringMedR, ringMedG, ringMedB);
+      const hasNeonChromaJump =
+        haloChroma >= Math.max(24, bgChroma + 14) ||
+        haloSat >= bgSat + 0.14 ||
+        edgeChroma >= Math.max(38, bgChroma + 22);
       const hasBrightBlueHaloGlow =
+        hasNeonChromaJump &&
         (ringMedB > ringMedR + 14 || edgeB > edgeR + 18) &&
-        ((haloB > haloR + 18 && haloLum >= bgLum + 10 && haloLum >= 58) ||
-          (edgeB > edgeR + 22 && edgeLum >= bgLum + 16 && edgeLum < 220));
+        haloB > haloR + 18 &&
+        haloLum >= bgLum + 10 &&
+        haloLum >= 58;
       const hasTrueColoredHalo =
-        haloLum >= bgLum + 10 ||
-        (edgeLum < 225 &&
-          colorDist(edgeR, edgeG, edgeB, ringMedR, ringMedG, ringMedB) >= 36 &&
-          edgeLum >= bgLum + 12);
+        hasNeonChromaJump &&
+        (haloLum >= bgLum + 10 ||
+          (edgeLum < 225 &&
+            colorDist(edgeR, edgeG, edgeB, ringMedR, ringMedG, ringMedB) >= 36 &&
+            edgeLum >= bgLum + 12));
       if (hasBrightBlueHaloGlow) {
         // Mavi/lacivert sistem penceresi: içi saf beyaz, dışı hafif açık mavi çizgi ve yumuşak mavi ışıltı
         hasOutline = true;
         finalStrokeColor = '#5ca8ff';
-        strokeWidthEm = 0.06;
+        strokeWidthEm = 0.05;
         shadowColor = '#5ca8ff';
         shadowBlurEm = 0.16;
       } else if (hasTrueColoredHalo && !(bgLum <= 65 && haloLum <= bgLum + 12)) {
-        const mixR = ringMedR * 0.5 + edgeR * 0.5;
-        const mixG = ringMedG * 0.5 + edgeG * 0.5;
-        const mixB = ringMedB * 0.5 + edgeB * 0.5;
-        const mixLum = 0.299 * mixR + 0.587 * mixG + 0.114 * mixB;
-        const lift = Math.max(35, 175 - mixLum);
-        const glowHex = rgbToHex(mixR + lift * 0.85, mixG + lift * 0.85, mixB + lift * 0.85);
-        hasOutline = true;
-        finalStrokeColor = glowHex;
-        strokeWidthEm = 0.055;
+        const useHaloRgb = haloChroma >= edgeChroma;
+        const mixR = useHaloRgb ? haloR : edgeR;
+        const mixG = useHaloRgb ? haloG : edgeG;
+        const mixB = useHaloRgb ? haloB : edgeB;
+        const maxC = Math.max(mixR, mixG, mixB, 1);
+        const minC = Math.min(mixR, mixG, mixB);
+        // Parlak beyaz dolgu çevresindeki mor/kırmızı neon haleyi beyazlaştırıp harfleri şişirmeden zengin ışıltı olarak koru
+        const gain = maxC < 195 ? Math.min(2.4, 215 / maxC) : 1.0;
+        const satBaseR = minC + (mixR - minC) * gain;
+        const satBaseG = minC + (mixG - minC) * gain;
+        const satBaseB = minC + (mixB - minC) * gain;
+        const glowHex = rgbToHex(
+          clamp(satBaseR, 0, 255),
+          clamp(satBaseG, 0, 255),
+          clamp(satBaseB, 0, 255),
+        );
+        hasOutline = false;
         shadowColor = glowHex;
-        shadowBlurEm = 0.15;
+        shadowBlurEm = 0.17;
       }
     }
   } else {
@@ -981,7 +1062,7 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
   };
 
   const minReqDeg = hasClosedBubbleWalls ? 7.0 : 4.8;
-  const maxAllowedDeg = hasClosedBubbleWalls ? 24.0 : 32.0;
+  const maxAllowedDeg = hasClosedBubbleWalls ? 38.0 : 38.0;
   const minReqR2 = hasClosedBubbleWalls ? 0.93 : 0.86;
   const minReqDrift = hasClosedBubbleWalls
     ? Math.max(10, medGlyphH * 0.42)
@@ -1156,7 +1237,7 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
       const singleLineOpposingFit =
         lineBoxesLocal.length === 1 &&
         lastSingleFit !== null &&
-        lastSingleFit.rSquared >= 0.72 &&
+        lastSingleFit.rSquared >= (Math.abs(medOcr) >= 12 ? 0.92 : 0.72) &&
         Math.sign(lastSingleFit.deg) !== Math.sign(medOcr);
       if (sameSign && spread <= 3.5 && Math.abs(medOcr) >= 5.5 && !singleLineOpposingFit) {
         rotationDeg = Number(medOcr.toFixed(1));

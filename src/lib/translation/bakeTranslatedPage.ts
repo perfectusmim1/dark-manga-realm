@@ -208,7 +208,7 @@ export const bakeTranslatedPageToBlob = async (
     if (boxW <= 4 || boxH <= 4) continue;
 
     const fontSizeCqw = block.fontSizeCqw ?? 2.85;
-    const baseFontPx = Math.max(11, (fontSizeCqw / 100) * width);
+    let drawFontPx = Math.max(9.5, (fontSizeCqw / 100) * width);
     const fontFamilyCss = getFontFamilyCss(block.fontFamily);
     const fontWeight = block.fontWeight ?? 600;
     const lineHeightRatio = getLineHeightRatioForBlock(block);
@@ -218,19 +218,38 @@ export const bakeTranslatedPageToBlob = async (
       displayText.length <= 48 &&
       isRpgStatLine(displayText);
 
-    const wrapped = isSingleLineStat
+    let wrapped = isSingleLineStat
       ? {
           lines: [{ text: displayText, widthPx: boxW, scale: 1 }],
           maxWordWidth: boxW,
-          totalHeightPx: baseFontPx * lineHeightRatio,
+          totalHeightPx: drawFontPx * lineHeightRatio,
         }
-      : computeSmartWrappedLines(ctx, displayText, boxW * 0.88, baseFontPx, {
+      : computeSmartWrappedLines(ctx, displayText, boxW * 0.88, drawFontPx, {
           fontFamily: block.fontFamily,
           fontWeight,
           lineWidthsPct: block.lineWidthsPct,
           emphasisLastLineScale: block.emphasisLastLineScale,
           lineHeightRatio,
         });
+    if (!isSingleLineStat && wrapped.lines.length > 0) {
+      for (let fitStep = 0; fitStep < 12; fitStep += 1) {
+        if (
+          (wrapped.totalHeightPx <= boxH * 0.98 || drawFontPx <= 9.5) &&
+          (wrapped.maxWordWidth <= boxW * 0.94 || drawFontPx <= 9.5)
+        ) {
+          break;
+        }
+        drawFontPx = Math.max(9.5, drawFontPx * 0.94);
+        wrapped = computeSmartWrappedLines(ctx, displayText, boxW * 0.88, drawFontPx, {
+          fontFamily: block.fontFamily,
+          fontWeight,
+          lineWidthsPct: block.lineWidthsPct,
+          emphasisLastLineScale: block.emphasisLastLineScale,
+          lineHeightRatio,
+        });
+      }
+    }
+    const baseFontPx = drawFontPx;
     if (wrapped.lines.length === 0) continue;
 
     const centerX = boxX + boxW * 0.5;
@@ -249,6 +268,9 @@ export const bakeTranslatedPageToBlob = async (
     }
 
     let cursorY = boxY + (boxH - wrapped.totalHeightPx) * 0.5;
+    if (!block.rotationDeg && wrapped.totalHeightPx <= height - 4) {
+      cursorY = Math.max(2, Math.min(height - wrapped.totalHeightPx - 2, cursorY));
+    }
 
     for (let i = 0; i < wrapped.lines.length; i += 1) {
       const line = wrapped.lines[i];
