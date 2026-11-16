@@ -1685,8 +1685,10 @@ const fetchAllChapterMetaRows = async (
 
 // ==================== MANGA OPERATIONS ====================
 
-const CATALOG_RPC_CHUNK_SIZE = 1000;
-const CATALOG_RPC_CONCURRENCY = 5;
+const CATALOG_RPC_CHUNK_SIZE = 400;
+const CATALOG_RPC_CONCURRENCY = 2;
+const CATALOG_RPC_COOLDOWN_MS = 5 * 60_000;
+let catalogRowsRpcDisabledUntil = 0;
 
 const deduplicateMangasById = (items: Manga[]): Manga[] => {
     const seenIds = new Set<string>();
@@ -1703,6 +1705,10 @@ const deduplicateMangasById = (items: Manga[]): Manga[] => {
 };
 
 const fetchCatalogRowsViaRpc = async (includeAdult: boolean): Promise<any[] | null> => {
+    if (Date.now() < catalogRowsRpcDisabledUntil) {
+        return null;
+    }
+
     try {
         const rows: any[] = [];
         let batchStartOffset = 0;
@@ -1725,6 +1731,9 @@ const fetchCatalogRowsViaRpc = async (includeAdult: boolean): Promise<any[] | nu
             let reachedEnd = false;
             for (const response of responses) {
                 if (response.error || !Array.isArray(response.data)) {
+                    // 500/statement_timeout durumunda retry dongulerinin ayni RPC'yi tekrar
+                    // vurmasini engellemek icin 5 dakika cooldown uygula ve dogrudan sorguya dus.
+                    catalogRowsRpcDisabledUntil = Date.now() + CATALOG_RPC_COOLDOWN_MS;
                     return null;
                 }
                 rows.push(...response.data);
@@ -1742,6 +1751,7 @@ const fetchCatalogRowsViaRpc = async (includeAdult: boolean): Promise<any[] | nu
 
         return rows;
     } catch {
+        catalogRowsRpcDisabledUntil = Date.now() + CATALOG_RPC_COOLDOWN_MS;
         return null;
     }
 };
@@ -1815,9 +1825,11 @@ export const getAllMangas = async (
                     getMangaListSelectColumns(visibilityColumnAvailable, adultColumnAvailable),
                     { includePrivate, includeAdult, visibilityColumnAvailable, adultColumnAvailable },
                 ),
-                supabase
-                    .from('reviews')
-                    .select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement'),
+                Promise.resolve(
+                    supabase
+                        .from('reviews')
+                        .select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement'),
+                ).catch((error) => ({ data: null, error })),
             ]);
 
             if (reviewsError) console.error('Manga list review aggregate fetch error:', reviewsError);
@@ -1945,9 +1957,11 @@ export const getMangaSummaries = async (
                     summarySelectColumns,
                     { includePrivate, includeAdult, visibilityColumnAvailable, adultColumnAvailable },
                 ),
-                supabase
-                    .from('reviews')
-                    .select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement'),
+                Promise.resolve(
+                    supabase
+                        .from('reviews')
+                        .select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement'),
+                ).catch((error) => ({ data: null, error })),
             ]);
 
             if (reviewError) {
@@ -2032,27 +2046,32 @@ export const getRandomMangaCandidates = async (limit: number = 36): Promise<Mang
         return persisted.value;
     }
 
-    try {
-        const randomOffset = Math.floor(Math.random() * 240);
-        let response = await supabase.rpc('get_manga_catalog_rows', {
-            p_offset: randomOffset,
-            p_limit: safeLimit,
-            p_include_adult: includeAdult,
-        });
-
-        if (!response.error && Array.isArray(response.data) && response.data.length < 8 && randomOffset > 0) {
-            response = await supabase.rpc('get_manga_catalog_rows', {
-                p_offset: 0,
+    if (Date.now() >= catalogRowsRpcDisabledUntil) {
+        try {
+            const randomOffset = Math.floor(Math.random() * 240);
+            let response = await supabase.rpc('get_manga_catalog_rows', {
+                p_offset: randomOffset,
                 p_limit: safeLimit,
                 p_include_adult: includeAdult,
             });
-        }
 
-        if (!response.error && Array.isArray(response.data) && response.data.length > 0) {
-            return deduplicateMangasById(response.data.map((row: any) => mapSummaryRowToManga(row)));
+            if (!response.error && Array.isArray(response.data) && response.data.length < 8 && randomOffset > 0) {
+                response = await supabase.rpc('get_manga_catalog_rows', {
+                    p_offset: 0,
+                    p_limit: safeLimit,
+                    p_include_adult: includeAdult,
+                });
+            }
+
+            if (response.error) {
+                catalogRowsRpcDisabledUntil = Date.now() + CATALOG_RPC_COOLDOWN_MS;
+            } else if (Array.isArray(response.data) && response.data.length > 0) {
+                return deduplicateMangasById(response.data.map((row: any) => mapSummaryRowToManga(row)));
+            }
+        } catch {
+            catalogRowsRpcDisabledUntil = Date.now() + CATALOG_RPC_COOLDOWN_MS;
+            // Fallback to direct range query below
         }
-    } catch {
-        // Fallback to direct range query below
     }
 
     const { data, error } = await applyPublicMangaFilter(
@@ -2161,7 +2180,13 @@ export const getMangaSummariesByIds = async (
         .filter(Boolean) as Manga[];
 };
 
-export const getHomePageMangaSections = async (): Promise<HomePageMangaSections> => {
+const persistedHomeSectionsRefreshInFlight = new Set<MangaAudienceCacheKey>();
+const PERSISTED_HOME_SECTIONS_SWR_MAX_AGE_MS = 48 * 60 * 60_000;
+const HOME_SECTIONS_RPC_TIMEOUT_MS = 5000;
+
+export const getHomePageMangaSections = async (
+    options?: { forceRefresh?: boolean },
+): Promise<HomePageMangaSections> => {
     const {
         includePrivate,
         includeAdult,
@@ -2176,13 +2201,14 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
     const pendingHomeSections = homePageMangaSectionsPromise[audienceCacheKey];
 
     if (
-        cachedHomeSections
+        !options?.forceRefresh
+        && cachedHomeSections
         && Date.now() - cachedHomeSections.fetchedAt < ALL_MANGAS_CACHE_TTL_MS
     ) {
         return cachedHomeSections.value;
     }
 
-    if (cachedAllMangas && Date.now() - cachedAllMangas.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
+    if (!options?.forceRefresh && cachedAllMangas && Date.now() - cachedAllMangas.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
         const sections = buildHomePageSectionsFromCollection(cachedAllMangas.value);
         homePageMangaSectionsCache[audienceCacheKey] = {
             fetchedAt: cachedAllMangas.fetchedAt,
@@ -2191,7 +2217,7 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
         return sections;
     }
 
-    if (cachedMangaSummaries && Date.now() - cachedMangaSummaries.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
+    if (!options?.forceRefresh && cachedMangaSummaries && Date.now() - cachedMangaSummaries.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
         const sections = buildHomePageSectionsFromCollection(cachedMangaSummaries.value);
         homePageMangaSectionsCache[audienceCacheKey] = {
             fetchedAt: cachedMangaSummaries.fetchedAt,
@@ -2204,13 +2230,15 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
         return pendingHomeSections;
     }
 
-    // IDB kalÄ±cÄ± Ã¶nbellek: taze ise aÄŸa Ã§Ä±kmadan dÃ¶n (ana sayfa aÃ§Ä±lÄ±ÅŸÄ±).
+    // IDB kalıcı önbellek: taze ise ağa çıkmadan dön; 48 saate kadar eski ise eldeki
+    // veriyi anında döndürüp arka planda tazele.
     let persistedHomeSections: HomePageMangaSections | null = null;
-    if (!includePrivate) {
+    if (!includePrivate && !options?.forceRefresh) {
         const persistedKey = getPersistedHomeSectionsKey(audienceCacheKey);
         const persisted = await readPersistedQueryCache<HomePageMangaSections>(persistedKey);
         if (persisted && hasHomePageSectionData(persisted.value)) {
-            if (Date.now() - persisted.fetchedAt < PERSISTED_CATALOG_CACHE_TTL_MS) {
+            const age = Date.now() - persisted.fetchedAt;
+            if (age < PERSISTED_CATALOG_CACHE_TTL_MS) {
                 homePageMangaSectionsCache[audienceCacheKey] = {
                     fetchedAt: persisted.fetchedAt,
                     value: persisted.value,
@@ -2218,6 +2246,21 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
                 return persisted.value;
             }
             persistedHomeSections = persisted.value;
+            if (age < PERSISTED_HOME_SECTIONS_SWR_MAX_AGE_MS) {
+                homePageMangaSectionsCache[audienceCacheKey] = {
+                    fetchedAt: persisted.fetchedAt,
+                    value: persisted.value,
+                };
+                if (!persistedHomeSectionsRefreshInFlight.has(audienceCacheKey)) {
+                    persistedHomeSectionsRefreshInFlight.add(audienceCacheKey);
+                    void getHomePageMangaSections({ forceRefresh: true })
+                        .catch(() => undefined)
+                        .finally(() => {
+                            persistedHomeSectionsRefreshInFlight.delete(audienceCacheKey);
+                        });
+                }
+                return persisted.value;
+            }
         }
     }
 
@@ -2275,10 +2318,18 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
         const fetchSections = async () => {
             if (!includePrivate) {
                 try {
-                    const { data: rpcData, error: rpcError } = await supabase.rpc('get_home_page_sections', {
-                        p_newly_added_limit: HOME_PAGE_SECTION_LIMITS.newlyAdded,
-                        p_recently_updated_limit: HOME_PAGE_SECTION_LIMITS.recentlyUpdated,
-                        p_trending_limit: HOME_PAGE_SECTION_LIMITS.trending,
+                    let rpcTimerId: ReturnType<typeof setTimeout> | null = null;
+                    const { data: rpcData, error: rpcError } = await Promise.race([
+                        supabase.rpc('get_home_page_sections', {
+                            p_newly_added_limit: HOME_PAGE_SECTION_LIMITS.newlyAdded,
+                            p_recently_updated_limit: HOME_PAGE_SECTION_LIMITS.recentlyUpdated,
+                            p_trending_limit: HOME_PAGE_SECTION_LIMITS.trending,
+                        }),
+                        new Promise<never>((_, reject) => {
+                            rpcTimerId = setTimeout(() => reject(new Error('HOME_SECTIONS_RPC_TIMEOUT')), HOME_SECTIONS_RPC_TIMEOUT_MS);
+                        }),
+                    ]).finally(() => {
+                        if (rpcTimerId !== null) clearTimeout(rpcTimerId);
                     });
 
                     if (!rpcError && rpcData && typeof rpcData === 'object') {
@@ -9081,6 +9132,10 @@ export const prefetchFastHomeCatalogPage = (options: {
     });
 };
 
+const HOME_CATALOG_RPC_TIMEOUT_MS = 4500;
+const HOME_CATALOG_RPC_COOLDOWN_MS = 3 * 60_000;
+let homeCatalogRpcDisabledUntil = 0;
+
 export const getFastHomeCatalogPage = async (options: {
     page?: number;
     pageSize?: number;
@@ -9138,27 +9193,39 @@ export const getFastHomeCatalogPage = async (options: {
         const offset = (normalizedPage - 1) * normalizedPageSize;
         let result: HomeCatalogPageResult | null = null;
 
-        try {
-            const rpcResult = await getMangaCatalogPage({
-                page: normalizedPage,
-                pageSize: normalizedPageSize,
-                sort,
-                includeAdult,
-            });
-            const uniqueItems = deduplicateHomeCatalogItems(rpcResult.items || []);
-            const totalCount = Math.max(uniqueItems.length, rpcResult.totalCount || 0);
-            result = {
-                items: uniqueItems,
-                totalCount,
-                page: normalizedPage,
-                pageSize: normalizedPageSize,
-                totalPages: Math.max(1, rpcResult.totalPages || Math.ceil(totalCount / normalizedPageSize)),
-            };
-        } catch {
-            // Hızlı RPC kullanılamıyorsa doğrudan sorgu yoluna geri dön.
+        if (Date.now() >= homeCatalogRpcDisabledUntil) {
+            try {
+                let rpcTimerId: ReturnType<typeof setTimeout> | null = null;
+                const rpcResult = await Promise.race([
+                    getMangaCatalogPage({
+                        page: normalizedPage,
+                        pageSize: normalizedPageSize,
+                        sort,
+                        includeAdult,
+                    }),
+                    new Promise<never>((_, reject) => {
+                        rpcTimerId = setTimeout(() => reject(new Error('HOME_CATALOG_RPC_TIMEOUT')), HOME_CATALOG_RPC_TIMEOUT_MS);
+                    }),
+                ]).finally(() => {
+                    if (rpcTimerId !== null) clearTimeout(rpcTimerId);
+                });
+
+                const uniqueItems = deduplicateHomeCatalogItems(rpcResult.items || []);
+                const totalCount = Math.max(uniqueItems.length, rpcResult.totalCount || 0);
+                result = {
+                    items: uniqueItems,
+                    totalCount,
+                    page: normalizedPage,
+                    pageSize: normalizedPageSize,
+                    totalPages: Math.max(1, rpcResult.totalPages || Math.ceil(totalCount / normalizedPageSize)),
+                };
+            } catch {
+                homeCatalogRpcDisabledUntil = Date.now() + HOME_CATALOG_RPC_COOLDOWN_MS;
+                // Hızlı RPC kullanılamıyorsa veya zaman aşımına uğradıysa doğrudan sorgu yoluna geri dön.
+            }
         }
 
-        if (!result && (sort === 'updated' || sort === 'newest')) {
+        if (!result && (sort === 'updated' || sort === 'newest' || sort === 'popular')) {
             try {
                 const [visibilityColumnAvailable, adultColumnAvailable, accessProfile] = await Promise.all([
                     getMangaVisibilityColumnAvailability(),
@@ -9167,7 +9234,11 @@ export const getFastHomeCatalogPage = async (options: {
                 ]);
                 const isStaff = accessProfile.role === 'admin' || accessProfile.role === 'moderator';
                 const effectiveIncludeAdult = Boolean(includeAdult && (isStaff || accessProfile.adultModeEnabled));
-                const orderColumn = sort === 'newest' ? 'created_at' : 'last_updated';
+                const orderColumn = sort === 'newest'
+                    ? 'created_at'
+                    : sort === 'popular'
+                        ? 'views'
+                        : 'last_updated';
 
                 const rowsPromise = applyPublicMangaFilter(
                     supabase

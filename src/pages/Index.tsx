@@ -141,7 +141,7 @@ const EMPTY_HOME_PAGE_SECTIONS: HomePageMangaSections = {
 };
 
 type HomeDataModule = {
-  getHomePageMangaSections: () => Promise<HomePageMangaSections>;
+  getHomePageMangaSections: (options?: { forceRefresh?: boolean }) => Promise<HomePageMangaSections>;
   getFastHomeCatalogPage: typeof import('@/lib/database').getFastHomeCatalogPage;
   getMangaSummariesByIds: (mangaIds: string[], options?: { includePrivate?: boolean }) => Promise<Manga[]>;
   getTopTenMangaIds: (timeframe?: 'today' | 'week' | 'all') => Promise<Set<string>>;
@@ -854,10 +854,10 @@ const Index: React.FC = () => {
   const canSeeAdultContent = adultModeEnabled;
   const homeAudienceKey = canSeeAdultContent ? 'adult' : 'safe';
   const [homeSections, setHomeSections] = useState<HomePageMangaSections>(() => (
-    readHomeFeedSeed().sections?.value ?? EMPTY_HOME_PAGE_SECTIONS
+    readHomeFeedSeed(canSeeAdultContent ? 'adult' : 'safe').sections?.value ?? EMPTY_HOME_PAGE_SECTIONS
   ));
   const [topTenWeekIds, setTopTenWeekIds] = useState<ReadonlySet<string> | null>(() => (
-    readHomeFeedSeed().topTenWeekIds?.value ?? null
+    readHomeFeedSeed(canSeeAdultContent ? 'adult' : 'safe').topTenWeekIds?.value ?? null
   ));
   const [hasPersistedAuthSession, setHasPersistedAuthSession] = useState(() => hasPersistedSupabaseSession());
   const [continueReadingSeed, setContinueReadingSeed] = useState<ContinueReadingCacheEntry[]>(() => (
@@ -867,9 +867,11 @@ const Index: React.FC = () => {
     hasPersistedSupabaseSession() && !initialPersistedContinueReadingCache
   ));
   const [trendingTags, setTrendingTags] = useState<Tag[]>(() => (
-    readHomeFeedSeed().trendingTags?.value ?? []
+    readHomeFeedSeed(canSeeAdultContent ? 'adult' : 'safe').trendingTags?.value ?? []
   ));
-  const [tagsLoading, setTagsLoading] = useState(() => readHomeFeedSeed().trendingTags === null);
+  const [tagsLoading, setTagsLoading] = useState(() => (
+    readHomeFeedSeed(canSeeAdultContent ? 'adult' : 'safe').trendingTags === null
+  ));
   const [catalogPage, setCatalogPage] = useState(1);
   const [catalogState, setCatalogState] = useState<{
     items: Manga[];
@@ -955,7 +957,7 @@ const Index: React.FC = () => {
   ), [offlineSnapshot.series]);
 
   useEffect(() => {
-    const latestHomeFeedSeed = readHomeFeedSeed();
+    const latestHomeFeedSeed = readHomeFeedSeed(homeAudienceKey);
 
     HOME_PAGE_CACHE.sections = latestHomeFeedSeed.sections?.value ?? null;
     HOME_PAGE_CACHE.sectionsFetchedAt = latestHomeFeedSeed.sections?.fetchedAt ?? 0;
@@ -963,7 +965,7 @@ const Index: React.FC = () => {
     HOME_PAGE_CACHE.trendingTagsFetchedAt = latestHomeFeedSeed.trendingTags?.fetchedAt ?? 0;
     HOME_PAGE_CACHE.topTenWeekIds = latestHomeFeedSeed.topTenWeekIds?.value ?? null;
     HOME_PAGE_CACHE.topTenWeekIdsFetchedAt = latestHomeFeedSeed.topTenWeekIds?.fetchedAt ?? 0;
-  }, []);
+  }, [homeAudienceKey]);
 
   useEffect(() => {
     if (!initialContinueReadingUserId || !initialPersistedContinueReadingCache) {
@@ -1027,7 +1029,7 @@ const Index: React.FC = () => {
 
       try {
         const { getHomePageMangaSections } = await homeDataPromise;
-        const sections = await getHomePageMangaSections();
+        const sections = await getHomePageMangaSections({ forceRefresh: HOME_PAGE_CACHE.sections !== null });
         if (!active) {
           return;
         }
@@ -1035,7 +1037,7 @@ const Index: React.FC = () => {
         const fetchedAt = Date.now();
         HOME_PAGE_CACHE.sections = sections;
         HOME_PAGE_CACHE.sectionsFetchedAt = fetchedAt;
-        writeHomeSectionsCache(sections, fetchedAt);
+        writeHomeSectionsCache(sections, fetchedAt, homeAudienceKey);
         startTransition(() => {
           setHomeSections(sections);
         });

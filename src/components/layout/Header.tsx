@@ -437,7 +437,9 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
               blurTimeoutRef.current = null;
             }
             setIsSearchFocused(true);
-            void ensureMangasLoaded();
+            if (searchQueryRef.current.trim().length > 1 && allMangasRef.current.length === 0) {
+              void ensureMangasLoaded();
+            }
           }}
           onBlur={() => {
             blurTimeoutRef.current = window.setTimeout(() => setIsSearchFocused(false), 180);

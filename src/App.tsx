@@ -164,7 +164,7 @@ const OfflineStartupRedirect = () => {
 const AccessGate = ({ children }: { children: React.ReactNode }) => {
   const { isOnline } = useEffectiveOnlineStatus();
   const location = useLocation();
-  const { user, accessState, logout } = useAuth();
+  const { user, isLoading: authLoading, accessState, logout } = useAuth();
   const [blockedMessage, setBlockedMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -172,6 +172,14 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
 
     if (!isOnline) {
       setBlockedMessage(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    // AuthContext baslangicta oturumlu kullanici icin checkCurrentAccess calistirir;
+    // isLoading bitene kadar beklemek anonim/oturum cift Edge Function cagrisini onler.
+    if (authLoading) {
       return () => {
         active = false;
       };
@@ -197,7 +205,7 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
     return () => {
       active = false;
     };
-  }, [isOnline, location.pathname]);
+  }, [authLoading, isOnline, location.pathname, location.search]);
 
   const isSupportPath = location.pathname === '/support' || location.pathname.startsWith('/support/');
   const isAuthPath = location.pathname === '/auth';

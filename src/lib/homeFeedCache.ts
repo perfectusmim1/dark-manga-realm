@@ -5,14 +5,15 @@ const HOME_FEED_SESSION_CACHE_KEY = 'toonparrot-home-feed-local-v7';
 const HOME_FEED_SESSION_CACHE_VERSION = 7;
 
 export const HOME_SECTIONS_CACHE_TTL_MS = 5 * 60_000;
-export const HOME_SECTIONS_MAX_SEED_AGE_MS = 60 * 60_000;
+export const HOME_SECTIONS_MAX_SEED_AGE_MS = 48 * 60 * 60_000;
 export const TRENDING_TAGS_CACHE_TTL_MS = 15 * 60_000;
-export const TRENDING_TAGS_MAX_SEED_AGE_MS = 60 * 60_000;
+export const TRENDING_TAGS_MAX_SEED_AGE_MS = 48 * 60 * 60_000;
 export const TOP_TEN_WEEK_CACHE_TTL_MS = 5 * 60_000;
-export const TOP_TEN_WEEK_MAX_SEED_AGE_MS = 30 * 60_000;
+export const TOP_TEN_WEEK_MAX_SEED_AGE_MS = 48 * 60 * 60_000;
 
 interface PersistedHomeFeedEntry<T> {
   fetchedAt: number;
+  audience?: 'safe' | 'adult';
   value: T;
 }
 
@@ -110,15 +111,17 @@ const hasRenderableChapterCounts = (sections?: HomePageMangaSections | null): bo
   return all.every((m) => (m.chapterCount || 0) > 0 || (m.chapters?.length || 0) > 0);
 };
 
-export const readHomeFeedSeed = (): HomeFeedSeed => {
+export const readHomeFeedSeed = (audience: 'safe' | 'adult' = 'safe'): HomeFeedSeed => {
   const persisted = readPersistedHomeFeedCache();
 
   const sections = persisted?.sections;
   const trendingTags = persisted?.trendingTags;
   const topTenWeekIds = persisted?.topTenWeekIds;
+  const sectionsAudienceMatches = !sections?.audience || sections.audience === audience;
 
   return {
     sections: sections
+      && sectionsAudienceMatches
       && isValidFetchedAt(sections.fetchedAt)
       && isRenderableSeed(sections.fetchedAt, HOME_SECTIONS_MAX_SEED_AGE_MS)
       && hasRenderableChapterCounts(sections.value)
@@ -139,6 +142,7 @@ export const readHomeFeedSeed = (): HomeFeedSeed => {
 export const writeHomeSectionsCache = (
   sections: HomePageMangaSections,
   fetchedAt = Date.now(),
+  audience: 'safe' | 'adult' = 'safe',
 ) => {
   if (!hasRenderableChapterCounts(sections)) {
     return;
@@ -148,6 +152,7 @@ export const writeHomeSectionsCache = (
     ...current,
     sections: {
       fetchedAt,
+      audience,
       value: sections,
     },
   }));

@@ -4,7 +4,7 @@ import { useDeviceProfile } from '@/hooks/use-device-profile';
 import { shouldRenderHeaderBootstrap } from '@/components/layout/HeaderBootstrapShell';
 import { prefetchPrimaryNavRoutes } from '@/lib/routeModules';
 
-const ROUTE_PREFETCH_DELAY_MS = 1200;
+const ROUTE_PREFETCH_DELAY_MS = 3800;
 const ROUTE_FALLBACK_DELAY_MS = 140;
 
 type IdleWindow = Window & {

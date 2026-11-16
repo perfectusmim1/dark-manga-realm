@@ -1,7 +1,7 @@
 import type { Manga } from '@/lib/types';
 
 const HOME_CATALOG_STORAGE_KEY = 'toonparrot-home-catalog-v1';
-const HOME_CATALOG_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const HOME_CATALOG_MAX_AGE_MS = 72 * 60 * 60 * 1000;
 const HOME_CATALOG_MEMORY_MAX_AGE_MS = 4 * 60 * 1000;
 
 export interface HomeCatalogCacheEntry {

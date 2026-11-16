@@ -735,6 +735,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           const currentPath = typeof window !== 'undefined'
             ? `${window.location.pathname}${window.location.search}`
             : '/';
+          // Erişim kontrolü ve profil senkronizasyonunu paralel başlat (oturum açılış waterfall'unu yarıya indirir).
+          const profilePromise = ensureProfile(activeSession.user).catch(() => null);
           let accessCheck = await checkCurrentAccess(currentPath, {
             preferredAccessToken: activeSession.access_token,
           }).catch((error) =>
@@ -784,7 +786,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           );
           const profile = shouldBypassProfileFetch
             ? buildProfileFromAccessCheck(activeSession.user, accessCheck)
-            : await ensureProfile(activeSession.user);
+            : await profilePromise;
 
           if (!mounted) return;
 
