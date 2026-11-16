@@ -527,13 +527,14 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
   let fillG = coreGs.length > 0 ? Math.round(medianOf(coreGs)) : isDarkBg ? 255 : 12;
   let fillB = coreBs.length > 0 ? Math.round(medianOf(coreBs)) : isDarkBg ? 255 : 12;
 
-  if (!isDarkBg && rgbSaturation(fillR, fillG, fillB) >= 0.28 && maxDist >= 3) {
+  if (!isDarkBg && rgbSaturation(fillR, fillG, fillB) >= 0.22 && maxDist >= 2) {
     const neuRs: number[] = [];
     const neuGs: number[] = [];
     const neuBs: number[] = [];
     let chromD2 = 0;
+    const minNeuDist = maxDist >= 3 ? 2 : 1;
     for (let i = 0; i < numPixels; i += 1) {
-      if (!rawGlyphMask[i] || dist[i] < 2) continue;
+      if (!rawGlyphMask[i] || dist[i] < minNeuDist) continue;
       const cIdx = i * 3;
       const pr = winRgb[cIdx];
       const pg = winRgb[cIdx + 1];
@@ -855,7 +856,7 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
       fillToBgDist >= 80;
 
     let whiteStrokeColoredFillHex: string | undefined;
-    if (edgeLum >= 195 && rgbSaturation(edgeR, edgeG, edgeB) < 0.28) {
+    if (fillLum <= 170 && edgeLum >= 195 && rgbSaturation(edgeR, edgeG, edgeB) < 0.28) {
       const chRs: number[] = [];
       const chGs: number[] = [];
       const chBs: number[] = [];
@@ -987,9 +988,38 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
       edgeB >= 135 &&
       rgbSaturation(edgeR, edgeG, edgeB) >= 0.34;
 
+    const bgToFillLenSq =
+      (fillR - ringMedR) * (fillR - ringMedR) +
+      (fillG - ringMedG) * (fillG - ringMedG) +
+      (fillB - ringMedB) * (fillB - ringMedB);
+    const edgeProjT =
+      bgToFillLenSq > 100
+        ? clamp(
+            ((edgeR - ringMedR) * (fillR - ringMedR) +
+              (edgeG - ringMedG) * (fillG - ringMedG) +
+              (edgeB - ringMedB) * (fillB - ringMedB)) /
+              bgToFillLenSq,
+            0,
+            1,
+          )
+        : 0;
+    const edgePerpDist =
+      bgToFillLenSq > 100
+        ? Math.hypot(
+            edgeR - (ringMedR + edgeProjT * (fillR - ringMedR)),
+            edgeG - (ringMedG + edgeProjT * (fillG - ringMedG)),
+            edgeB - (ringMedB + edgeProjT * (fillB - ringMedB)),
+          )
+        : 0;
+    const isLinearAntiAliasingMix =
+      edgeLum >= bgLum - 6 &&
+      edgeLum <= fillLum - 10 &&
+      edgePerpDist < 22;
+
     if (
       !isThinDarkCursiveWithWhiteHalo &&
       fillLum >= 185 &&
+      !isLinearAntiAliasingMix &&
       (edgeLum <= fillLum - 25 ||
         hasBlueEdgeStroke ||
         (fillLum >= 205 && haloLum <= 55 && haloToFillDist >= 135))
@@ -1395,6 +1425,33 @@ export const inpaintTexturedRegion = (
     return false;
   };
 
+  const isThinBrightStrokeHalo = (pIdx: number, cr: number, cg: number, cb: number, pLum: number): boolean => {
+    const highToneBg = ringMedLum >= 220;
+    const minJump = highToneBg ? 6 : 16;
+    if (ringMedLum > 246 || pLum < Math.max(highToneBg ? 236 : 226, ringMedLum + minJump)) return false;
+    const pChr = Math.max(cr, cg, cb) - Math.min(cr, cg, cb);
+    if (pChr > (highToneBg ? 9 : 18)) return false;
+    const py = (pIdx / ww) | 0;
+    const px = pIdx - py * ww;
+    let wideBrightNeighbors = 0;
+    let checkedNeighbors = 0;
+    const probeDist = highToneBg ? 7 : 5;
+    const probeOffsets = [
+      px >= probeDist ? pIdx - probeDist : -1,
+      px + probeDist < ww ? pIdx + probeDist : -1,
+      py >= probeDist ? pIdx - probeDist * ww : -1,
+      py + probeDist < wh ? pIdx + probeDist * ww : -1,
+    ];
+    for (const nIdx of probeOffsets) {
+      if (nIdx < 0 || borderMask[nIdx] || eraseMask[nIdx]) continue;
+      checkedNeighbors += 1;
+      const nc = nIdx * 3;
+      const nLum = 0.299 * cleaned[nc] + 0.587 * cleaned[nc + 1] + 0.114 * cleaned[nc + 2];
+      if (nLum >= pLum - (highToneBg ? 6 : 16)) wideBrightNeighbors += 1;
+    }
+    return checkedNeighbors >= 1 && wideBrightNeighbors === 0;
+  };
+
   const isCleanBoundary = (pIdx: number): boolean => {
     if (pIdx < 0 || pIdx >= numPixels || borderMask[pIdx] || eraseMask[pIdx]) return false;
     const c3 = pIdx * 3;
@@ -1403,6 +1460,9 @@ export const inpaintTexturedRegion = (
     const cb = cleaned[c3 + 2];
     const pLum = 0.299 * cr + 0.587 * cg + 0.114 * cb;
     const dRing = maxChannelDiff(cr, cg, cb, ringMedR, ringMedG, ringMedB);
+    if (isThinBrightStrokeHalo(pIdx, cr, cg, cb, pLum)) {
+      return false;
+    }
     // Koyu/orta/aydınlık doku üzerinde maskeden taşan siyah dış kontur parçalarını dışarı sündürme
     const darkAAFloor =
       ringMedLum >= 165 ? 44 : ringMedLum >= 140 ? Math.min(64, Math.round(ringMedLum * 0.4)) : 42;
@@ -1444,7 +1504,10 @@ export const inpaintTexturedRegion = (
     let bestLum = bestIdx >= 0 ? baseLum : -1;
     const suspiciousDarkCut =
       ringMedLum >= 160 ? Math.min(58, Math.max(32, Math.round(ringMedLum * 0.34))) : Math.min(95, Math.max(40, ringMedLum - 35));
-    const maxLook = bestIdx < 0 || baseLum < Math.max(70, ringMedLum - 15) ? 14 : 8;
+    const suspiciousBrightHalo =
+      ringMedLum <= 246 &&
+      (bestLum < 0 ? baseLum : bestLum) >= Math.max(ringMedLum >= 220 ? 236 : 224, ringMedLum + (ringMedLum >= 220 ? 6 : 15));
+    const maxLook = bestIdx < 0 || baseLum < Math.max(70, ringMedLum - 15) || suspiciousBrightHalo ? 14 : 8;
     const maxTotalScan = 24;
     let cleanSteps = 0;
     for (let s = 1; s <= maxTotalScan; s += 1) {
@@ -1465,11 +1528,17 @@ export const inpaintTexturedRegion = (
           (bestIdx >= 0 ? cleaned[bestC + 2] - cleaned[bestC] : cleaned[baseC + 2] - cleaned[baseC]) +
             10;
       const allowLumEscape = bestIdx < 0 || bestLum < suspiciousDarkCut;
-      if ((allowLumEscape && candLum > bestLum + 10) || bestIdx < 0 || candBlueMatch) {
+      const allowBrightHaloDrop =
+        ringMedLum <= 218 &&
+        bestIdx >= 0 &&
+        bestLum >= Math.max(224, ringMedLum + 16) &&
+        candLum <= bestLum - 16 &&
+        candLum <= ringMedLum + 28;
+      if ((allowLumEscape && candLum > bestLum + 10) || allowBrightHaloDrop || bestIdx < 0 || candBlueMatch) {
         bestIdx = candIdx;
         bestLum = candLum;
-        if (candLum >= baseLum + 26 && cleanSteps >= 5) break;
-      } else if (bestIdx >= 0 && bestLum >= 165 && cleanSteps >= 2 && Math.abs(candLum - bestLum) <= 8) {
+        if ((allowBrightHaloDrop || candLum >= baseLum + 26) && cleanSteps >= 4) break;
+      } else if (bestIdx >= 0 && bestLum >= 165 && !suspiciousBrightHalo && cleanSteps >= 2 && Math.abs(candLum - bestLum) <= 8) {
         break;
       }
     }
@@ -1888,7 +1957,280 @@ export const inpaintTexturedRegion = (
     }
   }
   const avgGrain = hpCount >= 24 ? hpSum / hpCount : 0;
-  if (avgGrain >= 2.2) {
+
+  // Periyodik halftone / screentone nokta ızgarası tespiti: düz bulanık yama yerine
+  // gerçek temiz halkadan faz-eşli yüksek frekanslı nokta dokusunu kopyalar (makro gölgeyi koruyarak).
+  let synthesizedHalftone = false;
+  if (avgGrain >= 3.2 && qTail > 0) {
+    const colY0 = Math.max(4, egMinY - 16);
+    const colY1 = Math.min(wh - 5, egMaxY + 16);
+    const colX0 = Math.max(4, egMinX - 16);
+    const colX1 = Math.min(ww - 5, egMaxX + 16);
+    const isSafeDonor = (px: number, py: number): boolean => {
+      if (px < 2 || px >= ww - 2 || py < 2 || py >= wh - 2) return false;
+      const idx = py * ww + px;
+      if (eraseMask[idx] || borderMask[idx]) return false;
+      if (
+        eraseMask[idx - 1] ||
+        eraseMask[idx + 1] ||
+        eraseMask[idx - ww] ||
+        eraseMask[idx + ww]
+      ) {
+        return false;
+      }
+      const c3 = idx * 3;
+      const dRing = maxChannelDiff(
+        cleaned[c3],
+        cleaned[c3 + 1],
+        cleaned[c3 + 2],
+        ringMedR,
+        ringMedG,
+        ringMedB,
+      );
+      return dRing <= 52;
+    };
+
+    const collarPts: number[] = [];
+    const collarLums: number[] = [];
+    const stepC = qTail > 12000 ? 3 : 2;
+    for (let y = colY0; y <= colY1; y += stepC) {
+      for (let x = colX0; x <= colX1; x += stepC) {
+        if (eraseMask[y * ww + x] || !isSafeDonor(x, y)) continue;
+        collarPts.push(y * ww + x);
+        const c3 = (y * ww + x) * 3;
+        collarLums.push(0.299 * cleaned[c3] + 0.587 * cleaned[c3 + 1] + 0.114 * cleaned[c3 + 2]);
+        if (collarPts.length >= 160) break;
+      }
+      if (collarPts.length >= 160) break;
+    }
+
+    if (collarPts.length >= 28) {
+      let lumMean = 0;
+      for (let i = 0; i < collarLums.length; i += 1) lumMean += collarLums[i];
+      lumMean /= collarLums.length;
+      let lumVar = 0;
+      for (let i = 0; i < collarLums.length; i += 1) {
+        const d = collarLums[i] - lumMean;
+        lumVar += d * d;
+      }
+      const lumStd = Math.sqrt(lumVar / collarLums.length);
+
+      if (lumStd >= 5.2) {
+        interface PeriodVec {
+          dx: number;
+          dy: number;
+          err: number;
+        }
+        const candidates: Array<[number, number]> = [];
+        for (let d = 3; d <= 12; d += 1) {
+          candidates.push([d, 0], [0, d]);
+        }
+        for (let dy = 2; dy <= 10; dy += 1) {
+          for (let dx = 2; dx <= 10; dx += 1) {
+            candidates.push([dx, dy], [dx, -dy]);
+          }
+        }
+        const goodVecs: PeriodVec[] = [];
+        for (let ci = 0; ci < candidates.length; ci += 1) {
+          const [dx, dy] = candidates[ci];
+          let errSum = 0;
+          let pairs = 0;
+          for (let pi = 0; pi < collarPts.length; pi += 1) {
+            const p = collarPts[pi];
+            const py = (p / ww) | 0;
+            const px = p - py * ww;
+            const nx = px + dx;
+            const ny = py + dy;
+            if (!isSafeDonor(nx, ny)) continue;
+            const nc = (ny * ww + nx) * 3;
+            const nLum = 0.299 * cleaned[nc] + 0.587 * cleaned[nc + 1] + 0.114 * cleaned[nc + 2];
+            errSum += Math.abs(collarLums[pi] - nLum);
+            pairs += 1;
+          }
+          if (pairs >= 18) {
+            const meanErr = errSum / pairs;
+            if (meanErr <= 10.5 && meanErr <= lumStd * 0.48) {
+              goodVecs.push({ dx, dy, err: meanErr });
+            }
+          }
+        }
+        goodVecs.sort((a, b) => a.err - b.err);
+
+        if (goodVecs.length > 0) {
+          const p1 = goodVecs[0];
+          const p2 =
+            goodVecs.find((v) => Math.abs(p1.dx * v.dy - p1.dy * v.dx) >= 6) ??
+            ({ dx: -p1.dy, dy: p1.dx, err: p1.err } as PeriodVec);
+          const halfBox = Math.max(2, Math.min(4, Math.round(Math.hypot(p1.dx, p1.dy) * 0.5)));
+          const donorMeanCache = new Float32Array(numPixels * 3).fill(-1);
+          const getDonorPatch = (
+            sx: number,
+            sy: number,
+          ): [number, number, number, number, number, number, number, number, number] | null => {
+            if (!isSafeDonor(sx, sy)) return null;
+            const sIdx = sy * ww + sx;
+            const s3 = sIdx * 3;
+            if (donorMeanCache[s3] < 0) {
+              let sumR = 0;
+              let sumG = 0;
+              let sumB = 0;
+              let cnt = 0;
+              const yA = Math.max(0, sy - halfBox);
+              const yB = Math.min(wh - 1, sy + halfBox);
+              const xA = Math.max(0, sx - halfBox);
+              const xB = Math.min(ww - 1, sx + halfBox);
+              for (let yy = yA; yy <= yB; yy += 1) {
+                const rr = yy * ww;
+                for (let xx = xA; xx <= xB; xx += 1) {
+                  const nIdx = rr + xx;
+                  if (eraseMask[nIdx] || borderMask[nIdx]) continue;
+                  const nc = nIdx * 3;
+                  sumR += cleaned[nc];
+                  sumG += cleaned[nc + 1];
+                  sumB += cleaned[nc + 2];
+                  cnt += 1;
+                }
+              }
+              if (cnt < 4) return null;
+              donorMeanCache[s3] = sumR / cnt;
+              donorMeanCache[s3 + 1] = sumG / cnt;
+              donorMeanCache[s3 + 2] = sumB / cnt;
+            }
+            const mR = donorMeanCache[s3];
+            const mG = donorMeanCache[s3 + 1];
+            const mB = donorMeanCache[s3 + 2];
+            return [
+              cleaned[s3] - mR,
+              cleaned[s3 + 1] - mG,
+              cleaned[s3 + 2] - mB,
+              cleaned[s3],
+              cleaned[s3 + 1],
+              cleaned[s3 + 2],
+              mR,
+              mG,
+              mB,
+            ];
+          };
+
+          const shiftOffsets: Array<[number, number, number]> = [];
+          for (let a = -7; a <= 7; a += 1) {
+            for (let b = -7; b <= 7; b += 1) {
+              if (a === 0 && b === 0) continue;
+              const ox = a * p1.dx + b * p2.dx;
+              const oy = a * p1.dy + b * p2.dy;
+              const dist = Math.hypot(ox, oy);
+              if (dist >= 2 && dist <= 48) {
+                shiftOffsets.push([ox, oy, dist]);
+              }
+            }
+          }
+          shiftOffsets.sort((a, b) => a[2] - b[2]);
+
+          for (let k = 0; k < qTail; k += 1) {
+            const idx = order[k];
+            const y = (idx / ww) | 0;
+            const x = idx - y * ww;
+            const c = idx * 3;
+            let patch: [number, number, number, number, number, number, number, number, number] | null = null;
+            for (let oi = 0; oi < shiftOffsets.length; oi += 1) {
+              const sx = x + shiftOffsets[oi][0];
+              const sy = y + shiftOffsets[oi][1];
+              if (sx < 2 || sx >= ww - 2 || sy < 2 || sy >= wh - 2) continue;
+              patch = getDonorPatch(sx, sy);
+              if (patch) break;
+            }
+            if (patch) {
+              const lapDrift = maxChannelDiff(
+                cleaned[c],
+                cleaned[c + 1],
+                cleaned[c + 2],
+                patch[6],
+                patch[7],
+                patch[8],
+              );
+              const detailPredR = clamp(cleaned[c] + patch[0], 0, 255);
+              const detailPredG = clamp(cleaned[c + 1] + patch[1], 0, 255);
+              const detailPredB = clamp(cleaned[c + 2] + patch[2], 0, 255);
+              const directW = lapDrift >= 14 ? 0.85 : lapDrift >= 6 ? 0.55 : 0.25;
+              cleaned[c] = clamp(directW * patch[3] + (1 - directW) * detailPredR, 0, 255);
+              cleaned[c + 1] = clamp(directW * patch[4] + (1 - directW) * detailPredG, 0, 255);
+              cleaned[c + 2] = clamp(directW * patch[5] + (1 - directW) * detailPredB, 0, 255);
+            }
+          }
+          synthesizedHalftone = true;
+        }
+      }
+    }
+  }
+
+  // Yatay uzanan tek/çift satır metinlerin altındaki dikey çizgileri, kol/perde kenarlarını ve pencere çerçevelerini
+  // yatay Laplace bulandırması yerine dikey sütun sürekliliğiyle keskin şekilde geri yükle.
+  if (!synthesizedHalftone && qTail > 0 && egMaxX - egMinX >= 40) {
+    const colStartY = Math.max(0, egMinY);
+    const colEndY = Math.min(wh - 1, egMaxY);
+    for (let x = Math.max(0, egMinX); x <= Math.min(ww - 1, egMaxX); x += 1) {
+      let y = colStartY;
+      while (y <= colEndY) {
+        if (!eraseMask[y * ww + x]) {
+          y += 1;
+          continue;
+        }
+        const runStart = y;
+        while (y <= colEndY && eraseMask[y * ww + x]) y += 1;
+        const runEnd = y - 1;
+        const runH = runEnd - runStart + 1;
+        if (runH > 92) continue;
+
+        let tY = -1;
+        for (let py = runStart - 1; py >= Math.max(0, runStart - 14); py -= 1) {
+          const tIdx = py * ww + x;
+          if (eraseMask[tIdx] || borderMask[tIdx]) continue;
+          if (isCleanBoundary(tIdx)) {
+            tY = py;
+            break;
+          }
+        }
+        let bY = -1;
+        for (let py = runEnd + 1; py <= Math.min(wh - 1, runEnd + 14); py += 1) {
+          const bIdx = py * ww + x;
+          if (eraseMask[bIdx] || borderMask[bIdx]) continue;
+          if (isCleanBoundary(bIdx)) {
+            bY = py;
+            break;
+          }
+        }
+        if (tY < 0 || bY < 0 || bY - tY <= 1) continue;
+
+        const tc = (tY * ww + x) * 3;
+        const bc = (bY * ww + x) * 3;
+        const colDiff = maxChannelDiff(
+          cleaned[tc],
+          cleaned[tc + 1],
+          cleaned[tc + 2],
+          cleaned[bc],
+          cleaned[bc + 1],
+          cleaned[bc + 2],
+        );
+        if (colDiff > 42) continue;
+
+        const spanY = bY - tY;
+        const vWeight = clamp(1.0 - colDiff / 48, 0.35, 0.9);
+        for (let ry = runStart; ry <= runEnd; ry += 1) {
+          const idx = ry * ww + x;
+          const c = idx * 3;
+          const t = (ry - tY) / spanY;
+          const vR = cleaned[tc] + (cleaned[bc] - cleaned[tc]) * t;
+          const vG = cleaned[tc + 1] + (cleaned[bc + 1] - cleaned[tc + 1]) * t;
+          const vB = cleaned[tc + 2] + (cleaned[bc + 2] - cleaned[tc + 2]) * t;
+          cleaned[c] = clamp(vWeight * vR + (1 - vWeight) * cleaned[c], 0, 255);
+          cleaned[c + 1] = clamp(vWeight * vG + (1 - vWeight) * cleaned[c + 1], 0, 255);
+          cleaned[c + 2] = clamp(vWeight * vB + (1 - vWeight) * cleaned[c + 2], 0, 255);
+        }
+      }
+    }
+  }
+
+  if (!synthesizedHalftone && avgGrain >= 2.2) {
     const grainAmp = clamp(avgGrain * 1.45, 3.0, 12.0);
     for (let k = 0; k < qTail; k += 1) {
       const idx = order[k];

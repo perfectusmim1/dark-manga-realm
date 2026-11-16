@@ -1055,7 +1055,12 @@ export const translateBatchWithGoogleFree = async (
                 const mapped = suf ? sfxMap[suf.toLowerCase()] ?? '' : '';
                 return `kolye${mapped}`;
               })
-              .replace(/\boturum\s+aç[ıiİI]n\s+ve\s+oturum\s+aç[ıiİI]n\b/giu, 'kayıt olup giriş yapın');
+              .replace(/\boturum\s+aç[ıiİI]n\s+ve\s+oturum\s+aç[ıiİI]n\b/giu, 'kayıt olup giriş yapın')
+              .replace(/(^|[^\p{L}])(önceki\s+günden\s+itibaren\s+fazla\s+mesai)(?=$|[^\p{L}])/giu, (_, lead: string, match: string) => {
+                if (match === match.toLocaleUpperCase('tr-TR')) return `${lead}ÖNCEKİ GÜNÜN FAZLA MESAİSİ`;
+                if (/^[A-ZÇĞİÖŞÜ]/.test(match)) return `${lead}Önceki günün fazla mesaisi`;
+                return `${lead}önceki günün fazla mesaisi`;
+              });
             if (/\b(?:a\s+)?thousand\s+won\b/i.test(origSrc)) {
               cand = cand.replace(/\b(bin|yüz)\s+kazand[ıiİI](?![\p{L}\p{N}_])/giu, '$1 won');
             }
