@@ -18,7 +18,7 @@ import { dispatchPageCommentsUpdated } from '@/lib/pageCommentEvents';
 import { User } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
-const TENOR_API_KEY = 'AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ';
+const TENOR_API_KEY = 'AIzaSyCZt6SSh5VgVPzD9fhyzG1DprdPRhtoaR4';
 
 interface PageCommentModalProps {
     open: boolean;
@@ -85,8 +85,11 @@ const PageCommentModal: React.FC<PageCommentModalProps> = ({
         try {
             setIsGifLoading(true);
             const response = await fetch(
-                `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(query)}&key=${TENOR_API_KEY}&limit=18&media_filter=gif`
+                `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(query)}&key=${TENOR_API_KEY}&client_key=tenor_web&limit=18&media_filter=gif,tinygif`
             );
+            if (!response.ok) {
+                throw new Error(`Tenor HTTP ${response.status}`);
+            }
             const data = await response.json();
             setGifs(data.results || []);
         } catch (error) {

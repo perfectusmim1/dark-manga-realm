@@ -259,15 +259,18 @@ const AdminReports: React.FC = () => {
     const loadReports = async () => {
         setIsLoading(true);
         try {
-            const [mangaData, commentData, reviewData, forumData] = await Promise.all([
+            const [mangaData, commentData, reviewData, profileData, forumData] = await Promise.all([
                 getMangaReports(),
                 getCommentReports(),
                 getReviewReports(),
+                getProfileReports(),
                 getForumReports(),
             ]);
             setMangaReports(mangaData);
             setCommentReports(commentData);
             setReviewReports(reviewData);
+            setProfileReports(profileData);
+            setHasLoadedProfileReports(true);
             setForumReports(forumData);
         } catch (error) {
             console.error('Admin reports load error:', error);

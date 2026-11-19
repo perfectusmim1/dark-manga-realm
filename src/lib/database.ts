@@ -5258,6 +5258,9 @@ export const createProfileReport = async (payload: {
         });
 
     if (error) {
+        if (isMissingTableInSchemaCache(error, 'profile_reports')) {
+            throw new Error('Profil bildirme sistemi birkaç saniye içinde aktif olacak. Sayfayı yenileyip tekrar deneyin.');
+        }
         console.error('Profile report create error:', error);
         throw error;
     }

@@ -103,7 +103,7 @@ interface CommentSectionProps {
     onCommentCountChange?: (count: number) => void;
 }
 
-const TENOR_API_KEY = 'AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ';
+const TENOR_API_KEY = 'AIzaSyCZt6SSh5VgVPzD9fhyzG1DprdPRhtoaR4';
 const PARENT_COMMENTS_PER_PAGE = 15;
 const COMMENT_EDIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_REPLY_INDENT_LEVEL = 3;
@@ -1076,8 +1076,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 
         try {
             const response = await fetch(
-                `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(query)}&key=${TENOR_API_KEY}&limit=20&media_filter=gif`
+                `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(query)}&key=${TENOR_API_KEY}&client_key=tenor_web&limit=20&media_filter=gif,tinygif`
             );
+            if (!response.ok) {
+                throw new Error(`Tenor HTTP ${response.status}`);
+            }
             const data = await response.json();
             setGifs(data.results || []);
         } catch (error) {
