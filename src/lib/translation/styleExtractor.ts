@@ -1430,17 +1430,27 @@ export const inpaintTexturedRegion = (
     return false;
   };
 
+  const ringMedChroma =
+    Math.max(ringMedR, ringMedG, ringMedB) - Math.min(ringMedR, ringMedG, ringMedB);
+
   const isThinBrightStrokeHalo = (pIdx: number, cr: number, cg: number, cb: number, pLum: number): boolean => {
     const highToneBg = ringMedLum >= 220;
-    const minJump = highToneBg ? 6 : 16;
-    if (ringMedLum > 246 || pLum < Math.max(highToneBg ? 236 : 226, ringMedLum + minJump)) return false;
+    const minJump = highToneBg ? 6 : 8;
+    if (ringMedLum > 246 || pLum < Math.max(highToneBg ? 236 : ringMedLum + minJump, ringMedLum + minJump)) {
+      return false;
+    }
     const pChr = Math.max(cr, cg, cb) - Math.min(cr, cg, cb);
-    if (pChr > (highToneBg ? 9 : 18)) return false;
+    const isBlendedWhiteOnColoredBg =
+      !highToneBg &&
+      ringMedChroma >= 16 &&
+      pLum >= ringMedLum + 7 &&
+      (pChr <= ringMedChroma - 4 || pLum >= 222);
+    if (!isBlendedWhiteOnColoredBg && pChr > (highToneBg ? 9 : 18)) return false;
     const py = (pIdx / ww) | 0;
     const px = pIdx - py * ww;
     let wideBrightNeighbors = 0;
     let checkedNeighbors = 0;
-    const probeDist = highToneBg ? 7 : 5;
+    const probeDist = highToneBg ? 7 : 6;
     const probeOffsets = [
       px >= probeDist ? pIdx - probeDist : -1,
       px + probeDist < ww ? pIdx + probeDist : -1,
@@ -1452,7 +1462,7 @@ export const inpaintTexturedRegion = (
       checkedNeighbors += 1;
       const nc = nIdx * 3;
       const nLum = 0.299 * cleaned[nc] + 0.587 * cleaned[nc + 1] + 0.114 * cleaned[nc + 2];
-      if (nLum >= pLum - (highToneBg ? 6 : 16)) wideBrightNeighbors += 1;
+      if (nLum >= pLum - (highToneBg ? 6 : 8)) wideBrightNeighbors += 1;
     }
     return checkedNeighbors >= 1 && wideBrightNeighbors === 0;
   };
@@ -1509,9 +1519,10 @@ export const inpaintTexturedRegion = (
     let bestLum = bestIdx >= 0 ? baseLum : -1;
     const suspiciousDarkCut =
       ringMedLum >= 160 ? Math.min(58, Math.max(32, Math.round(ringMedLum * 0.34))) : Math.min(95, Math.max(40, ringMedLum - 35));
+    const curCheckLum = bestLum < 0 ? baseLum : bestLum;
     const suspiciousBrightHalo =
       ringMedLum <= 246 &&
-      (bestLum < 0 ? baseLum : bestLum) >= Math.max(ringMedLum >= 220 ? 236 : 224, ringMedLum + (ringMedLum >= 220 ? 6 : 15));
+      curCheckLum >= Math.max(ringMedLum >= 220 ? 236 : ringMedLum + 8, ringMedLum + 6);
     const maxLook = bestIdx < 0 || baseLum < Math.max(70, ringMedLum - 15) || suspiciousBrightHalo ? 14 : 8;
     const maxTotalScan = 24;
     let cleanSteps = 0;
@@ -1531,14 +1542,14 @@ export const inpaintTexturedRegion = (
         ringMedB > ringMedR + 12 &&
         cleaned[cc + 2] - cleaned[cc] >
           (bestIdx >= 0 ? cleaned[bestC + 2] - cleaned[bestC] : cleaned[baseC + 2] - cleaned[baseC]) +
-            10;
+            8;
       const allowLumEscape = bestIdx < 0 || bestLum < suspiciousDarkCut;
       const allowBrightHaloDrop =
-        ringMedLum <= 218 &&
+        ringMedLum <= 228 &&
         bestIdx >= 0 &&
-        bestLum >= Math.max(224, ringMedLum + 16) &&
-        candLum <= bestLum - 16 &&
-        candLum <= ringMedLum + 28;
+        bestLum >= ringMedLum + 8 &&
+        candLum <= bestLum - 6 &&
+        candLum >= ringMedLum - 22;
       if ((allowLumEscape && candLum > bestLum + 10) || allowBrightHaloDrop || bestIdx < 0 || candBlueMatch) {
         bestIdx = candIdx;
         bestLum = candLum;
@@ -1750,26 +1761,34 @@ export const inpaintTexturedRegion = (
       vInterp[cIdx + 1],
       vInterp[cIdx + 2],
     );
+    const vLum = 0.299 * vInterp[cIdx] + 0.587 * vInterp[cIdx + 1] + 0.114 * vInterp[cIdx + 2];
+    const vIsWhiteHaloArtifact =
+      ringMedLum < 228 && vLum >= ringMedLum + 16 && Math.abs(vLum - ringMedLum) > Math.abs((0.299 * hInterp[cIdx] + 0.587 * hInterp[cIdx + 1] + 0.114 * hInterp[cIdx + 2]) - ringMedLum) + 10;
     const strongVertLine =
-      ringMedLum >= 120 && vDiff <= 26 && hvMismatch >= 22 && vSpan[idx] <= hSpan[idx] * 0.9;
+      !vIsWhiteHaloArtifact &&
+      ringMedLum >= 120 &&
+      vDiff <= 18 &&
+      hvMismatch >= 28 &&
+      vSpan[idx] <= hSpan[idx] * 0.55;
     const strongHorizLine =
       hDiff <= 26 && hvMismatch >= 22 && hSpan[idx] < vSpan[idx];
     const strongHorizGrad =
       !strongVertLine &&
       (strongHorizLine ||
+        vIsWhiteHaloArtifact ||
         (hDiff <= 38 && vDiff >= hDiff + 24) ||
         (hDiff <= 22 && vDiff > hDiff + 8));
     const strongVertGrad =
       !strongHorizGrad &&
+      !vIsWhiteHaloArtifact &&
       (strongVertLine ||
-        (vDiff <= 38 && hDiff >= vDiff + 24) ||
-        (vDiff <= 22 && hDiff > vDiff + 8));
+        (vDiff <= 24 && hDiff >= vDiff + 32));
     if (strongHorizGrad) lockDir[idx] = 1;
     else if (strongVertGrad) lockDir[idx] = 2;
     const whW = strongHorizGrad
-      ? 0.94
+      ? 0.92
       : strongVertGrad
-        ? 0.06
+        ? 0.25
         : vSpan[idx] / Math.max(1e-4, hSpan[idx] + vSpan[idx]);
     const wvW = 1 - whW;
     let spanR = whW * hInterp[cIdx] + wvW * vInterp[cIdx];
@@ -1910,16 +1929,16 @@ export const inpaintTexturedRegion = (
   }
 
   // 4. Anizotropik yön korumalı Harmonik yumuşatma (yatay/dikey çizgileri bulandırmadan pürüzleri siler)
-  const wH = clamp(0.25 * anisoH, 0.12, 0.38);
+  const wH = clamp(0.25 * anisoH, 0.16, 0.36);
   const wV = 0.5 - wH;
-  for (let iter = 0; iter < 10; iter += 1) {
+  for (let iter = 0; iter < 14; iter += 1) {
     for (let k = 0; k < qTail; k += 1) {
       const idx = order[k];
       const y = (idx / ww) | 0;
       const x = idx - y * ww;
       if (x <= 0 || x >= ww - 1 || y <= 0 || y >= wh - 1) continue;
       const ld = lockDir[idx];
-      const pwH = ld === 1 ? 0.47 : ld === 2 ? 0.03 : wH;
+      const pwH = ld === 1 ? 0.42 : ld === 2 ? 0.16 : wH;
       const pwV = 0.5 - pwH;
       const c = idx * 3;
       const n = (idx - ww) * 3;
@@ -2216,7 +2235,19 @@ export const inpaintTexturedRegion = (
           cleaned[bc + 1],
           cleaned[bc + 2],
         );
-        if (colDiff > 42) continue;
+        if (colDiff > 28) continue;
+        // Yalnızca gerçek dikey yapı/çizgi/kontrast kenarı (sol/sağ komşusundan belirgin farklı dikey hat)
+        // olduğunda dikey sütun geri yüklemesi uygula; düz/hale arka planlarda dikey barkod izi oluşturma!
+        const hasSharpHorizContrastAt = (ry: number): boolean => {
+          if (x < 3 || x >= ww - 3) return false;
+          const c3 = (ry * ww + x) * 3;
+          const l3 = (ry * ww + (x - 3)) * 3;
+          const r3 = (ry * ww + (x + 3)) * 3;
+          const dL = maxChannelDiff(cleaned[c3], cleaned[c3 + 1], cleaned[c3 + 2], cleaned[l3], cleaned[l3 + 1], cleaned[l3 + 2]);
+          const dR = maxChannelDiff(cleaned[c3], cleaned[c3 + 1], cleaned[c3 + 2], cleaned[r3], cleaned[r3 + 1], cleaned[r3 + 2]);
+          return Math.max(dL, dR) >= 24;
+        };
+        if (!hasSharpHorizContrastAt(tY) || !hasSharpHorizContrastAt(bY)) continue;
 
         const spanY = bY - tY;
         const vWeight = clamp(1.0 - colDiff / 48, 0.35, 0.9);

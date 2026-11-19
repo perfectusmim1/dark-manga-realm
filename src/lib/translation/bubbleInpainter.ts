@@ -13,7 +13,7 @@ import {
 } from './textLayout';
 import { ScanlationFontKey, TranslationBlock } from './types';
 
-export const TRANSLATION_BLOCK_VERSION = 20;
+export const TRANSLATION_BLOCK_VERSION = 21;
 export const SCANLATION_FONT_FAMILY = FONT_FAMILY_MAP.shantell;
 
 interface ComponentInfo {
@@ -3728,11 +3728,11 @@ export const inpaintAndRefineBlock = (
     (medGlyphH <= 26 || Math.abs(options?._srcRotationDeg ?? 0) >= 4.5);
   const dilateSteps =
     hasVividColorCoreInk && bgLumInit >= 185
-      ? 1
+      ? 2
       : isOpenCleanDarkInk
         ? medGlyphH >= 36 || isTiltedSmallPaperDarkInk
-          ? 2
-          : 1
+          ? 3
+          : 2
         : isOpenLightOutlineScene
           ? clamp(Math.round(medGlyphH * 0.09) + (enclosedCount > 20 ? 2 : 1), 3, 5)
           : clamp(Math.round(medGlyphH * 0.08) + (enclosedCount > 20 ? 2 : 1), 2, 4);
@@ -4439,34 +4439,98 @@ export const inpaintAndRefineBlock = (
       if (gHaloAdded === 0) break;
     }
 
-    if (isDenseTexturedHalo) {
-      const prevFringe = new Uint8Array(eraseMask);
-      for (let y = haloBoundY0; y <= haloBoundY1; y += 1) {
+    if (isDenseTexturedHalo || (hasWhiteStrokeHalo && ringMedLum < 242)) {
+      const fringeSteps = hasWhiteStrokeHalo && ringMedLum < 228 ? 4 : 2;
+      for (let fStep = 0; fStep < fringeSteps; fStep += 1) {
+        let fringeAdded = 0;
+        const prevFringe = new Uint8Array(eraseMask);
+        for (let y = haloBoundY0; y <= haloBoundY1; y += 1) {
+          const rOff = y * ww;
+          const refLum = Math.min(ringMedLum, rowOuterLum[y]);
+          const refChr = Math.max(ringMedChroma, rowOuterChroma[y]);
+          for (let x = haloBoundX0; x <= haloBoundX1; x += 1) {
+            const idx = rOff + x;
+            if (prevFringe[idx] || borderMask[idx]) continue;
+            if (
+              prevFringe[idx - 1] ||
+              prevFringe[idx + 1] ||
+              prevFringe[idx - ww] ||
+              prevFringe[idx + ww]
+            ) {
+              const cIdx = idx * 3;
+              const pr = winRgb[cIdx];
+              const pg = winRgb[cIdx + 1];
+              const pb = winRgb[cIdx + 2];
+              const pLum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+              const pChroma = Math.max(pr, pg, pb) - Math.min(pr, pg, pb);
+              const isBlendedWhiteOnColor =
+                hasWhiteStrokeHalo &&
+                refLum < 232 &&
+                pLum >= refLum + 5 &&
+                (pChroma <= Math.max(18, refChr - 3) || pLum >= 222);
+              if (
+                isBlendedWhiteOnColor ||
+                (pLum >= Math.max(175, refLum + 24) && pChroma <= Math.max(48, refChr * 0.88))
+              ) {
+                eraseMask[idx] = 1;
+                eraseCount += 1;
+                fringeAdded += 1;
+                if (x < egMinX) egMinX = x;
+                if (x > egMaxX) egMaxX = x;
+                if (y < egMinY) egMinY = y;
+                if (y > egMaxY) egMaxY = y;
+              }
+            }
+          }
+        }
+        if (fringeAdded === 0) break;
+      }
+    }
+
+    // Beyaz dış kontur/hale genişlemesi sırasında koyu harf çekirdeği ile beyaz hale arasında sıkışıp kalan
+    // küçük anti-aliasing adacıklarını (ör. harf tepelerindeki 1-4px gri noktalar) kapat ki inpaint sırasında leke yaymasın.
+    if (egMaxX > egMinX + 4 && egMaxY > egMinY + 4) {
+      const pocketVisited = new Uint8Array(numPixels);
+      const pocketQueue = new Int32Array(numPixels);
+      const xA = Math.max(1, egMinX);
+      const xB = Math.min(ww - 2, egMaxX);
+      const yA = Math.max(1, egMinY);
+      const yB = Math.min(wh - 2, egMaxY);
+      for (let y = yA; y <= yB; y += 1) {
         const rOff = y * ww;
-        const refLum = Math.min(ringMedLum, rowOuterLum[y]);
-        const refChr = Math.max(ringMedChroma, rowOuterChroma[y]);
-        for (let x = haloBoundX0; x <= haloBoundX1; x += 1) {
-          const idx = rOff + x;
-          if (prevFringe[idx] || borderMask[idx]) continue;
-          if (
-            prevFringe[idx - 1] ||
-            prevFringe[idx + 1] ||
-            prevFringe[idx - ww] ||
-            prevFringe[idx + ww]
-          ) {
-            const cIdx = idx * 3;
-            const pr = winRgb[cIdx];
-            const pg = winRgb[cIdx + 1];
-            const pb = winRgb[cIdx + 2];
-            const pLum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
-            const pChroma = Math.max(pr, pg, pb) - Math.min(pr, pg, pb);
-            if (pLum >= Math.max(175, refLum + 32) && pChroma <= Math.max(48, refChr * 0.85)) {
-              eraseMask[idx] = 1;
+        for (let x = xA; x <= xB; x += 1) {
+          const sIdx = rOff + x;
+          if (eraseMask[sIdx] || borderMask[sIdx] || pocketVisited[sIdx]) continue;
+          let qH = 0;
+          let qT = 0;
+          let touchesBoxEdgeOrBorder = false;
+          pocketVisited[sIdx] = 1;
+          pocketQueue[qT++] = sIdx;
+          while (qH < qT) {
+            const cur = pocketQueue[qH++];
+            const cy = (cur / ww) | 0;
+            const cx = cur - cy * ww;
+            if (cx <= xA || cx >= xB || cy <= yA || cy >= yB) {
+              touchesBoxEdgeOrBorder = true;
+            }
+            const nbs = [cur - 1, cur + 1, cur - ww, cur + ww];
+            for (let ni = 0; ni < 4; ni += 1) {
+              const nb = nbs[ni];
+              if (nb < 0 || nb >= numPixels) continue;
+              if (borderMask[nb]) {
+                touchesBoxEdgeOrBorder = true;
+                continue;
+              }
+              if (!eraseMask[nb] && !pocketVisited[nb]) {
+                pocketVisited[nb] = 1;
+                pocketQueue[qT++] = nb;
+              }
+            }
+          }
+          if (!touchesBoxEdgeOrBorder && qT <= 96) {
+            for (let k = 0; k < qT; k += 1) {
+              eraseMask[pocketQueue[k]] = 1;
               eraseCount += 1;
-              if (x < egMinX) egMinX = x;
-              if (x > egMaxX) egMaxX = x;
-              if (y < egMinY) egMinY = y;
-              if (y > egMaxY) egMaxY = y;
             }
           }
         }
@@ -4802,19 +4866,105 @@ export const inpaintAndRefineBlock = (
   }
 
   const cleaned = new Float32Array(winRgb);
+  // Metnin etrafında 4-10px yumuşak pembe/gri parlama veya JPEG halesi ("CONTINUARA" -> "DEVAM EDECEK" gibi)
+  // olduğunda 2px iç halka bu parlamayı örnekleyip `hasOuterGradientTint=true` sanabilir.
+  // 10..26px dış hendekteki (moat) gerçek arka plan %82+ oranında tekdüze düz beyaz/nötr açık renkse,
+  // parlama dahil tüm metin izini düz zemin rengiyle (%100 sıfır iz) temizle.
+  let isMoatVerifiedFlatLightBg = false;
+  if (!preferLightFirst && !hasTexturedSceneInterior && bgGradDelta < 4.5) {
+    const mBoundX0 = hasActualPhysicalWalls ? Math.max(2, safeLocalLeft + 2) : 2;
+    const mBoundX1 = hasActualPhysicalWalls ? Math.min(ww - 3, safeLocalRight - 2) : ww - 3;
+    const mBoundY0 = hasActualPhysicalWalls ? Math.max(2, safeLocalTop + 2) : 2;
+    const mBoundY1 = hasActualPhysicalWalls ? Math.min(wh - 3, safeLocalBottom - 2) : wh - 3;
+    const inBoxX0 = Math.min(cx0, egMinX) - 10;
+    const inBoxX1 = Math.max(cx1, egMaxX) + 10;
+    const inBoxY0 = Math.min(cy0, egMinY) - 10;
+    const inBoxY1 = Math.max(cy1, egMaxY) + 10;
+    const outBoxX0 = Math.max(mBoundX0, inBoxX0 - 16);
+    const outBoxX1 = Math.min(mBoundX1, inBoxX1 + 16);
+    const outBoxY0 = Math.max(mBoundY0, inBoxY0 - 16);
+    const outBoxY1 = Math.min(mBoundY1, inBoxY1 + 16);
+    const moatRs: number[] = [];
+    const moatGs: number[] = [];
+    const moatBs: number[] = [];
+    for (let y = outBoxY0; y <= outBoxY1; y += 2) {
+      const rOff = y * ww;
+      const inY = y >= inBoxY0 && y <= inBoxY1;
+      for (let x = outBoxX0; x <= outBoxX1; x += 2) {
+        if (inY && x >= inBoxX0 && x <= inBoxX1) continue;
+        const idx = rOff + x;
+        if (eraseMask[idx] || borderMask[idx]) continue;
+        if (overlapsAnySiblingAbs(wx0 + x, wy0 + y, wx0 + x + 1, wy0 + y + 1)) continue;
+        const c3 = idx * 3;
+        moatRs.push(winRgb[c3]);
+        moatGs.push(winRgb[c3 + 1]);
+        moatBs.push(winRgb[c3 + 2]);
+      }
+    }
+    if (moatRs.length >= 24) {
+      const mMedR = Math.round(medianOf(moatRs));
+      const mMedG = Math.round(medianOf(moatGs));
+      const mMedB = Math.round(medianOf(moatBs));
+      const mMedLum = 0.299 * mMedR + 0.587 * mMedG + 0.114 * mMedB;
+      const mMedChr = Math.max(mMedR, mMedG, mMedB) - Math.min(mMedR, mMedG, mMedB);
+      let mVar = 0;
+      let mClose = 0;
+      let mDarkOutliers = 0;
+      for (let i = 0; i < moatRs.length; i += 1) {
+        const dr = moatRs[i] - mMedR;
+        const dg = moatGs[i] - mMedG;
+        const db = moatBs[i] - mMedB;
+        const md = Math.max(Math.abs(dr), Math.abs(dg), Math.abs(db));
+        if (md <= 6) mClose += 1;
+        if (md >= 32) mDarkOutliers += 1;
+        mVar += (dr * dr + dg * dg + db * db) / 3;
+      }
+      const mStd = Math.sqrt(mVar / moatRs.length);
+      const mCloseRatio = mClose / moatRs.length;
+      if (
+        mMedLum >= 165 &&
+        mMedChr <= 6 &&
+        mStd < 2.8 &&
+        mCloseRatio >= 0.82 &&
+        mDarkOutliers <= moatRs.length * 0.04
+      ) {
+        isMoatVerifiedFlatLightBg = true;
+        ringMedR = mMedR;
+        ringMedG = mMedG;
+        ringMedB = mMedB;
+        ringMedLum = mMedLum;
+        ringStd = mStd;
+        ringCloseRatio = mCloseRatio;
+      }
+    }
+  }
   const isFlatNeutralGrayBubble =
-    hasActualPhysicalWalls &&
-    wallHits >= 3 &&
-    !hasTexturedSceneInterior &&
-    !hasOuterGradientTint &&
-    !isOpenWhiteHaloScene &&
-    bgGradDelta < 4.5 &&
-    ringStd < 3.5 &&
-    ringMedLum >= 165 &&
-    ringMedLum <= 228 &&
-    ringMedChroma <= 8;
+    isMoatVerifiedFlatLightBg ||
+    (hasActualPhysicalWalls &&
+      wallHits >= 3 &&
+      !hasTexturedSceneInterior &&
+      !hasOuterGradientTint &&
+      !isOpenWhiteHaloScene &&
+      bgGradDelta < 4.5 &&
+      ringStd < 3.5 &&
+      ringMedLum >= 165 &&
+      ringMedLum <= 228 &&
+      ringMedChroma <= 8);
+  const isFlatOpenLightBg =
+    isMoatVerifiedFlatLightBg ||
+    (!preferLightFirst &&
+      !hasTexturedSceneInterior &&
+      !hasWhiteHaloOverGradientOrTintedBg &&
+      !hasOuterGradientTint &&
+      !isOpenWhiteHaloScene &&
+      bgGradDelta < 4.5 &&
+      ringStd < 3.2 &&
+      ringMedLum >= 235 &&
+      ringMedChroma <= 8 &&
+      ringCloseRatio >= 0.72);
   const isFlatLightBubble =
     isFlatNeutralGrayBubble ||
+    isFlatOpenLightBg ||
     (hasActualPhysicalWalls &&
       wallHits >= 3 &&
       !hasTexturedSceneInterior &&
@@ -4842,18 +4992,20 @@ export const inpaintAndRefineBlock = (
 
   if (isFlatLightBubble || isFlatDarkBanner || isSmoothDarkOval) {
     if (isFlatLightBubble) {
-      const dotDiffThresh = isFlatNeutralGrayBubble ? 6 : ringStd < 4.5 ? 10 : 16;
-      const sweepY0 = isFlatNeutralGrayBubble
-        ? Math.max(safeLocalTop + 1, Math.min(cy0, egMinY) - 8)
+      const useWideSweep = isFlatNeutralGrayBubble || isFlatOpenLightBg;
+      const sweepPad = isMoatVerifiedFlatLightBg ? 12 : 8;
+      const dotDiffThresh = isMoatVerifiedFlatLightBg ? 3 : useWideSweep ? 5 : ringStd < 4.5 ? 10 : 16;
+      const sweepY0 = useWideSweep
+        ? Math.max(hasActualPhysicalWalls ? safeLocalTop + 1 : 1, Math.min(cy0, egMinY) - sweepPad)
         : Math.max(0, cy0 - 2);
-      const sweepY1 = isFlatNeutralGrayBubble
-        ? Math.min(safeLocalBottom - 1, Math.max(cy1, egMaxY) + 8)
+      const sweepY1 = useWideSweep
+        ? Math.min(hasActualPhysicalWalls ? safeLocalBottom - 1 : wh - 2, Math.max(cy1, egMaxY) + sweepPad)
         : Math.min(wh - 1, cy1 + 4);
-      const sweepX0 = isFlatNeutralGrayBubble
-        ? Math.max(safeLocalLeft + 1, Math.min(cx0, egMinX) - 8)
+      const sweepX0 = useWideSweep
+        ? Math.max(hasActualPhysicalWalls ? safeLocalLeft + 1 : 1, Math.min(cx0, egMinX) - sweepPad)
         : Math.max(0, cx0 - 4);
-      const sweepX1 = isFlatNeutralGrayBubble
-        ? Math.min(safeLocalRight - 1, Math.max(cx1, egMaxX) + 8)
+      const sweepX1 = useWideSweep
+        ? Math.min(hasActualPhysicalWalls ? safeLocalRight - 1 : ww - 2, Math.max(cx1, egMaxX) + sweepPad)
         : Math.min(ww - 1, cx1 + 4);
       for (let y = sweepY0; y <= sweepY1; y += 1) {
         const rOff = y * ww;
@@ -4881,18 +5033,37 @@ export const inpaintAndRefineBlock = (
     // Düz konuşma balonlarında veya düz siyah şeritlerde ("CHAINSAWMAN") dış gökyüzü/doku sızmasını engelle;
     // yalnızca mevcut silme maskesinin komşuluğundaki anti-aliasing/parlama kalıntılarını temizle!
     const flatExpandSteps =
-      isSmoothDarkOval || isFlatNeutralGrayBubble ? 6 : isFlatDarkBanner ? 2 : ringMedLum <= 240 ? 4 : 1;
-    const flatDiffThresh = isFlatNeutralGrayBubble
-      ? 5
-      : isSmoothDarkOval
-        ? 10
-        : isFlatDarkBanner
-          ? 16
-          : ringMedLum <= 240
-            ? 9
-            : 14;
+      isMoatVerifiedFlatLightBg
+        ? 8
+        : isSmoothDarkOval || isFlatNeutralGrayBubble || isFlatOpenLightBg
+          ? 6
+          : isFlatDarkBanner
+            ? 2
+            : ringMedLum <= 240
+              ? 4
+              : 1;
+    const flatDiffThresh =
+      isMoatVerifiedFlatLightBg
+        ? 3
+        : isFlatNeutralGrayBubble || isFlatOpenLightBg
+          ? 5
+          : isSmoothDarkOval
+            ? 10
+            : isFlatDarkBanner
+              ? 16
+              : ringMedLum <= 240
+                ? 9
+                : 14;
     const flatPad =
-      isSmoothDarkOval || isFlatNeutralGrayBubble ? 6 : isFlatDarkBanner ? 2 : ringMedLum <= 240 ? 4 : 2;
+      isMoatVerifiedFlatLightBg
+        ? 8
+        : isSmoothDarkOval || isFlatNeutralGrayBubble || isFlatOpenLightBg
+          ? 6
+          : isFlatDarkBanner
+            ? 2
+            : ringMedLum <= 240
+              ? 4
+              : 2;
     for (let fStep = 0; fStep < flatExpandSteps; fStep += 1) {
       let flatAdded = 0;
       const baseErase = new Uint8Array(eraseMask);
@@ -5124,14 +5295,16 @@ export const inpaintAndRefineBlock = (
           ringMedChroma <= 45 &&
           pLumCur >= Math.max(ringMedLum < 140 ? 205 : 242, ringMedLum + (ringMedLum < 140 ? 48 : 10)) &&
           pChromaCur <= Math.min(ringMedLum < 140 ? 18 : 12, Math.max(8, ringMedChroma * 0.55));
+        const locLum = 0.299 * locR + 0.587 * locG + 0.114 * locB;
         const isPureWhiteFaintInkResidual =
-          ringMedLum >= 245 && ringStd <= 4.5 && pLumCur <= 172;
+          (ringMedLum >= 245 && ringStd <= 4.5 && pLumCur <= 215 && dev >= 12) ||
+          (locLum >= 228 && hLocLum >= 228 && pLumCur <= locLum - 18);
         const isLightSceneResidual =
           !preferLightFirst && ringMedLum >= 60
             ? isPureWhiteFaintInkResidual ||
               (!hasVividColorCoreInk &&
-                pLumCur <= Math.min(62, Math.round(ringMedLum * 0.42)) &&
-                pLumCur < hLocLum - 35) ||
+                pLumCur <= Math.min(72, Math.round(ringMedLum * 0.45)) &&
+                pLumCur < hLocLum - 28) ||
               isPureWhiteInkHalo ||
               (!hasVividColorCoreInk &&
                 ringMedLum <= 240 &&
