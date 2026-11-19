@@ -56,11 +56,11 @@ const encodeBitmapInWorker = async (bitmap: ImageBitmap): Promise<Blob | undefin
       const probe = new OffscreenCanvas(1, 1);
       const pCtx = probe.getContext('2d');
       pCtx?.fillRect(0, 0, 1, 1);
-      const testBlob = await probe.convertToBlob({ type: 'image/webp', quality: 0.86 });
+      const testBlob = await probe.convertToBlob({ type: 'image/webp', quality: 0.95 });
       workerBlobMime =
         testBlob.type === 'image/webp'
-          ? { type: 'image/webp', quality: 0.86 }
-          : { type: 'image/jpeg', quality: 0.9 };
+          ? { type: 'image/webp', quality: 0.95 }
+          : { type: 'image/jpeg', quality: 0.96 };
     }
     if (!workerEncodeCanvas) {
       workerEncodeCanvas = new OffscreenCanvas(bitmap.width, bitmap.height);

@@ -97,7 +97,7 @@ export interface StripSizeResult {
 export const computeStripOutputSize = (
   srcW: number,
   validH: number,
-  screenPx: number,
+  _screenPx: number,
   maxTexSize: number = DEFAULT_MAX_TEX_SIZE,
 ): StripSizeResult => {
   const safeSrcW = Math.max(1, Math.floor(srcW));
@@ -107,12 +107,9 @@ export const computeStripOutputSize = (
 
   const inputWidth = Math.min(safeSrcW, maxInputW);
   const inputScale = inputWidth / safeSrcW;
-  const targetScreen = Number.isFinite(screenPx) && screenPx > 0 ? Math.ceil(screenPx) : safeSrcW * 2;
 
-  const outWidth = Math.max(
-    1,
-    Math.min(inputWidth * 2, Math.max(safeSrcW, targetScreen), safeMaxTex),
-  );
+  // Ara yeniden örnekleme (downscale) bulanıklığını önlemek için modelin doğal 2x çıktısını koru
+  const outWidth = Math.max(1, Math.min(inputWidth * 2, safeMaxTex));
   const scaleFromOriginal = outWidth / safeSrcW;
   const outHeight = Math.max(1, Math.min(Math.round(safeValidH * scaleFromOriginal), safeMaxTex));
 
