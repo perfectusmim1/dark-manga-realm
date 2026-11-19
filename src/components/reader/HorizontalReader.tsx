@@ -3,7 +3,9 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ReaderSettings, ResolvedReaderPage } from '@/lib/types';
 import { PageTranslateButton, TranslationOverlay } from '@/components/reader/TranslationOverlay';
+import { UpscaleLayer } from '@/components/reader/UpscaleLayer';
 import { ReaderTranslationApi } from '@/hooks/useChapterTranslation';
+import ProtectedImage from '@/components/security/ProtectedImage';
 
 interface HorizontalReaderProps {
   pages: ResolvedReaderPage[];
@@ -11,16 +13,16 @@ interface HorizontalReaderProps {
   currentPage: number;
   onPageChange: (page: number) => void;
   translation?: ReaderTranslationApi;
+  upscaleCompare?: boolean;
 }
-
-import ProtectedImage from '@/components/security/ProtectedImage';
 
 const HorizontalReader: React.FC<HorizontalReaderProps> = ({
   pages,
   settings,
   currentPage,
   onPageChange,
-  translation
+  translation,
+  upscaleCompare = false,
 }) => {
   const [isMobileViewport, setIsMobileViewport] = useState(() => window.innerWidth < 640);
   const [pageOverlayShown, setPageOverlayShown] = useState(true);
@@ -87,6 +89,23 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [goToPrevPage, goToNextPage]);
 
+  const activePageSrc = pages[currentPage - 1]?.src || '';
+  const combinedOverlay =
+    settings.upscaleMode !== 'off' && activePageSrc ? (
+      <>
+        <UpscaleLayer
+          src={activePageSrc}
+          mode={settings.upscaleMode}
+          aiModel={settings.upscaleAiModel}
+          upscaleHighRes={settings.upscaleHighRes}
+          compare={upscaleCompare}
+        />
+        {translationOverlayNode}
+      </>
+    ) : (
+      translationOverlayNode
+    );
+
   return (
     <div className="relative flex h-screen w-full max-w-[100vw] items-center justify-center overflow-x-clip pt-14 pb-14">
       {/* Left Navigation Zone */}
@@ -106,7 +125,7 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
       <div className={`group relative flex h-full items-center justify-center px-0 sm:px-4 ${settings.fitWidth ? 'w-full' : ''}`}>
         <div data-reader-page-number={currentPage} className="flex w-full justify-center">
           <ProtectedImage
-            src={pages[currentPage - 1]?.src || ''}
+            src={activePageSrc}
             alt={`Sayfa ${currentPage}`}
             zoom={effectiveZoom}
             className="max-h-full items-center justify-center flex"
@@ -114,7 +133,7 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
               width: settings.fitWidth ? '100%' : 'auto',
               maxWidth: settings.fitWidth ? '896px' : 'none',
             }}
-            overlay={translationOverlayNode}
+            overlay={combinedOverlay}
           />
         </div>
       </div>

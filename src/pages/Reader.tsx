@@ -67,6 +67,7 @@ import { useDeviceProfile } from '@/hooks/use-device-profile';
 import { shouldAvoidRawImageFallback } from '@/lib/imageProxy';
 import { buildProxiedImageUrl } from '@/lib/mediaStorage';
 import { getSeriesLanguage, resolveChapterLanguageCode } from '@/lib/seriesLanguage';
+import { upscaleQueue } from '@/lib/upscale/upscaleQueue';
 
 let persistedAutoScrollIntent = false;
 const MIN_READING_SESSION_SECONDS = 1;
@@ -229,6 +230,7 @@ const Reader: React.FC = () => {
   useDocumentTitle(readerDocumentTitle);
   const [resolvedPages, setResolvedPages] = useState<ResolvedReaderPage[]>([]);
   const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
+  const [upscaleCompare, setUpscaleCompare] = useState(false);
   const initialPos = useMemo(() => getInitialUrlOrSessionPosition(chapterId), [chapterId]);
   const [currentPage, setCurrentPage] = useState(() => initialPos.page);
   const [currentPageOffsetRatio, setCurrentPageOffsetRatio] = useState(() => initialPos.offsetRatio);
@@ -836,10 +838,15 @@ const Reader: React.FC = () => {
     revokeOfflineUrlsRef.current?.();
     revokeOfflineUrlsRef.current = null;
     retainPrefetchedChapters([]);
+    upscaleQueue.cancelAll(true);
     if (!resumeAutoScrollAfterNavigationRef.current) {
       persistedAutoScrollIntent = false;
     }
   }, [flushSessionScrollPos]);
+
+  useEffect(() => {
+    upscaleQueue.cancelAll(false);
+  }, [chapterId]);
 
   useEffect(() => {
     const previousScrollRestoration = window.history.scrollRestoration;
@@ -1450,9 +1457,18 @@ const Reader: React.FC = () => {
   }, [initialized, isInitialViewportReady, user, chapter, isIncognito, flushReadingSession]);
 
   const handleSettingsChange = useCallback((newSettings: ReaderSettings) => {
+    if (
+      newSettings.upscaleMode !== settings.upscaleMode ||
+      newSettings.upscaleAiModel !== settings.upscaleAiModel
+    ) {
+      upscaleQueue.cancelAll(newSettings.upscaleMode === 'off');
+      if (newSettings.upscaleMode === 'off') {
+        setUpscaleCompare(false);
+      }
+    }
     setSettings(newSettings);
     setReaderSettings(newSettings);
-  }, []);
+  }, [settings.upscaleAiModel, settings.upscaleMode]);
 
   const isAutoScrollAvailable = settings.mode !== 'horizontal';
 
@@ -2091,6 +2107,7 @@ const Reader: React.FC = () => {
       target.closest('[role="dialog"]') ||
       target.closest('[data-radix-popper-content-wrapper]') ||
       target.closest('[data-state]') ||
+      target.closest('[data-upscale-compare]') ||
       target.closest('.fixed')
     ) {
       return;
@@ -2246,6 +2263,8 @@ const Reader: React.FC = () => {
         isChapterLiked={currentChapterLike.viewerLiked}
         chapterLikeLoading={chapterLikePending}
         onToggleChapterLike={canUseNetworkReaderFeatures ? handleToggleChapterLike : undefined}
+        upscaleCompare={upscaleCompare}
+        onUpscaleCompareChange={setUpscaleCompare}
       />
 
       <Dialog open={chapterCommentsOpen} onOpenChange={setChapterCommentsOpen}>
@@ -2301,7 +2320,7 @@ const Reader: React.FC = () => {
           : 'opacity-100'
           }`}
       >
-        <div ref={readerContentRef}>
+        <div ref={readerContentRef} data-upscale-root="true">
           {resolvedPages.length === 0 ? (
             <div className="flex flex-col items-center justify-center min-h-[50vh] px-4 py-20 text-center">
               <div className="rounded-full bg-muted/60 p-4 mb-4">
@@ -2332,6 +2351,7 @@ const Reader: React.FC = () => {
               initialPage={currentPage}
               trackingEnabled={isInitialViewportReady}
               translation={translation}
+              upscaleCompare={upscaleCompare}
             />
           ) : (
             <HorizontalReader
@@ -2341,6 +2361,7 @@ const Reader: React.FC = () => {
               currentPage={currentPage}
               onPageChange={handlePageChange}
               translation={translation}
+              upscaleCompare={upscaleCompare}
             />
           )}
         </div>

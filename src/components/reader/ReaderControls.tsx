@@ -19,6 +19,7 @@ import {
   ArrowUp,
   MessageCircle,
   Heart,
+  Sparkles,
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -56,7 +57,9 @@ import { buildRouteKey, markRouteToForceTopOnNextVisit } from '@/lib/scrollResto
 import { cn } from '@/lib/utils';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
 import TranslationPanel from '@/components/reader/TranslationPanel';
+import UpscalePanel from '@/components/reader/UpscalePanel';
 import { ReaderTranslationApi } from '@/hooks/useChapterTranslation';
+import { useUpscaleStatus } from '@/hooks/useUpscaleSupport';
 
 const READER_TOP_SAFE_AREA = 'calc(env(safe-area-inset-top) + 0px)';
 const READER_BOTTOM_SAFE_AREA = 'calc(env(safe-area-inset-bottom) + 0px)';
@@ -96,6 +99,8 @@ interface ReaderControlsProps {
   isChapterLiked?: boolean;
   chapterLikeLoading?: boolean;
   onToggleChapterLike?: () => void;
+  upscaleCompare: boolean;
+  onUpscaleCompareChange: (value: boolean) => void;
 }
 
 const normalizeChapterSearchValue = (value?: string | null) =>
@@ -135,9 +140,12 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   isChapterLiked = false,
   chapterLikeLoading = false,
   onToggleChapterLike,
+  upscaleCompare,
+  onUpscaleCompareChange,
 }) => {
   const navigate = useNavigate();
   const { isMobile } = useDeviceProfile();
+  const upscaleStatus = useUpscaleStatus();
 
   const fallbackLangCode = useMemo(() => {
     for (const ch of chapters) {
@@ -220,6 +228,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   const [selectedReaderLang, setSelectedReaderLang] = useState<string>('all');
   const [chapterPanelOpen, setChapterPanelOpen] = useState(false);
   const [translationPanelOpen, setTranslationPanelOpen] = useState(false);
+  const [upscalePanelOpen, setUpscalePanelOpen] = useState(false);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(false);
   const activeChapterItemRef = useRef<HTMLButtonElement | null>(null);
 
@@ -666,6 +675,27 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
     />
   );
 
+  const isUpscaleActive = settings.upscaleMode !== 'off';
+  const isUpscaleBusy = upscaleStatus.activeJobs > 0;
+
+  const upscalePanelBody = (
+    <UpscalePanel
+      mode={settings.upscaleMode}
+      aiModel={settings.upscaleAiModel}
+      upscaleHighRes={settings.upscaleHighRes}
+      compare={upscaleCompare}
+      onModeChange={(upscaleMode) => {
+        onSettingsChange({ ...settings, upscaleMode });
+        if (upscaleMode === 'off') {
+          onUpscaleCompareChange(false);
+        }
+      }}
+      onAiModelChange={(upscaleAiModel) => onSettingsChange({ ...settings, upscaleAiModel })}
+      onHighResChange={(upscaleHighRes) => onSettingsChange({ ...settings, upscaleHighRes })}
+      onCompareChange={onUpscaleCompareChange}
+    />
+  );
+
   const readerSettingsBody = (
     <div className="flex flex-col gap-3 sm:gap-4">
       {isMobile && (
@@ -825,7 +855,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
       {/* Top Bar */}
       <div
         aria-hidden={!visible}
-        inert={!visible && !chapterPanelOpen && !translationPanelOpen && !settingsPanelOpen ? true : undefined}
+        inert={!visible && !chapterPanelOpen && !translationPanelOpen && !upscalePanelOpen && !settingsPanelOpen ? true : undefined}
         className={`fixed left-0 right-0 top-0 z-50 w-full max-w-[100vw] overflow-x-clip border-b border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-200 ease-out-smooth motion-reduce:transition-none ${visible ? 'translate-y-0' : '-translate-y-full'}`}
         style={{ paddingTop: READER_TOP_SAFE_AREA }}
         onClick={(e) => e.stopPropagation()}
@@ -1051,6 +1081,75 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                     Görsel Çeviri
                   </h4>
                   {translationPanelBody}
+                </PopoverContent>
+              </Popover>
+            )}
+
+            {isMobile ? (
+              <Drawer
+                open={upscalePanelOpen}
+                onOpenChange={setUpscalePanelOpen}
+                modal
+                dismissible
+                shouldScaleBackground={false}
+                autoFocus={false}
+              >
+                <DrawerTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      'relative h-8 w-8 sm:h-10 sm:w-10',
+                      (upscalePanelOpen || isUpscaleActive || isUpscaleBusy) && 'text-primary',
+                      upscalePanelOpen && 'bg-primary/15',
+                    )}
+                    aria-label="Görsel iyileştirme ayarları"
+                  >
+                    <Sparkles className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </Button>
+                </DrawerTrigger>
+                <DrawerContent
+                  onOpenAutoFocus={(event) => event.preventDefault()}
+                  onPointerDownOutside={() => setUpscalePanelOpen(false)}
+                  onInteractOutside={() => setUpscalePanelOpen(false)}
+                  className="max-h-[min(82svh,38rem)] rounded-t-[1.75rem] border-border/70 bg-popover px-0 shadow-2xl pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+                >
+                  <DrawerHeader className="px-4 pb-2 pt-2 text-left">
+                    <DrawerTitle className="text-base font-semibold">Görsel İyileştirme</DrawerTitle>
+                    <DrawerDescription className="sr-only">
+                      Görsel netleştirme ve karşılaştırma ayarları.
+                    </DrawerDescription>
+                  </DrawerHeader>
+                  <div className="reader-scroll-thin overflow-y-auto px-4 pb-3">
+                    {upscalePanelBody}
+                  </div>
+                </DrawerContent>
+              </Drawer>
+            ) : (
+              <Popover open={upscalePanelOpen} onOpenChange={setUpscalePanelOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      'relative h-8 w-8 sm:h-10 sm:w-10',
+                      upscalePanelOpen && 'bg-primary/15 text-primary',
+                      !upscalePanelOpen && (isUpscaleActive || isUpscaleBusy) && 'text-primary',
+                    )}
+                    aria-label="Görsel iyileştirme ayarları"
+                  >
+                    <Sparkles className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="end"
+                  onOpenAutoFocus={(event) => event.preventDefault()}
+                  className="reader-scroll-thin max-h-[min(80vh,38rem)] w-[min(23rem,calc(100vw-1rem))] overflow-y-auto rounded-2xl border-border bg-popover p-3 shadow-2xl sm:p-4"
+                >
+                  <h4 className="mb-3 text-sm font-semibold tracking-tight sm:text-base">
+                    Görsel İyileştirme
+                  </h4>
+                  {upscalePanelBody}
                 </PopoverContent>
               </Popover>
             )}

@@ -364,6 +364,8 @@ export interface Bookmark {
   chapterTitle?: string;
 }
 
+import type { UpscaleAiModel, UpscaleMode } from './upscale/types';
+
 export type ReadingMode = 'vertical' | 'horizontal' | 'webtoon';
 
 export interface ReaderSettings {
@@ -376,6 +378,9 @@ export interface ReaderSettings {
   prefetchNextChapter: boolean;
   zoom: number; // 10-300
   autoScrollSpeed: number; // pixels per second
+  upscaleMode: UpscaleMode;
+  upscaleAiModel: UpscaleAiModel;
+  upscaleHighRes: boolean;
 }
 
 export interface ResolvedReaderPage {

@@ -2027,6 +2027,9 @@ const DEFAULT_READER_SETTINGS: ReaderSettings = {
     prefetchNextChapter: true,
     zoom: 100,
     autoScrollSpeed: 30,
+    upscaleMode: 'off',
+    upscaleAiModel: 'realesrgan',
+    upscaleHighRes: false,
 };
 
 export const getReaderSettings = (): ReaderSettings => {

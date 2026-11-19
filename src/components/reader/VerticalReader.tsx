@@ -3,7 +3,9 @@ import { ReaderSettings, ResolvedReaderPage } from '@/lib/types';
 import { PageTranslationState } from '@/lib/translation/types';
 import ProtectedImage from '@/components/security/ProtectedImage';
 import { PageTranslateButton, TranslationOverlay } from '@/components/reader/TranslationOverlay';
+import { UpscaleLayer } from '@/components/reader/UpscaleLayer';
 import { ReaderTranslationApi } from '@/hooks/useChapterTranslation';
+import type { UpscaleAiModel, UpscaleMode } from '@/lib/upscale/types';
 
 interface VerticalReaderProps {
   pages: ResolvedReaderPage[];
@@ -13,6 +15,7 @@ interface VerticalReaderProps {
   initialPage?: number;
   trackingEnabled?: boolean;
   translation?: ReaderTranslationApi;
+  upscaleCompare?: boolean;
 }
 
 interface ReaderPageProps {
@@ -28,6 +31,10 @@ interface ReaderPageProps {
   targetLang: string;
   pageState?: PageTranslationState;
   onTranslatePage?: (pageIndex: number, options?: { force?: boolean }) => void;
+  upscaleMode: UpscaleMode;
+  upscaleAiModel: UpscaleAiModel;
+  upscaleHighRes: boolean;
+  upscaleCompare: boolean;
 }
 
 const ReaderPage: React.FC<ReaderPageProps> = React.memo(({
@@ -43,6 +50,10 @@ const ReaderPage: React.FC<ReaderPageProps> = React.memo(({
   targetLang,
   pageState,
   onTranslatePage,
+  upscaleMode,
+  upscaleAiModel,
+  upscaleHighRes,
+  upscaleCompare,
 }) => {
   const [pageOverlayShown, setPageOverlayShown] = useState(true);
   const showOverlay = Boolean(
@@ -96,6 +107,24 @@ const ReaderPage: React.FC<ReaderPageProps> = React.memo(({
     translationEnabled,
   ]);
 
+  const combinedOverlay = useMemo(() => {
+    if (upscaleMode === 'off') {
+      return overlayNode;
+    }
+    return (
+      <>
+        <UpscaleLayer
+          src={page.src}
+          mode={upscaleMode}
+          aiModel={upscaleAiModel}
+          upscaleHighRes={upscaleHighRes}
+          compare={upscaleCompare}
+        />
+        {overlayNode}
+      </>
+    );
+  }, [overlayNode, page.src, upscaleAiModel, upscaleCompare, upscaleHighRes, upscaleMode]);
+
   return (
     <div
       data-page-index={index}
@@ -114,7 +143,7 @@ const ReaderPage: React.FC<ReaderPageProps> = React.memo(({
           zoom={zoom}
           priority={priority}
           reserveHeightWhenLoading
-          overlay={overlayNode}
+          overlay={combinedOverlay}
         />
       </div>
       <div className="pointer-events-none absolute left-2 top-2 z-20 rounded bg-black/50 px-2 py-1 text-[10px] leading-normal text-white opacity-0 transition-opacity group-hover:opacity-100">
@@ -133,6 +162,7 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
   initialPage = 1,
   trackingEnabled = true,
   translation,
+  upscaleCompare = false,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const lastReportedPage = useRef<number>(initialPage);
@@ -299,6 +329,10 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
           targetLang={targetLang}
           pageState={translation?.pageStates[index]}
           onTranslatePage={translatePage}
+          upscaleMode={settings.upscaleMode}
+          upscaleAiModel={settings.upscaleAiModel}
+          upscaleHighRes={settings.upscaleHighRes}
+          upscaleCompare={upscaleCompare}
         />
       ))}
     </div>

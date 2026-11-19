@@ -57,6 +57,7 @@ export default defineConfig(({ mode }) => ({
         clientsClaim: true,
         navigateFallback: null as unknown as string,
         globPatterns: ["**/*.{js,css,ico,png,webp,svg,woff2}"],
+        globIgnores: ["**/anime4k*.js"],
         cleanupOutdatedCaches: true,
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
         runtimeCaching: [
@@ -77,7 +78,7 @@ export default defineConfig(({ mode }) => ({
               },
             },
           },
-          // 0. Yerel OCR modelleri ve WASM çalışma zamanı (büyük, değişmeyen dosyalar):
+          // 0. Yerel OCR modelleri ve ORT çalışma zamanı (büyük, değişmeyen dosyalar):
           //    ilk indirmeden sonra her çeviride ağa gitmeden önbellekten yüklenir.
           {
             urlPattern: ({ url, sameOrigin }: any) =>
@@ -89,7 +90,39 @@ export default defineConfig(({ mode }) => ({
                 statuses: [200],
               },
               expiration: {
-                maxEntries: 12,
+                maxEntries: 20,
+                maxAgeSeconds: 60 * 60 * 24 * 90,
+              },
+            },
+          },
+          // 0b. AI Upscale ONNX modelleri (/models/*) yalnızca kullanılınca indirilir ve kalıcı önbelleğe alınır.
+          {
+            urlPattern: ({ url, sameOrigin }: any) =>
+              sameOrigin && /^\/models\//.test(url.pathname),
+            handler: "CacheFirst",
+            options: {
+              cacheName: "toonparrot-upscale-models-v1",
+              cacheableResponse: {
+                statuses: [200],
+              },
+              expiration: {
+                maxEntries: 8,
+                maxAgeSeconds: 60 * 60 * 24 * 90,
+              },
+            },
+          },
+          // 0c. Anime4K WebGPU chunk'ı yalnızca mod açıldığında yüklenir ve önbelleğe alınır.
+          {
+            urlPattern: ({ url, sameOrigin }: any) =>
+              sameOrigin && /\/assets\/anime4k.*\.js$/.test(url.pathname),
+            handler: "CacheFirst",
+            options: {
+              cacheName: "toonparrot-anime4k-chunk-v1",
+              cacheableResponse: {
+                statuses: [200],
+              },
+              expiration: {
+                maxEntries: 4,
                 maxAgeSeconds: 60 * 60 * 24 * 90,
               },
             },
@@ -153,11 +186,22 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  worker: {
+    format: "es",
+  },
   build: {
     rollupOptions: {
       output: {
         manualChunks(id) {
           const normalizedId = id.replace(/\\/g, "/");
+
+          if (normalizedId.includes("src/lib/upscale/anime4kCnnM")) {
+            return "anime4k-fast";
+          }
+
+          if (normalizedId.includes("src/lib/upscale/anime4kCnnUL")) {
+            return "anime4k-quality";
+          }
 
           if (!normalizedId.includes("node_modules")) {
             return;
