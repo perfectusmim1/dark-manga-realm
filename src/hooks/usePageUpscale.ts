@@ -121,8 +121,10 @@ export const usePageUpscale = ({
       }
 
       const clientWidth = Math.max(1, parent.clientWidth || img.clientWidth || img.naturalWidth);
-      const dpr = typeof window !== 'undefined' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
-      const screenPx = Math.ceil(clientWidth * dpr);
+      const rawDpr = typeof window !== 'undefined' && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+      // Mobil cihazlarda 2.0x DPR üzerindeki fark gözle seçilemez ancak VRAM ve pil tüketimini 2.25x artırır
+      const dpr = isMobile ? Math.min(rawDpr, 2) : rawDpr;
+      const screenPx = Math.max(64, Math.ceil((clientWidth * dpr) / 32) * 32);
       const skippedHighRes = shouldSkipHighResPage(
         img.naturalWidth,
         clientWidth,
@@ -283,7 +285,19 @@ export const usePageUpscale = ({
       return;
     }
 
-    const rootMargin = isMobile ? '600px 0px' : '1200px 0px';
+    // Akıllı İleri-Okuma Penceresi (Smart Lookahead Window):
+    // Tüm bölümün 250+ şeridini aynı anda kuyruğa yığıp dakikalarca GPU'yu %65'te çalıştırmak yerine,
+    // kullanıcının baktığı alan + aşağı doğru 2-3 ekran ilerisini önceden hazırlar.
+    // Tampon dolduğunda GPU %0'a düşüp dinlenir; kullanıcı aşağı kaydırdıkça pencere ilerler.
+    const topMarginPx = isMobile ? 500 : 800;
+    const bottomMarginPx = isMobile
+      ? engine === 'realesrgan'
+        ? 1400
+        : 2200
+      : engine === 'realesrgan'
+        ? 2400
+        : 3600;
+    const rootMargin = `${topMarginPx}px 0px ${bottomMarginPx}px 0px`;
     const stripByIndex = new Map<number, StripPlan>(
       metrics.strips.map((s) => [s.index, s]),
     );
@@ -292,26 +306,44 @@ export const usePageUpscale = ({
       (entries) => {
         if (runIdRef.current !== runId) return;
         for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
           const el = entry.target as HTMLDivElement;
           const idxAttr = el.dataset.stripIndex;
           const idx = idxAttr ? Number.parseInt(idxAttr, 10) : -1;
           const strip = stripByIndex.get(idx);
           if (!strip) continue;
-          scheduleStrip(strip, el, runId);
+          if (entry.isIntersecting) {
+            scheduleStrip(strip, el, runId);
+          } else if (stateMapRef.current.get(idx) === 'processing') {
+            // Kullanıcı çok hızlı kaydırıp bu şeridi pencerenin çok dışında bıraktıysa
+            // kuyrukta bekleyen işi iptal et ki yeni gelinen yer anında işlensin
+            const rect = el.getBoundingClientRect();
+            const vh = typeof window !== 'undefined' ? window.innerHeight : 900;
+            if (rect.bottom < -topMarginPx * 2 || rect.top > vh + bottomMarginPx * 1.5) {
+              inFlightAbortRef.current.get(idx)?.abort();
+              inFlightAbortRef.current.delete(idx);
+              setStripStatus(idx, 'idle');
+            }
+          }
         }
       },
       { rootMargin, threshold: 0.01 },
     );
 
     observerRef.current = observer;
-    // Ekrandaki ve bölümdeki tüm şeritleri öncelik sırasıyla kuyruğa ekle;
-    // getPriority() viewport merkezine yakın olanları daima öne alır.
+    const viewportH = typeof window !== 'undefined' ? window.innerHeight : 900;
     stripElsRef.current.forEach((el, idx) => {
       observer.observe(el);
       const strip = stripByIndex.get(idx);
       if (!strip) return;
-      scheduleStrip(strip, el, runId);
+      const rect = el.getBoundingClientRect();
+      if (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        rect.bottom > -topMarginPx &&
+        rect.top < viewportH + bottomMarginPx
+      ) {
+        scheduleStrip(strip, el, runId);
+      }
     });
 
     return () => {

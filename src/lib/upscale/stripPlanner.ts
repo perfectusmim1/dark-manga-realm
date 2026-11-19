@@ -2,7 +2,7 @@ import type { StripPlan, TilePlan } from './types';
 
 export const STRIP_HEIGHT = 1024;
 export const STRIP_OVERLAP = 16;
-export const AI_TILE_SIZE = 256;
+export const AI_TILE_SIZE = 384;
 export const AI_TILE_OVERLAP = 12;
 export const DEFAULT_MAX_TEX_SIZE = 4096;
 

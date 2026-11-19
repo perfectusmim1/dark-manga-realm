@@ -43,16 +43,18 @@ interface PendingStripTask {
 }
 
 interface WorkerPendingJob {
-  resolve: (bitmap: ImageBitmap) => void;
+  resolve: (res: { bitmap: ImageBitmap; blob?: Blob }) => void;
   reject: (err: unknown) => void;
 }
 
-const MOBILE_PAGE_CACHE_LIMIT = 2;
-const DESKTOP_PAGE_CACHE_LIMIT = 4;
-const MOBILE_STRIP_LRU_LIMIT = 45;
-const DESKTOP_STRIP_LRU_LIMIT = 150;
-const MOBILE_AI_BLOB_BUDGET = 80 * 1024 * 1024;
-const DESKTOP_AI_BLOB_BUDGET = 300 * 1024 * 1024;
+const MOBILE_PAGE_CACHE_LIMIT = 1;
+const DESKTOP_PAGE_CACHE_LIMIT = 1;
+const MOBILE_STRIP_LRU_LIMIT = 8;
+const DESKTOP_STRIP_LRU_LIMIT = 16;
+const MOBILE_AI_BLOB_BUDGET = 45 * 1024 * 1024;
+const DESKTOP_AI_BLOB_BUDGET = 120 * 1024 * 1024;
+const SCROLL_PAUSE_MS = 140;
+const IDLE_PAGE_BITMAP_PURGE_MS = 1200;
 
 const isAiEngine = (engine: UpscaleEngineKey): boolean => engine === 'realesrgan';
 
@@ -143,6 +145,9 @@ class UpscaleQueueManager {
   private pumpScheduled = false;
   private isHidden = false;
   private visibilityAttached = false;
+  private lastScrollAt = 0;
+  private scrollResumeTimer: number | null = null;
+  private idlePurgeTimer: number | null = null;
 
   private generation = 0;
   private jobSeq = 0;
@@ -169,6 +174,15 @@ class UpscaleQueueManager {
         this.schedulePump();
       }
     });
+    if (typeof window !== 'undefined') {
+      window.addEventListener(
+        'scroll',
+        () => {
+          this.lastScrollAt = performance.now();
+        },
+        { passive: true },
+      );
+    }
   }
 
   private updateStatus(patch: Partial<UpscaleRuntimeStatus>): void {
@@ -232,7 +246,7 @@ class UpscaleQueueManager {
         }
         this.workerJobs.delete(msg.id);
         if (msg.ok && msg.bitmap) {
-          pending.resolve(msg.bitmap);
+          pending.resolve({ bitmap: msg.bitmap, blob: msg.blob });
         } else if (msg.aborted) {
           pending.reject(makeAbortError());
         } else {
@@ -475,6 +489,29 @@ class UpscaleQueueManager {
     }
 
     this.queue.sort((a, b) => a.getPriority() - b.getPriority());
+    const nextCandidate = this.queue[0];
+
+    // Kullanıcı aktif olarak sayfayı kaydırırken ağır Yapay Zekâ işini kısa süre beklet
+    // (önbellekte hazırsa bekletmeden anında döner)
+    if (
+      nextCandidate &&
+      isAiEngine(nextCandidate.request.engine) &&
+      !this.aiBlobCache.has(nextCandidate.cacheKey) &&
+      typeof window !== 'undefined'
+    ) {
+      const elapsedSinceScroll = performance.now() - this.lastScrollAt;
+      if (elapsedSinceScroll < SCROLL_PAUSE_MS) {
+        if (this.scrollResumeTimer === null) {
+          const waitMs = Math.max(24, Math.ceil(SCROLL_PAUSE_MS - elapsedSinceScroll));
+          this.scrollResumeTimer = window.setTimeout(() => {
+            this.scrollResumeTimer = null;
+            this.schedulePump();
+          }, waitMs);
+        }
+        return;
+      }
+    }
+
     const task = this.queue.shift()!;
     if (task.generation !== this.generation || task.abortController.signal.aborted) {
       task.cleanupAbortListener();
@@ -482,6 +519,11 @@ class UpscaleQueueManager {
       this.syncCounts();
       this.schedulePump();
       return;
+    }
+
+    if (this.idlePurgeTimer !== null && typeof window !== 'undefined') {
+      window.clearTimeout(this.idlePurgeTimer);
+      this.idlePurgeTimer = null;
     }
 
     this.activeTask = task;
@@ -516,6 +558,19 @@ class UpscaleQueueManager {
       this.syncCounts();
       if (!this.isHidden && this.queue.length > 0) {
         this.schedulePump();
+      } else if (this.queue.length === 0 && !this.activeTask) {
+        // Kuyruk tamamen boşaldığında 44 MB'lık ham tam-sayfa bitmap'lerini RAM'den temizle
+        if (typeof window !== 'undefined') {
+          if (this.idlePurgeTimer !== null) window.clearTimeout(this.idlePurgeTimer);
+          this.idlePurgeTimer = window.setTimeout(() => {
+            this.idlePurgeTimer = null;
+            if (!this.activeTask && this.queue.length === 0) {
+              this.trimPageBitmapCache(0);
+            }
+          }, IDLE_PAGE_BITMAP_PURGE_MS);
+        } else {
+          this.trimPageBitmapCache(0);
+        }
       }
     }
   }
@@ -523,16 +578,15 @@ class UpscaleQueueManager {
   private async executeTask(task: PendingStripTask): Promise<ImageBitmap> {
     const { request, abortController, id } = task;
     const { src, strip, engine, screenPx, isMobile } = request;
-    const aiMode = isAiEngine(engine);
 
-    if (aiMode) {
-      const cachedBlob = this.getAiBlob(task.cacheKey);
-      if (cachedBlob) {
-        if (abortController.signal.aborted || task.generation !== this.generation) {
-          throw makeAbortError();
-        }
-        return createImageBitmap(cachedBlob);
+    // Hem Hızlı hem Yapay Zekâ modunda daha önce işlenmiş şeridin ~150 KB'lık Blob önbelleği varsa
+    // GPU/AI çalıştırmadan (%0 GPU) 1ms içinde doğrudan decode et!
+    const cachedBlob = this.getAiBlob(task.cacheKey);
+    if (cachedBlob) {
+      if (abortController.signal.aborted || task.generation !== this.generation) {
+        throw makeAbortError();
       }
+      return createImageBitmap(cachedBlob);
     }
 
     const acquired = await this.acquirePageBitmap(src, isMobile, abortController.signal);
@@ -588,9 +642,10 @@ class UpscaleQueueManager {
     const preferWebGPU = support.webgpu;
 
     let resultBitmap: ImageBitmap;
+    let workerBlob: Blob | undefined;
     const worker = this.ensureWorker();
     if (worker) {
-      resultBitmap = await new Promise<ImageBitmap>((resolve, reject) => {
+      const workerOut = await new Promise<{ bitmap: ImageBitmap; blob?: Blob }>((resolve, reject) => {
         this.workerJobs.set(id, { resolve, reject });
         try {
           worker.postMessage(
@@ -617,6 +672,8 @@ class UpscaleQueueManager {
           reject(err);
         }
       });
+      resultBitmap = workerOut.bitmap;
+      workerBlob = workerOut.blob;
     } else {
       if (!this.mainProcessor) {
         this.mainProcessor = new UpscaleProcessor();
@@ -643,8 +700,12 @@ class UpscaleQueueManager {
       );
     }
 
-    if (aiMode && task.generation === this.generation && !abortController.signal.aborted) {
-      const encoded = await encodeBitmapToBlob(resultBitmap);
+    if (task.generation === this.generation && !abortController.signal.aborted) {
+      const encoded = workerBlob ?? (await encodeBitmapToBlob(resultBitmap));
+      if (encoded && encodeCanvas) {
+        encodeCanvas.width = 1;
+        encodeCanvas.height = 1;
+      }
       if (encoded) {
         this.putAiBlob(task.cacheKey, encoded, isMobile);
       }

@@ -120,6 +120,17 @@ export class OnnxUpscaleEngine {
   private scratchCanvas: OffscreenCanvas | HTMLCanvasElement | null = null;
   private tileCanvas: OffscreenCanvas | HTMLCanvasElement | null = null;
   private outCanvas: OffscreenCanvas | HTMLCanvasElement | null = null;
+  private reusedInputFloat: Float32Array | null = null;
+  private reusedTileRgba: Uint8ClampedArray | null = null;
+
+  private shrinkScratchCanvases(): void {
+    for (const c of [this.scratchCanvas, this.tileCanvas, this.outCanvas]) {
+      if (c) {
+        c.width = 1;
+        c.height = 1;
+      }
+    }
+  }
 
   private async ensureOrt(): Promise<OrtWebGpuModule> {
     if (this.ort) return this.ort;
@@ -265,32 +276,65 @@ export class OnnxUpscaleEngine {
     srcCtx.clearRect(0, 0, srcW, srcH);
     srcCtx.drawImage(bitmap, 0, 0);
     const srcRgba = srcCtx.getImageData(0, 0, srcW, srcH).data;
+    // Kaynak piksel dizisi alındıktan sonra scratchCanvas VRAM/RAM belleğini hemen küçült
+    this.scratchCanvas.width = 1;
+    this.scratchCanvas.height = 1;
 
     const fullOutW = srcW * 2;
     const fullOutH = srcH * 2;
-    const outRgba = new Uint8ClampedArray(fullOutW * fullOutH * 4);
+    if (!this.tileCanvas) {
+      this.tileCanvas = this.createCanvas(fullOutW, fullOutH);
+    }
+    const fullCtx = this.getCanvas2d(this.tileCanvas, fullOutW, fullOutH, false);
+    fullCtx.clearRect(0, 0, fullOutW, fullOutH);
+
     const tiles = planTiles(srcW, srcH, spec.tileSize, spec.tileOverlap);
     const margin = (spec.tileOverlap - spec.modelInputShrink) * 2;
 
-    for (const tile of tiles) {
+    // Sabit karo boyutu: WebGPU her karoda yeniden shader derlemesin ve ekstra VRAM tahsis etmesin
+    const fixedInW = spec.tileSize + spec.tileOverlap * 2;
+    const fixedInH = spec.tileSize + spec.tileOverlap * 2;
+    const planeSize = fixedInW * fixedInH;
+    const requiredFloatLen = 3 * planeSize;
+    if (!this.reusedInputFloat || this.reusedInputFloat.length !== requiredFloatLen) {
+      this.reusedInputFloat = new Float32Array(requiredFloatLen);
+    }
+    const inputFloat = this.reusedInputFloat;
+
+    const maxCoreOutW = spec.tileSize * 2;
+    const maxCoreOutH = spec.tileSize * 2;
+    const requiredTileRgbaLen = maxCoreOutW * maxCoreOutH * 4;
+    if (!this.reusedTileRgba || this.reusedTileRgba.length !== requiredTileRgbaLen) {
+      this.reusedTileRgba = new Uint8ClampedArray(requiredTileRgbaLen);
+    }
+    const tileRgba = this.reusedTileRgba;
+
+    for (let tIdx = 0; tIdx < tiles.length; tIdx += 1) {
       if (isCancelled?.()) {
+        this.shrinkScratchCanvases();
         throw new DOMException('İptal edildi', 'AbortError');
       }
 
+      // Karolar arasında GPU kuyruğuna kısa nefes ver (kaydırma ve UI akıcılığını korur)
+      if (tIdx > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 6));
+        if (isCancelled?.()) {
+          this.shrinkScratchCanvases();
+          throw new DOMException('İptal edildi', 'AbortError');
+        }
+      }
+
+      const tile = tiles[tIdx];
       const coreW = tile.tx1 - tile.tx0;
       const coreH = tile.ty1 - tile.ty0;
       const inX0 = tile.tx0 - tile.pad;
       const inY0 = tile.ty0 - tile.pad;
-      const inW = coreW + tile.pad * 2;
-      const inH = coreH + tile.pad * 2;
-      const planeSize = inW * inH;
-      const inputFloat = new Float32Array(3 * planeSize);
 
-      for (let py = 0; py < inH; py += 1) {
+      for (let py = 0; py < fixedInH; py += 1) {
         const sy = Math.min(srcH - 1, Math.max(0, inY0 + py));
         const srcRowOffset = sy * srcW;
-        const dstRowOffset = py * inW;
-        for (let px = 0; px < inW; px += 1) {
+        const dstRowOffset = py * fixedInW;
+        for (let px = 0; px < fixedInW; px += 1) {
           const sx = Math.min(srcW - 1, Math.max(0, inX0 + px));
           const sIdx = (srcRowOffset + sx) * 4;
           const dIdx = dstRowOffset + px;
@@ -300,7 +344,7 @@ export class OnnxUpscaleEngine {
         }
       }
 
-      const inputTensor = new ort.Tensor('float32', inputFloat, [1, 3, inH, inW]);
+      const inputTensor = new ort.Tensor('float32', inputFloat, [1, 3, fixedInH, fixedInW]);
       let outTensor: import('onnxruntime-web/webgpu').Tensor | null = null;
       try {
         const results = await session.run({ [spec.inputName]: inputTensor });
@@ -323,21 +367,24 @@ export class OnnxUpscaleEngine {
 
         for (let y = 0; y < coreOutH; y += 1) {
           const oy = margin + y;
-          const dy = dstY0 + y;
           const outTileRow = oy * outTileW + margin;
-          const outRgbaRow = (dy * fullOutW + dstX0) * 4;
+          const tileRgbaRow = y * coreOutW * 4;
           for (let x = 0; x < coreOutW; x += 1) {
             const oIdx = outTileRow + x;
-            const rgbaIdx = outRgbaRow + x * 4;
+            const rgbaIdx = tileRgbaRow + x * 4;
             const r = outFloat[oIdx];
             const g = outFloat[outPlane + oIdx];
             const b = outFloat[outPlane * 2 + oIdx];
-            outRgba[rgbaIdx] = r <= 0 ? 0 : r >= 1 ? 255 : Math.round(r * 255);
-            outRgba[rgbaIdx + 1] = g <= 0 ? 0 : g >= 1 ? 255 : Math.round(g * 255);
-            outRgba[rgbaIdx + 2] = b <= 0 ? 0 : b >= 1 ? 255 : Math.round(b * 255);
-            outRgba[rgbaIdx + 3] = 255;
+            tileRgba[rgbaIdx] = r <= 0 ? 0 : r >= 1 ? 255 : Math.round(r * 255);
+            tileRgba[rgbaIdx + 1] = g <= 0 ? 0 : g >= 1 ? 255 : Math.round(g * 255);
+            tileRgba[rgbaIdx + 2] = b <= 0 ? 0 : b >= 1 ? 255 : Math.round(b * 255);
+            tileRgba[rgbaIdx + 3] = 255;
           }
         }
+
+        const subView = tileRgba.subarray(0, coreOutW * coreOutH * 4);
+        const tileImgData = new ImageData(subView, coreOutW, coreOutH);
+        fullCtx.putImageData(tileImgData, dstX0, dstY0);
       } finally {
         inputTensor.dispose();
         outTensor?.dispose();
@@ -345,15 +392,9 @@ export class OnnxUpscaleEngine {
     }
 
     if (isCancelled?.()) {
+      this.shrinkScratchCanvases();
       throw new DOMException('İptal edildi', 'AbortError');
     }
-
-    if (!this.tileCanvas) {
-      this.tileCanvas = this.createCanvas(fullOutW, fullOutH);
-    }
-    const fullCtx = this.getCanvas2d(this.tileCanvas, fullOutW, fullOutH, false);
-    const fullImageData = new ImageData(outRgba, fullOutW, fullOutH);
-    fullCtx.putImageData(fullImageData, 0, 0);
 
     const cropY0 = Math.min(fullOutH - 1, Math.max(0, Math.round(cropTop * 2)));
     const cropH = Math.max(1, fullOutH - cropY0 - Math.max(0, Math.round(cropBottom * 2)));
@@ -367,10 +408,20 @@ export class OnnxUpscaleEngine {
     outCtx.clearRect(0, 0, outWidth, outHeight);
     outCtx.drawImage(this.tileCanvas, 0, cropY0, fullOutW, cropH, 0, 0, outWidth, outHeight);
 
+    // tileCanvas ile işimiz bitti, hemen 1x1 yaparak ~12 MB belleği serbest bırak
+    this.tileCanvas.width = 1;
+    this.tileCanvas.height = 1;
+
     if (typeof OffscreenCanvas !== 'undefined' && this.outCanvas instanceof OffscreenCanvas) {
-      return this.outCanvas.transferToImageBitmap();
+      const bmp = this.outCanvas.transferToImageBitmap();
+      this.outCanvas.width = 1;
+      this.outCanvas.height = 1;
+      return bmp;
     }
-    return createImageBitmap(this.outCanvas as HTMLCanvasElement);
+    const bmp = await createImageBitmap(this.outCanvas as HTMLCanvasElement);
+    this.outCanvas.width = 1;
+    this.outCanvas.height = 1;
+    return bmp;
   }
 
   async dispose(): Promise<void> {
@@ -383,8 +434,12 @@ export class OnnxUpscaleEngine {
     }
     this.activeSession = null;
     this.activeModel = null;
+    this.shrinkScratchCanvases();
     this.scratchCanvas = null;
     this.tileCanvas = null;
     this.outCanvas = null;
+    this.reusedInputFloat = null;
+    this.reusedTileRgba = null;
+    modelBytesCache.clear();
   }
 }
