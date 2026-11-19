@@ -24,15 +24,6 @@ const MODEL_SPECS: Record<UpscaleAiModel, OnnxModelSpec> = {
     inputName: 'input',
     outputName: 'output',
   },
-  waifu2x: {
-    id: 'waifu2x',
-    url: '/models/waifu2x-upconv7-art-x2.onnx',
-    tileSize: AI_TILE_SIZE,
-    tileOverlap: AI_TILE_OVERLAP,
-    modelInputShrink: 7,
-    inputName: 'input',
-    outputName: 'output',
-  },
 };
 
 const modelBytesCache = new Map<UpscaleAiModel, Uint8Array>();

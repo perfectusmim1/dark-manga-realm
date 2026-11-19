@@ -1457,10 +1457,7 @@ const Reader: React.FC = () => {
   }, [initialized, isInitialViewportReady, user, chapter, isIncognito, flushReadingSession]);
 
   const handleSettingsChange = useCallback((newSettings: ReaderSettings) => {
-    if (
-      newSettings.upscaleMode !== settings.upscaleMode ||
-      newSettings.upscaleAiModel !== settings.upscaleAiModel
-    ) {
+    if (newSettings.upscaleMode !== settings.upscaleMode) {
       upscaleQueue.cancelAll(newSettings.upscaleMode === 'off');
       if (newSettings.upscaleMode === 'off') {
         setUpscaleCompare(false);
@@ -1468,7 +1465,7 @@ const Reader: React.FC = () => {
     }
     setSettings(newSettings);
     setReaderSettings(newSettings);
-  }, [settings.upscaleAiModel, settings.upscaleMode]);
+  }, [settings.upscaleMode]);
 
   const isAutoScrollAvailable = settings.mode !== 'horizontal';
 

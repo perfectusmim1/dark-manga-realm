@@ -199,10 +199,6 @@ export default defineConfig(({ mode }) => ({
             return "anime4k-fast";
           }
 
-          if (normalizedId.includes("src/lib/upscale/anime4kCnnUL")) {
-            return "anime4k-quality";
-          }
-
           if (!normalizedId.includes("node_modules")) {
             return;
           }

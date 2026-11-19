@@ -3,7 +3,6 @@ import { useDeviceProfile } from '@/hooks/use-device-profile';
 import { planStrips, shouldSkipHighResPage } from '@/lib/upscale/stripPlanner';
 import type {
   StripPlan,
-  UpscaleAiModel,
   UpscaleEngineKey,
   UpscaleMode,
 } from '@/lib/upscale/types';
@@ -22,7 +21,6 @@ export interface PageUpscaleMetrics {
 interface UsePageUpscaleParams {
   src: string;
   mode: UpscaleMode;
-  aiModel: UpscaleAiModel;
   upscaleHighRes: boolean;
   rootRef: React.RefObject<HTMLDivElement | null>;
 }
@@ -67,7 +65,6 @@ const drawBitmapToCanvas = (canvas: HTMLCanvasElement, bitmap: ImageBitmap) => {
 export const usePageUpscale = ({
   src,
   mode,
-  aiModel,
   upscaleHighRes,
   rootRef,
 }: UsePageUpscaleParams) => {
@@ -78,8 +75,8 @@ export const usePageUpscale = ({
 
   const engine: UpscaleEngineKey | null = useMemo(() => {
     if (mode === 'off') return null;
-    return mode === 'ai' ? aiModel : mode;
-  }, [aiModel, mode]);
+    return mode === 'ai' ? 'realesrgan' : 'fast';
+  }, [mode]);
 
   const stripElsRef = useRef<Map<number, HTMLDivElement>>(new Map());
   const canvasElsRef = useRef<Map<number, HTMLCanvasElement>>(new Map());
@@ -92,7 +89,7 @@ export const usePageUpscale = ({
     const prev = stateMapRef.current.get(stripIndex);
     if (prev === nextState) return;
     stateMapRef.current.set(stripIndex, nextState);
-    if (engine === 'realesrgan' || engine === 'waifu2x') {
+    if (engine === 'realesrgan') {
       setStripStates((curr) =>
         curr[stripIndex] === nextState ? curr : { ...curr, [stripIndex]: nextState },
       );
@@ -246,7 +243,7 @@ export const usePageUpscale = ({
               if (runIdRef.current !== runId) return;
               clearStripCanvas(canvasElsRef.current.get(strip.index));
               stateMapRef.current.set(strip.index, 'idle');
-              if (engine === 'realesrgan' || engine === 'waifu2x') {
+              if (engine === 'realesrgan') {
                 setStripStates((curr) =>
                   curr[strip.index] === 'idle' ? curr : { ...curr, [strip.index]: 'idle' },
                 );

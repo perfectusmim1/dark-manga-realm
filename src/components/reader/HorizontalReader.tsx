@@ -96,7 +96,6 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
         <UpscaleLayer
           src={activePageSrc}
           mode={settings.upscaleMode}
-          aiModel={settings.upscaleAiModel}
           upscaleHighRes={settings.upscaleHighRes}
           compare={upscaleCompare}
         />

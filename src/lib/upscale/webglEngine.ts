@@ -1,6 +1,6 @@
 export interface Anime4KRunOptions {
   bitmap: ImageBitmap;
-  mode: 'fast' | 'quality';
+  mode: 'fast';
   outWidth: number;
   outHeight: number;
   cropTop: number;
@@ -507,9 +507,9 @@ export class WebGLAnime4KEngine {
 
     const ptX = 1 / internalW;
     const ptY = 1 / internalH;
-    const iterations = mode === 'quality' ? 2 : 1;
-    const pushStrength = mode === 'quality' ? 0.68 : 0.56;
-    const refineStrength = mode === 'quality' ? 0.55 : 0.42;
+    const iterations = 1;
+    const pushStrength = 0.56;
+    const refineStrength = 0.42;
 
     const lumProg = this.lumProg!;
     const pushProg = this.pushProg!;

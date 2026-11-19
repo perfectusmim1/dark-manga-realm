@@ -4,16 +4,14 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
 import { useUpscaleStatus, useUpscaleSupport } from '@/hooks/useUpscaleSupport';
-import type { UpscaleAiModel, UpscaleMode } from '@/lib/upscale/types';
+import type { UpscaleMode } from '@/lib/upscale/types';
 import { cn } from '@/lib/utils';
 
 interface UpscalePanelProps {
   mode: UpscaleMode;
-  aiModel: UpscaleAiModel;
   upscaleHighRes: boolean;
   compare: boolean;
   onModeChange: (mode: UpscaleMode) => void;
-  onAiModelChange: (model: UpscaleAiModel) => void;
   onHighResChange: (value: boolean) => void;
   onCompareChange: (value: boolean) => void;
 }
@@ -21,22 +19,14 @@ interface UpscalePanelProps {
 const MODE_OPTIONS: Array<{ value: UpscaleMode; label: string; hint?: string }> = [
   { value: 'off', label: 'Kapalı' },
   { value: 'fast', label: 'Hızlı', hint: 'Pil dostu, anında' },
-  { value: 'quality', label: 'Kaliteli', hint: 'Daha net çizgiler' },
   { value: 'ai', label: 'Yapay Zekâ', hint: 'En yüksek kalite, daha yavaş' },
-];
-
-const AI_MODEL_OPTIONS: Array<{ value: UpscaleAiModel; label: string; hint: string }> = [
-  { value: 'realesrgan', label: 'Real-ESRGAN', hint: 'Keskin' },
-  { value: 'waifu2x', label: 'waifu2x', hint: 'Yumuşak' },
 ];
 
 const UpscalePanel: React.FC<UpscalePanelProps> = ({
   mode,
-  aiModel,
   upscaleHighRes,
   compare,
   onModeChange,
-  onAiModelChange,
   onHighResChange,
   onCompareChange,
 }) => {
@@ -44,7 +34,7 @@ const UpscalePanel: React.FC<UpscalePanelProps> = ({
   const status = useUpscaleStatus();
   const { isLowEndDevice } = useDeviceProfile();
 
-  const canFastOrQuality = !support.checked || support.webgpu || support.webgl2;
+  const canFast = !support.checked || support.webgpu || support.webgl2;
   const canAi = !support.checked || support.webgpu;
 
   const activeModeMeta = MODE_OPTIONS.find((item) => item.value === mode);
@@ -66,11 +56,11 @@ const UpscalePanel: React.FC<UpscalePanelProps> = ({
           )}
         </div>
 
-        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.25fr)] gap-1 rounded-xl border border-border/60 bg-secondary/40 p-1">
+        <div className="grid grid-cols-3 gap-1 rounded-xl border border-border/60 bg-secondary/40 p-1">
           {MODE_OPTIONS.map((option) => {
             const isDisabled =
               (option.value === 'ai' && !canAi) ||
-              ((option.value === 'fast' || option.value === 'quality') && !canFastOrQuality);
+              (option.value === 'fast' && !canFast);
             const isSelected = mode === option.value;
             return (
               <button
@@ -79,7 +69,7 @@ const UpscalePanel: React.FC<UpscalePanelProps> = ({
                 disabled={isDisabled}
                 onClick={() => onModeChange(option.value)}
                 className={cn(
-                  'rounded-lg px-1 py-1.5 text-xs font-semibold transition-all',
+                  'rounded-lg px-2 py-1.5 text-xs font-semibold transition-all',
                   isSelected
                     ? 'bg-primary text-primary-foreground shadow-sm'
                     : 'text-muted-foreground hover:bg-secondary/70 hover:text-foreground',
@@ -96,19 +86,19 @@ const UpscalePanel: React.FC<UpscalePanelProps> = ({
           <p className="text-[11px] leading-snug text-muted-foreground">{activeModeMeta.hint}</p>
         )}
 
-        {support.checked && !canFastOrQuality && (
+        {support.checked && !canFast && (
           <p className="text-[11px] leading-snug text-muted-foreground">
             Bu cihaz desteklemiyor
           </p>
         )}
 
-        {support.checked && canFastOrQuality && !canAi && (
+        {support.checked && canFast && !canAi && (
           <p className="text-[11px] leading-snug text-muted-foreground">
             Yapay Zekâ: Bu cihaz desteklemiyor
           </p>
         )}
 
-        {isLowEndDevice && canFastOrQuality && (
+        {isLowEndDevice && canFast && (
           <p className="text-[11px] leading-snug text-amber-400/90">
             {mode === 'ai'
               ? 'Cihazınızı ısıtabilir; düşük donanımda Hızlı mod önerilir.'
@@ -117,45 +107,11 @@ const UpscalePanel: React.FC<UpscalePanelProps> = ({
         )}
       </div>
 
-      {/* Yapay Zekâ Model Seçimi */}
-      {mode === 'ai' && canAi && (
+      {/* Yapay Zekâ Model İndirme / Hata Durumu */}
+      {mode === 'ai' && canAi && (isDownloading || status.lastError) && (
         <div className="space-y-1.5 rounded-xl border border-border/60 bg-secondary/30 p-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <Label className="text-xs font-semibold text-muted-foreground">Yapay Zekâ Modeli</Label>
-            <span className="text-[10px] font-medium text-muted-foreground">Deneysel</span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-1 rounded-xl border border-border/60 bg-background/50 p-1">
-            {AI_MODEL_OPTIONS.map((option) => {
-              const isSelected = aiModel === option.value;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => onAiModelChange(option.value)}
-                  className={cn(
-                    'flex flex-col items-center justify-center rounded-lg py-1.5 text-center transition-all',
-                    isSelected
-                      ? 'bg-primary text-primary-foreground shadow-sm'
-                      : 'text-muted-foreground hover:bg-secondary/70 hover:text-foreground',
-                  )}
-                >
-                  <span className="text-xs font-semibold leading-tight">{option.label}</span>
-                  <span
-                    className={cn(
-                      'text-[10px] leading-tight',
-                      isSelected ? 'text-primary-foreground/85' : 'text-muted-foreground',
-                    )}
-                  >
-                    {option.hint}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
           {isDownloading && status.download && (
-            <div className="space-y-1 pt-1">
+            <div className="space-y-1">
               <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                 <span>
                   {status.download.stage === 'initializing'

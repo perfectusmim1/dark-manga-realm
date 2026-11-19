@@ -5,7 +5,7 @@ import ProtectedImage from '@/components/security/ProtectedImage';
 import { PageTranslateButton, TranslationOverlay } from '@/components/reader/TranslationOverlay';
 import { UpscaleLayer } from '@/components/reader/UpscaleLayer';
 import { ReaderTranslationApi } from '@/hooks/useChapterTranslation';
-import type { UpscaleAiModel, UpscaleMode } from '@/lib/upscale/types';
+import type { UpscaleMode } from '@/lib/upscale/types';
 
 interface VerticalReaderProps {
   pages: ResolvedReaderPage[];
@@ -32,7 +32,6 @@ interface ReaderPageProps {
   pageState?: PageTranslationState;
   onTranslatePage?: (pageIndex: number, options?: { force?: boolean }) => void;
   upscaleMode: UpscaleMode;
-  upscaleAiModel: UpscaleAiModel;
   upscaleHighRes: boolean;
   upscaleCompare: boolean;
 }
@@ -51,7 +50,6 @@ const ReaderPage: React.FC<ReaderPageProps> = React.memo(({
   pageState,
   onTranslatePage,
   upscaleMode,
-  upscaleAiModel,
   upscaleHighRes,
   upscaleCompare,
 }) => {
@@ -116,14 +114,13 @@ const ReaderPage: React.FC<ReaderPageProps> = React.memo(({
         <UpscaleLayer
           src={page.src}
           mode={upscaleMode}
-          aiModel={upscaleAiModel}
           upscaleHighRes={upscaleHighRes}
           compare={upscaleCompare}
         />
         {overlayNode}
       </>
     );
-  }, [overlayNode, page.src, upscaleAiModel, upscaleCompare, upscaleHighRes, upscaleMode]);
+  }, [overlayNode, page.src, upscaleCompare, upscaleHighRes, upscaleMode]);
 
   return (
     <div
@@ -330,7 +327,6 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
           pageState={translation?.pageStates[index]}
           onTranslatePage={translatePage}
           upscaleMode={settings.upscaleMode}
-          upscaleAiModel={settings.upscaleAiModel}
           upscaleHighRes={settings.upscaleHighRes}
           upscaleCompare={upscaleCompare}
         />

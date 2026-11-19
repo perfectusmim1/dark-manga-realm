@@ -681,7 +681,6 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   const upscalePanelBody = (
     <UpscalePanel
       mode={settings.upscaleMode}
-      aiModel={settings.upscaleAiModel}
       upscaleHighRes={settings.upscaleHighRes}
       compare={upscaleCompare}
       onModeChange={(upscaleMode) => {
@@ -690,7 +689,6 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
           onUpscaleCompareChange(false);
         }
       }}
-      onAiModelChange={(upscaleAiModel) => onSettingsChange({ ...settings, upscaleAiModel })}
       onHighResChange={(upscaleHighRes) => onSettingsChange({ ...settings, upscaleHighRes })}
       onCompareChange={onUpscaleCompareChange}
     />

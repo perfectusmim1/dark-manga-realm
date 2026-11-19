@@ -16,7 +16,7 @@ export class UpscaleProcessor {
 
   async process(job: UpscaleJobInput, hooks: ProcessorHooks = {}): Promise<ImageBitmap> {
     try {
-      if (job.engine === 'fast' || job.engine === 'quality') {
+      if (job.engine === 'fast') {
         const canTryWebGPU =
           job.preferWebGPU !== false &&
           !this.webgpuDisabledForAnime4K &&

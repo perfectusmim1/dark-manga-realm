@@ -167,7 +167,7 @@ export class WebGPUAnime4KEngine {
 
   private async ensurePipeline(
     device: GPUDevice,
-    mode: 'fast' | 'quality',
+    mode: 'fast',
     srcW: number,
     srcH: number,
   ): Promise<CachedPipelineState> {
@@ -188,14 +188,8 @@ export class WebGPUAnime4KEngine {
         GPUTextureUsage.RENDER_ATTACHMENT,
     });
 
-    let pipeline: Anime4KBuiltPipeline;
-    if (mode === 'fast') {
-      const { buildCNNx2M } = await import('./anime4kCnnM');
-      pipeline = buildCNNx2M(device, inputTexture);
-    } else {
-      const { buildCNNx2UL } = await import('./anime4kCnnUL');
-      pipeline = buildCNNx2UL(device, inputTexture);
-    }
+    const { buildCNNx2M } = await import('./anime4kCnnM');
+    const pipeline: Anime4KBuiltPipeline = buildCNNx2M(device, inputTexture);
 
     const renderBindGroup = device.createBindGroup({
       layout: this.bindGroupLayout!,

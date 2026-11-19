@@ -219,6 +219,9 @@ const extractDetBoxes = (
     let rotCenterY: number | undefined;
     let rotMajorSpan: number | undefined;
     let rotMinorSpan: number | undefined;
+    const isCompactBox = bw < 48 || bw / Math.max(1, bh) < 2.8;
+    const minAxisRatio = isCompactBox ? 6.5 : 4.2;
+    const minTiltDropPx = isCompactBox ? 7.5 : 5.5;
     if (count >= 24 && bw >= 18) {
       const meanX = sumX / count;
       const meanY = sumY / count;
@@ -230,7 +233,7 @@ const extractDetBoxes = (
       const disc = Math.sqrt(diff * diff + 4 * covXY * covXY);
       const lambda1 = (trace + disc) * 0.5;
       const lambda2 = Math.max(0.5, (trace - disc) * 0.5);
-      if (lambda1 / lambda2 >= 4.2 && lambda1 > 16) {
+      if (lambda1 / lambda2 >= minAxisRatio && lambda1 > 16) {
         let deg = (0.5 * Math.atan2(2 * covXY, diff) * 180) / Math.PI;
         if (deg > 90) deg -= 180;
         if (deg < -90) deg += 180;
@@ -238,7 +241,7 @@ const extractDetBoxes = (
         if (absDeg >= 5.0 && absDeg <= 40.0) {
           const majorLen = Math.sqrt(12 * lambda1);
           const minorLen = Math.max(4, Math.sqrt(12 * lambda2));
-          if (Math.abs(Math.sin((deg * Math.PI) / 180)) * majorLen >= 5.5) {
+          if (Math.abs(Math.sin((deg * Math.PI) / 180)) * majorLen >= minTiltDropPx) {
             angleDeg = Number(deg.toFixed(1));
             rotCenterX = meanX + 0.5;
             rotCenterY = meanY + 0.5;
@@ -1337,7 +1340,7 @@ const sampleLineCollarRgb = (
   if (lums.length === 0) return { lum: 255, r: 255, g: 255, b: 255 };
   const medPick = (arr: number[]) => {
     const s = [...arr].sort((a, b) => a - b);
-    return s[Math.floor(s.length * 0.55)];
+    return s[Math.min(s.length - 1, Math.floor(s.length * 0.65))];
   };
   return { lum: medPick(lums), r: medPick(rs), g: medPick(gs), b: medPick(bs) };
 };
@@ -1512,17 +1515,17 @@ const hasVerticalBubbleBarrier = (
   const isAdjacentSameScaleStack =
     vGapPx <= minLineH * 0.48 &&
     minLineH / Math.max(1, maxLineH) >= 0.72 &&
-    ovSpanX >= minLineW * 0.5 &&
-    Math.abs((top.angleDeg ?? 0) - (bot.angleDeg ?? 0)) <= 3;
+    ovSpanX >= minLineW * 0.42 &&
+    Math.abs((top.angleDeg ?? 0) - (bot.angleDeg ?? 0)) <= 4.5;
   const topBoxVivid = Math.max(flankT.r, flankT.g, flankT.b) - Math.min(flankT.r, flankT.g, flankT.b) >= 65;
   const botBoxVivid = Math.max(flankB.r, flankB.g, flankB.b) - Math.min(flankB.r, flankB.g, flankB.b) >= 65;
   const vividChromaBoxBoundary =
-    (rgbJump >= (isAdjacentSameScaleStack ? 145 : 90) &&
-      (vGapPx >= 4 || Math.max(colT.r - colT.g, colB.r - colB.g) >= 55)) ||
+    (rgbJump >= (isAdjacentSameScaleStack ? 165 : 90) &&
+      (vGapPx >= (isAdjacentSameScaleStack ? 6 : 4) || Math.max(colT.r - colT.g, colB.r - colB.g) >= 55)) ||
     (vGapPx >= (isAdjacentSameScaleStack ? 10 : 6) &&
-      (flankJump >= (isAdjacentSameScaleStack ? 155 : 105) ||
-        flankHueJump >= (isAdjacentSameScaleStack ? 165 : 115) ||
-        (flankJump >= (isAdjacentSameScaleStack ? 135 : 85) && topBoxVivid !== botBoxVivid)));
+      (flankJump >= (isAdjacentSameScaleStack ? 165 : 105) ||
+        flankHueJump >= (isAdjacentSameScaleStack ? 175 : 115) ||
+        (flankJump >= (isAdjacentSameScaleStack ? 145 : 85) && topBoxVivid !== botBoxVivid)));
   const angleTop = top.angleDeg ?? 0;
   const angleBot = bot.angleDeg ?? 0;
   // Sola/sağa eğik konuşma satırları balon sınırında koyu panele taşsa bile dikeyde çakışır
@@ -1530,8 +1533,10 @@ const hasVerticalBubbleBarrier = (
     vGapPx <= -minLineH * 0.2 &&
     Math.max(Math.abs(angleTop), Math.abs(angleBot)) >= 5 &&
     Math.abs(angleTop - angleBot) <= 2.5;
+  const lumDiffBarrierThresh = isAdjacentSameScaleStack && vGapPx <= Math.max(8, minLineH * 0.42) ? 120 : 75;
+  const sharpLightToDarkBox = Math.min(bgT, bgB) <= 35 && Math.max(bgT, bgB) >= 200;
   if (
-    (Math.abs(bgT - bgB) >= (isAdjacentSameScaleStack ? 105 : 75) || vividChromaBoxBoundary) &&
+    (Math.abs(bgT - bgB) >= (sharpLightToDarkBox ? 75 : lumDiffBarrierThresh) || vividChromaBoxBoundary) &&
     !fakeOutlineCollar &&
     !overlappingSameTilt
   ) {
@@ -1625,14 +1630,21 @@ const hasVerticalBubbleBarrier = (
   }
 
   if (vGapPx <= 1.5) return false;
-  const gapY0 = Math.max(0, Math.floor(top.bbox.y1) + 1);
-  const gapY1 = Math.min(height - 1, Math.ceil(bot.bbox.y0) - 1);
+  const gapY0Raw = Math.max(0, Math.floor(top.bbox.y1) + 1);
+  const gapY1Raw = Math.min(height - 1, Math.ceil(bot.bbox.y0) - 1);
+  if (gapY1Raw < gapY0Raw) return false;
+
+  // Dar aralıklarda üst/alt satırın 1px anti-aliasing uzantılarını/harf kuyruklarını (g, y, p, ,) duvar sanma
+  const isTightLightGap =
+    vGapPx <= Math.max(5, minLineH * 0.35) && bothLight && Math.abs(bgT - bgB) <= 28;
+  const gapY0 = isTightLightGap && gapY1Raw > gapY0Raw ? gapY0Raw + 1 : gapY0Raw;
+  const gapY1 = isTightLightGap && gapY1Raw > gapY0 ? gapY1Raw - 1 : gapY1Raw;
   if (gapY1 < gapY0) return false;
 
   const colBlocked = new Uint8Array(spanX);
   const colThinStep = new Uint8Array(spanX);
   const colStepYs = new Int32Array(spanX).fill(-1);
-  const minStepDelta = bothDark ? 24 : 18;
+  const minStepDelta = 28;
   for (let y = gapY0; y <= gapY1; y += 1) {
     let darkCount = 0;
     let brightCount = 0;
@@ -1646,12 +1658,32 @@ const hasVerticalBubbleBarrier = (
       if (Math.abs(lum - bgT) >= minStepDelta && Math.abs(lum - bgB) >= minStepDelta) uiStepCount += 1;
       if (bothLight && lum <= 115) colBlocked[x - ovX0] = 1;
       if (bothDark && lum >= 185) colBlocked[x - ovX0] = 1;
-      if (vGapPx >= 2 && Math.abs(lum - bgT) >= minStepDelta && Math.abs(lum - bgB) >= minStepDelta) {
+      if (
+        vGapPx >= 6 &&
+        y > gapY0 &&
+        y < gapY1 &&
+        Math.abs(lum - bgT) >= minStepDelta &&
+        Math.abs(lum - bgB) >= minStepDelta
+      ) {
         colThinStep[x - ovX0] += 1;
         if (colStepYs[x - ovX0] < 0) colStepYs[x - ovX0] = y;
       }
     }
-    if (bothLight && darkCount / spanX >= 0.45) return true;
+    if (bothLight && darkCount / spanX >= 0.45) {
+      if (!isTightLightGap) return true;
+      let wingDark = false;
+      for (const wx of [ovX0 - 6, ovX0 - 3, ovX1 + 3, ovX1 + 6]) {
+        if (wx >= 0 && wx < width) {
+          const wIdx = rowOff + wx * 4;
+          const wLum = 0.299 * data[wIdx] + 0.587 * data[wIdx + 1] + 0.114 * data[wIdx + 2];
+          if (wLum <= 145) {
+            wingDark = true;
+            break;
+          }
+        }
+      }
+      if (wingDark) return true;
+    }
     if (vGapPx >= 5.5 && bothDark && brightCount / spanX >= 0.48) return true;
     if (vGapPx >= 6 && uiStepCount / spanX >= 0.78) return true;
   }
@@ -1670,7 +1702,7 @@ const hasVerticalBubbleBarrier = (
       }
     }
     if (blockedCols / spanX >= 0.62) return true;
-    if (vGapPx >= 3.5 && stepCols / spanX >= 0.66 && flatYs.length >= 6) {
+    if (vGapPx >= 6 && stepCols / spanX >= 0.66 && flatYs.length >= 6) {
       flatYs.sort((a, b) => a - b);
       const p15 = flatYs[Math.floor(flatYs.length * 0.15)];
       const p85 = flatYs[Math.floor(flatYs.length * 0.85)];

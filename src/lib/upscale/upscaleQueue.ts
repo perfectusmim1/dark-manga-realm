@@ -54,8 +54,7 @@ const DESKTOP_STRIP_LRU_LIMIT = 150;
 const MOBILE_AI_BLOB_BUDGET = 80 * 1024 * 1024;
 const DESKTOP_AI_BLOB_BUDGET = 300 * 1024 * 1024;
 
-const isAiEngine = (engine: UpscaleEngineKey): boolean =>
-  engine === 'realesrgan' || engine === 'waifu2x';
+const isAiEngine = (engine: UpscaleEngineKey): boolean => engine === 'realesrgan';
 
 const makeAbortError = (): DOMException => new DOMException('İptal edildi', 'AbortError');
 

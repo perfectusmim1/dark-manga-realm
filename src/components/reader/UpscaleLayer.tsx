@@ -1,12 +1,11 @@
 import React, { memo, useCallback, useRef, useState } from 'react';
 import { MoveHorizontal } from 'lucide-react';
 import { usePageUpscale } from '@/hooks/usePageUpscale';
-import type { UpscaleAiModel, UpscaleMode } from '@/lib/upscale/types';
+import type { UpscaleMode } from '@/lib/upscale/types';
 
 interface UpscaleLayerProps {
   src: string;
   mode: UpscaleMode;
-  aiModel: UpscaleAiModel;
   upscaleHighRes: boolean;
   compare: boolean;
 }
@@ -70,7 +69,6 @@ const updateSharedSplitCssVar = (el: HTMLElement | null, pct: number) => {
 const UpscaleLayerComponent: React.FC<UpscaleLayerProps> = ({
   src,
   mode,
-  aiModel,
   upscaleHighRes,
   compare,
 }) => {
@@ -81,12 +79,11 @@ const UpscaleLayerComponent: React.FC<UpscaleLayerProps> = ({
   const { metrics, engine, stripStates, registerStripEl, registerCanvasEl } = usePageUpscale({
     src,
     mode,
-    aiModel,
     upscaleHighRes,
     rootRef,
   });
 
-  const isAi = engine === 'realesrgan' || engine === 'waifu2x';
+  const isAi = engine === 'realesrgan';
   const showCanvases =
     mode !== 'off' &&
     !metrics.skippedHighRes &&

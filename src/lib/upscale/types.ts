@@ -1,8 +1,8 @@
-export type UpscaleMode = 'off' | 'fast' | 'quality' | 'ai';
+export type UpscaleMode = 'off' | 'fast' | 'ai';
 
-export type UpscaleAiModel = 'realesrgan' | 'waifu2x';
+export type UpscaleAiModel = 'realesrgan';
 
-export type UpscaleEngineKey = 'fast' | 'quality' | 'realesrgan' | 'waifu2x';
+export type UpscaleEngineKey = 'fast' | 'realesrgan';
 
 export interface UpscaleSupport {
   webgpu: boolean;
