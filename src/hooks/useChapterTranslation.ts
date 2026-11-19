@@ -6,8 +6,10 @@ import { PageTranslationState, TranslationBlock } from '@/lib/translation/types'
 import {
   TranslationSettings,
   getEffectiveApiKeys,
+  getEffectiveDeepLApiKeys,
   loadTranslationSettings,
   normalizeApiKeysList,
+  normalizeDeepLApiKeysList,
   saveTranslationSettings,
 } from '@/lib/translation/translationSettings';
 import {
@@ -57,7 +59,7 @@ export interface TranslationTimingsLog {
   transMs: number;
   totalMs: number;
   pageNumber: number;
-  provider: 'gemini' | 'google';
+  provider: 'gemini' | 'google' | 'deepl';
 }
 
 export interface TranslationSummary {
@@ -164,6 +166,9 @@ export const useChapterTranslation = ({
         const normalized = normalizeApiKeysList(undefined, patch.apiKey);
         next.apiKeys = normalized;
         next.apiKey = normalized[0] || '';
+      }
+      if ('deeplApiKeys' in patch) {
+        next.deeplApiKeys = normalizeDeepLApiKeysList(patch.deeplApiKeys);
       }
       settingsRef.current = next;
       saveTranslationSettings(next);
@@ -320,6 +325,7 @@ export const useChapterTranslation = ({
     const currentEpoch = chapterEpochRef.current;
     const currentChapter = chapterRef.current;
     const activeKeys = getEffectiveApiKeys(settingsRef.current);
+    const activeDeepLKeys = getEffectiveDeepLApiKeys(settingsRef.current);
     const langAtStart = settingsRef.current.targetLang;
     const signal = abortControllerRef.current.signal;
 
@@ -439,6 +445,7 @@ export const useChapterTranslation = ({
         ocrData: transJob.ocrData,
         apiKey: activeKeys[0] || settingsRef.current.apiKey,
         apiKeys: activeKeys,
+        deeplApiKeys: activeDeepLKeys,
         provider: settingsRef.current.provider,
         targetLang: langAtStart,
         signal,
@@ -521,6 +528,15 @@ export const useChapterTranslation = ({
     ) {
       toast.error(
         'Gemini Flash-Lite çevirisi için lütfen Görsel Çeviri panelinden en az bir API anahtarı ekleyin veya Google Çeviri motorunu seçin.',
+      );
+      return false;
+    }
+    if (
+      settingsRef.current.provider === 'deepl' &&
+      getEffectiveDeepLApiKeys(settingsRef.current).length === 0
+    ) {
+      toast.error(
+        'DeepL çevirisi için lütfen Görsel Çeviri panelinden en az bir DeepL API anahtarı ekleyin veya Google Çeviri motorunu seçin.',
       );
       return false;
     }
@@ -706,8 +722,11 @@ export const useChapterTranslation = ({
     setLastFinishedPageNumber(null);
   }, [cancelTranslation]);
 
-  const effectiveKeyCount = getEffectiveApiKeys(settings).length;
-  const requiresApiKey = settings.provider === 'gemini';
+  const effectiveKeyCount =
+    settings.provider === 'deepl'
+      ? getEffectiveDeepLApiKeys(settings).length
+      : getEffectiveApiKeys(settings).length;
+  const requiresApiKey = settings.provider === 'gemini' || settings.provider === 'deepl';
   const isSourceLangPending = sourceLang === 'pending';
   const normalizedSourceLang =
     sourceLang && sourceLang !== 'pending' && sourceLang !== 'raw'

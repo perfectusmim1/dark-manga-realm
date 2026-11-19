@@ -1,7 +1,8 @@
 export interface TranslationSettings {
   apiKey: string;
   apiKeys: string[];
-  provider: 'gemini' | 'google';
+  deeplApiKeys: string[];
+  provider: 'gemini' | 'google' | 'deepl';
   targetLang: string; // ISO 639-1 kodu, örn. 'tr'
   autoTranslate: boolean;
   prefetchNextChapterTranslation: boolean;
@@ -13,6 +14,7 @@ const STORAGE_KEY = 'toonparrot:translation-settings';
 const DEFAULT_SETTINGS: TranslationSettings = {
   apiKey: '',
   apiKeys: [],
+  deeplApiKeys: [],
   provider: 'gemini',
   targetLang: 'tr',
   autoTranslate: false,
@@ -35,7 +37,10 @@ export const parseApiKeysInput = (raw: string): string[] => {
   return result;
 };
 
-export const normalizeApiKeysList = (
+export const parseDeepLApiKeysInput = parseApiKeysInput;
+
+const normalizeKeysWithEnvVar = (
+  envVarName: 'VITE_GEMINI_API_KEY' | 'VITE_DEEPL_API_KEY',
   keys?: readonly unknown[] | null,
   legacyKey?: string | null,
 ): string[] => {
@@ -59,10 +64,9 @@ export const normalizeApiKeysList = (
     pushCandidate(legacyKey);
   }
 
-  // Ortam değişkeni (VITE_GEMINI_API_KEY) tanımlıysa otomatik olarak dahil et
   const envKey =
     typeof import.meta !== 'undefined' && import.meta.env
-      ? (import.meta.env.VITE_GEMINI_API_KEY as string | undefined)
+      ? (import.meta.env[envVarName] as string | undefined)
       : undefined;
   if (typeof envKey === 'string' && envKey.trim()) {
     pushCandidate(envKey);
@@ -71,9 +75,22 @@ export const normalizeApiKeysList = (
   return result;
 };
 
+export const normalizeApiKeysList = (
+  keys?: readonly unknown[] | null,
+  legacyKey?: string | null,
+): string[] => normalizeKeysWithEnvVar('VITE_GEMINI_API_KEY', keys, legacyKey);
+
+export const normalizeDeepLApiKeysList = (
+  keys?: readonly unknown[] | null,
+): string[] => normalizeKeysWithEnvVar('VITE_DEEPL_API_KEY', keys);
+
 export const getEffectiveApiKeys = (
   settings: Pick<TranslationSettings, 'apiKey'> & { apiKeys?: readonly string[] },
 ): string[] => normalizeApiKeysList(settings.apiKeys, settings.apiKey);
+
+export const getEffectiveDeepLApiKeys = (
+  settings: { deeplApiKeys?: readonly string[] },
+): string[] => normalizeDeepLApiKeysList(settings.deeplApiKeys);
 
 export const maskApiKey = (key: string): string => {
   const trimmed = key.trim();
@@ -87,11 +104,13 @@ export const loadTranslationSettings = (): TranslationSettings => {
     if (!raw) return { ...DEFAULT_SETTINGS };
     const parsed = JSON.parse(raw) as Partial<TranslationSettings>;
     const apiKeys = normalizeApiKeysList(parsed.apiKeys, parsed.apiKey);
+    const deeplApiKeys = normalizeDeepLApiKeysList(parsed.deeplApiKeys);
     return {
       apiKey: apiKeys[0] || '',
       apiKeys,
+      deeplApiKeys,
       provider:
-        parsed.provider === 'google' || parsed.provider === 'gemini'
+        parsed.provider === 'google' || parsed.provider === 'gemini' || parsed.provider === 'deepl'
           ? parsed.provider
           : DEFAULT_SETTINGS.provider,
       targetLang:
@@ -119,10 +138,12 @@ export const loadTranslationSettings = (): TranslationSettings => {
 export const saveTranslationSettings = (settings: TranslationSettings) => {
   try {
     const apiKeys = normalizeApiKeysList(settings.apiKeys, settings.apiKey);
+    const deeplApiKeys = normalizeDeepLApiKeysList(settings.deeplApiKeys);
     const normalized: TranslationSettings = {
       ...settings,
       apiKeys,
       apiKey: apiKeys[0] || '',
+      deeplApiKeys,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
   } catch {

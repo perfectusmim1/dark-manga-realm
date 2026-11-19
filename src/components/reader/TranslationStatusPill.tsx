@@ -85,7 +85,7 @@ const TranslationStatusPill: React.FC<TranslationStatusPillProps> = ({
                 {lastTimings ? (
                   <p className="truncate text-[10px] font-mono leading-tight text-muted-foreground">
                     OCR: {(lastTimings.ocrMs / 1000).toFixed(1)}s
-                    {lastTimings.provider === 'google' && ` · Çeviri: ${(lastTimings.transMs / 1000).toFixed(1)}s`}
+                    {lastTimings.transMs > 0 && ` · Çeviri: ${(lastTimings.transMs / 1000).toFixed(1)}s`}
                   </p>
                 ) : isMultiPageBatch && activePageText ? (
                   <p className="truncate text-[11px] leading-tight text-muted-foreground">

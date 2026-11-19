@@ -224,75 +224,148 @@ export const computeSmartWrappedLines = (
   const targetLineCount = greedyLines.length;
   let finalBodyLines: Array<{ text: string; widthPx: number }> = [];
 
-  // 2..6 satır arasında dinamik programlama ile satır genişliklerini dengele (elmas/oval profil uyumlu)
+  const getLineTargetRatio = (lineIdx: number, totalLines: number): number => {
+    const wp = options?.lineWidthsPct;
+    if (wp && wp.length === totalLines) {
+      return Math.max(0.45, Math.min(1, wp[lineIdx]));
+    }
+    if (wp && wp.length >= 2) {
+      const pos = totalLines <= 1 ? 0 : (lineIdx / (totalLines - 1)) * (wp.length - 1);
+      const lo = Math.floor(pos);
+      const hi = Math.min(wp.length - 1, lo + 1);
+      const frac = pos - lo;
+      return Math.max(0.45, Math.min(1, wp[lo] * (1 - frac) + wp[hi] * frac));
+    }
+    if (totalLines <= 2) return 0.92;
+    const normPos = (lineIdx + 0.5) / totalLines - 0.5; // -0.5 .. +0.5
+    return Math.max(0.76, 1 - normPos * normPos * 0.65);
+  };
+
+  // Çoklu satır sayısıyla dinamik programlama (elmas/oval kontur profili uyumlu)
   const n = bodyWords.length;
-  if (targetLineCount >= 2 && targetLineCount <= 7 && n >= 2 && n <= 36) {
-    const dp = new Float64Array((n + 1) * (targetLineCount + 1));
-    const nextBreak = new Int32Array((n + 1) * (targetLineCount + 1));
-    dp.fill(Infinity);
-    dp[n * (targetLineCount + 1) + 0] = 0;
-
-    // Oval balonlarda orta satırlar biraz daha geniş, ilk/son satırlar biraz daha dar hedeflenir
-    const totalDisplayLines = targetLineCount + (emphasisText ? 1 : 0);
-    const hasExplicitLineWidths = Boolean(
-      options?.lineWidthsPct && options.lineWidthsPct.length === totalDisplayLines,
-    );
-    const getLineTargetRatio = (lineIdx: number, totalLines: number): number => {
-      if (hasExplicitLineWidths && options?.lineWidthsPct?.length === totalLines) {
-        return Math.max(0.45, Math.min(1, options.lineWidthsPct[lineIdx]));
+  const singleLineExceedsContour =
+    targetLineCount === 1 &&
+    n >= 2 &&
+    Boolean(options?.lineWidthsPct?.length) &&
+    curW > maxWidthPx * getLineTargetRatio(0, 1 + (emphasisText ? 1 : 0));
+  if (
+    (targetLineCount >= 2 || singleLineExceedsContour) &&
+    targetLineCount <= 7 &&
+    n >= 2 &&
+    n <= 36
+  ) {
+    const candSet = new Set<number>();
+    const minCand = Math.max(2, targetLineCount);
+    const maxCand = Math.min(8, n, targetLineCount + 2);
+    for (let c = minCand; c <= maxCand; c += 1) {
+      candSet.add(c);
+    }
+    if (options?.lineWidthsPct) {
+      const optBodyLines = options.lineWidthsPct.length - (emphasisText ? 1 : 0);
+      if (optBodyLines >= 2 && optBodyLines <= Math.min(8, n)) {
+        candSet.add(optBodyLines);
       }
-      if (totalLines <= 2) return 0.92;
-      const normPos = (lineIdx + 0.5) / totalLines - 0.5; // -0.5 .. +0.5
-      return Math.max(0.76, 1 - normPos * normPos * 0.65);
-    };
+    }
+    const candidateCounts = Array.from(candSet).sort((a, b) => a - b);
+    const hasContourWidths = Boolean(options?.lineWidthsPct && options.lineWidthsPct.length >= 2);
 
-    for (let remLines = 1; remLines <= targetLineCount; remLines += 1) {
-      const lineIdx = targetLineCount - remLines;
-      const lineRatio = getLineTargetRatio(lineIdx, totalDisplayLines);
-      const allowedMaxW = hasExplicitLineWidths
-        ? maxWidthPx * lineRatio * 1.01
-        : maxWidthPx * Math.min(1, lineRatio + 0.08);
-      const idealW = maxWidthPx * lineRatio * 0.85;
-      const overflowLimit = hasExplicitLineWidths ? maxWidthPx * lineRatio : maxWidthPx;
+    let bestResult: {
+      lines: Array<{ text: string; widthPx: number }>;
+      exceeds: boolean;
+      cost: number;
+      count: number;
+    } | null = null;
 
-      for (let i = 0; i < n; i += 1) {
-        let lineW = 0;
-        for (let j = i; j < n; j += 1) {
-          lineW += (j === i ? 0 : spaceW) + wordWidths[j];
-          if (lineW > allowedMaxW && j > i) break;
+    for (const candLines of candidateCounts) {
+      const stride = candLines + 1;
+      const dp = new Float64Array((n + 1) * stride);
+      const nextBreak = new Int32Array((n + 1) * stride);
+      dp.fill(Infinity);
+      dp[n * stride + 0] = 0;
 
-          const nextCost = dp[(j + 1) * (targetLineCount + 1) + (remLines - 1)];
-          if (nextCost === Infinity) continue;
+      const totalDisplayLines = candLines + (emphasisText ? 1 : 0);
+      for (let remLines = 1; remLines <= candLines; remLines += 1) {
+        const lineIdx = candLines - remLines;
+        const lineRatio = getLineTargetRatio(lineIdx, totalDisplayLines);
+        const allowedMaxW = hasContourWidths
+          ? maxWidthPx * Math.min(1, lineRatio * 1.12)
+          : maxWidthPx * Math.min(1, lineRatio + 0.08);
+        const overflowLimit =
+          hasContourWidths || options?.lineWidthsPct?.length === totalDisplayLines
+            ? maxWidthPx * lineRatio
+            : maxWidthPx;
+        const idealW = maxWidthPx * lineRatio * 0.85;
 
-          const overflowPenalty = lineW > overflowLimit ? (lineW - overflowLimit) * 50 : 0;
-          const diff = idealW - lineW;
-          // Son satırda tek kısa kelime ("yetim kelime") kalmasını cezalandır
-          const orphanPenalty =
-            remLines === 1 && j === i && n >= 4 ? (maxWidthPx * 0.45) ** 2 : 0;
-          const cost = diff * diff + overflowPenalty * overflowPenalty + orphanPenalty + nextCost;
+        for (let i = 0; i < n; i += 1) {
+          let lineW = 0;
+          for (let j = i; j < n; j += 1) {
+            lineW += (j === i ? 0 : spaceW) + wordWidths[j];
+            if (lineW > allowedMaxW && j > i) break;
 
-          const stateIdx = i * (targetLineCount + 1) + remLines;
-          if (cost < dp[stateIdx]) {
-            dp[stateIdx] = cost;
-            nextBreak[stateIdx] = j + 1;
+            const nextCost = dp[(j + 1) * stride + (remLines - 1)];
+            if (nextCost === Infinity) continue;
+
+            const overflowPenalty = lineW > overflowLimit ? (lineW - overflowLimit) * 50 : 0;
+            const diff = idealW - lineW;
+            // Son satırda tek kısa kelime ("yetim kelime") kalmasını cezalandır
+            const orphanPenalty =
+              remLines === 1 && j === i && n >= 4 ? (maxWidthPx * 0.45) ** 2 : 0;
+            const cost = diff * diff + overflowPenalty * overflowPenalty + orphanPenalty + nextCost;
+
+            const stateIdx = i * stride + remLines;
+            if (cost < dp[stateIdx]) {
+              dp[stateIdx] = cost;
+              nextBreak[stateIdx] = j + 1;
+            }
+          }
+        }
+      }
+
+      if (dp[candLines] < Infinity) {
+        const candBodyLines: Array<{ text: string; widthPx: number }> = [];
+        let curr = 0;
+        let exceeds = false;
+        for (let rem = candLines; rem >= 1 && curr < n; rem -= 1) {
+          const lineIdx = candLines - rem;
+          const nxt = nextBreak[curr * stride + rem];
+          if (nxt <= curr) break;
+          const sliceWords = bodyWords.slice(curr, nxt);
+          let lw = 0;
+          for (let k = curr; k < nxt; k += 1) {
+            lw += (k === curr ? 0 : spaceW) + wordWidths[k];
+          }
+          const rowTargetRatio = getLineTargetRatio(lineIdx, totalDisplayLines);
+          const rowTargetW =
+            hasContourWidths || options?.lineWidthsPct?.length === totalDisplayLines
+              ? maxWidthPx * rowTargetRatio
+              : maxWidthPx;
+          if (lw > rowTargetW) exceeds = true;
+          candBodyLines.push({ text: sliceWords.join(' '), widthPx: lw });
+          curr = nxt;
+        }
+        if (candBodyLines.length === candLines) {
+          const better =
+            !bestResult ||
+            (!exceeds && bestResult.exceeds) ||
+            (exceeds === bestResult.exceeds &&
+              (!exceeds
+                ? candLines < bestResult.count ||
+                  (candLines === bestResult.count && dp[candLines] < bestResult.cost)
+                : dp[candLines] < bestResult.cost));
+          if (better) {
+            bestResult = {
+              lines: candBodyLines,
+              exceeds,
+              cost: dp[candLines],
+              count: candLines,
+            };
           }
         }
       }
     }
 
-    if (dp[targetLineCount] < Infinity) {
-      let curr = 0;
-      for (let rem = targetLineCount; rem >= 1 && curr < n; rem -= 1) {
-        const nxt = nextBreak[curr * (targetLineCount + 1) + rem];
-        if (nxt <= curr) break;
-        const sliceWords = bodyWords.slice(curr, nxt);
-        let lw = 0;
-        for (let k = curr; k < nxt; k += 1) {
-          lw += (k === curr ? 0 : spaceW) + wordWidths[k];
-        }
-        finalBodyLines.push({ text: sliceWords.join(' '), widthPx: lw });
-        curr = nxt;
-      }
+    if (bestResult) {
+      finalBodyLines = bestResult.lines;
     }
   }
 
@@ -321,9 +394,14 @@ export const computeSmartWrappedLines = (
   }
 
   let totalHeightPx = 0;
-  for (const line of lines) {
-    if (line.widthPx > maxWidthPx && line.widthPx > 0) {
-      line.scale = Number(Math.max(0.88, (maxWidthPx / line.widthPx) * line.scale).toFixed(3));
+  for (let li = 0; li < lines.length; li += 1) {
+    const line = lines[li];
+    const rowLimitPx =
+      options?.lineWidthsPct && options.lineWidthsPct.length === lines.length
+        ? maxWidthPx * Math.max(0.45, Math.min(1, options.lineWidthsPct[li]))
+        : maxWidthPx;
+    if (line.widthPx > rowLimitPx && line.widthPx > 0) {
+      line.scale = Number(Math.max(0.74, (rowLimitPx / line.widthPx) * line.scale).toFixed(3));
     }
     totalHeightPx += fontPx * line.scale * lineHeightRatio;
   }

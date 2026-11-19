@@ -1514,7 +1514,7 @@ const Reader: React.FC = () => {
   }, [manga, nextChapter]);
 
   const hasValidTranslationProvider =
-    translation.settings.provider !== 'gemini' || translation.effectiveKeyCount > 0;
+    translation.settings.provider === 'google' || translation.effectiveKeyCount > 0;
   const isCurrentChapterTranslationPending = Boolean(
     !isCurrentChapterLoaded
     || activeChapterPages.length === 0

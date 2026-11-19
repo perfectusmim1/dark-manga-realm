@@ -1772,9 +1772,9 @@ export const groupOcrLinesIntoBubbles = (
     const isPureNumberNeighbor =
       letters === 0 &&
       digits >= 1 &&
-      digits <= 5 &&
-      junk === 0 &&
-      /^\d{1,5}(?:[.,]\d{1,3})?$/.test(cand.text.trim()) &&
+      digits <= 12 &&
+      junk <= 1 &&
+      /^(?:[$€£¥₩+-]?\s*)?\d+(?:[.,]\d+)*[!?.…%]*$/.test(cand.text.trim()) &&
       cand.confidence >= 68;
     if (letters < 1 && !isPureNumberNeighbor) return false;
     const candTrim = cand.text.trim();
@@ -1835,7 +1835,8 @@ export const groupOcrLinesIntoBubbles = (
           centerYDist >= minH * 0.45 &&
           vGap <= maxH * 1.55 &&
           hOverlap > narrow * minOverlapRatio &&
-          centerDist < maxH * 2.1
+          centerDist < maxH * 2.1 &&
+          (!img || vGap < 2 || !hasVerticalBubbleBarrier(img, cand, s))
         ) {
           return true;
         }
@@ -1877,21 +1878,45 @@ export const groupOcrLinesIntoBubbles = (
     const wBox = lines[wideIdx].bbox;
     const cBox = lines[colIdx].bbox;
     const ch = cBox.y1 - cBox.y0;
+    const cw = cBox.x1 - cBox.x0;
+    const ww = wBox.x1 - wBox.x0;
     for (let k = 0; k < lines.length; k += 1) {
       if (k === wideIdx || k === colIdx) continue;
       const oBox = lines[k].bbox;
       const oh = oBox.y1 - oBox.y0;
+      const ow = oBox.x1 - oBox.x0;
       const vOv = Math.min(cBox.y1, oBox.y1) - Math.max(cBox.y0, oBox.y0);
       const hGap = Math.max(cBox.x0, oBox.x0) - Math.min(cBox.x1, oBox.x1);
-      // colIdx ile aynı yatay hizada ama aralarında belirgin boşluk olan ikinci bir sütun varsa ("REPARTIDOR" vs "31 ANOS")
-      if (vOv >= Math.min(ch, oh) * 0.4 && hGap > Math.max(ch, oh) * 0.55) {
+      // colIdx ile aynı yatay hizada ama aralarında belirgin sütun boşluğu veya yatay balon duvarı olan ikinci bir sütun varsa ("REPARTIDOR" vs "31 ANOS")
+      if (
+        vOv >= Math.min(ch, oh) * 0.4 &&
+        hGap > Math.max(ch, oh) * 0.55 &&
+        hGap <= Math.max(ww, Math.max(ch, oh) * 8) &&
+        (hGap > Math.max(ch, oh) * 1.15 ||
+          (img ? hasHorizontalBubbleBarrier(img, lines[colIdx], lines[k]) : false))
+      ) {
         const ov1 = Math.min(wBox.x1, cBox.x1) - Math.max(wBox.x0, cBox.x0);
         const ov2 = Math.min(wBox.x1, oBox.x1) - Math.max(wBox.x0, oBox.x0);
-        if (ov1 > 0 && ov2 > 0) return true;
+        if (ov1 >= Math.min(cw, ww) * 0.2 && ov2 >= Math.min(ow, ww) * 0.2) return true;
       }
     }
     return false;
   };
+
+  const isSystemBoxHeader = (txt: string) =>
+    /^(?:SYSTEM(?:\s+PROMPT|\s+NOTICE|\s+MESSAGE|\s+ALERT|\s+WINDOW)?|QUEST(?:\s+INFO|\s+ALERT|\s+NOTICE|\s+UPDATED?)?|NOTICE|WARNING|ALERT|INFO|INFORMATION|NOTIFICATION|TIP|STATUS|PROFILE|STATS|SKILLS?|SKILLS?\s+LIST|INVENTORY|EVOLUTION|ANNOUNCEMENT|CONGRATULATIONS|HINT|OBJECTIVE)\b[:!]?$/i.test(
+      txt,
+    );
+  const isPhoneUiBannerOrHeader = (txt: string) =>
+    /^(?:CALLS|RECENT\s+CALLS|CONTACTS|MESSAGES|INBOX|DAY\s*XX.*|MONTH\s*XX.*|YEAR\s*XX.*|\d{1,2}:\d{2}(?:\s*[AP]M)?)$/i.test(
+      txt,
+    );
+  const isNumberedListItemStart = (txt: string) => /^\s*\d{1,2}\s*[.)]\s*[A-Za-z]/.test(txt);
+  const isNoteSectionStart = (txt: string) =>
+    /^\s*(?:\[\s*(?:[*A-Za-z]|This\b|Due\b)|\*?(?:Excluding|Response\s+Location|Sign\s+and\s+log)\b)/i.test(
+      txt,
+    );
+  const isWebMailTitle = (txt: string) => /^\s*\[?\s*Web\s*Mai?l?\s*\]?\.?\s*$/i.test(txt);
 
   const parent = lines.map((_, i) => i);
   const find = (i: number): number => {
@@ -1928,7 +1953,7 @@ export const groupOcrLinesIntoBubbles = (
       if (
         vOverlap >= minH * 0.52 &&
         hGap >= -minH * 0.35 &&
-        hGap <= maxH * 0.45 &&
+        hGap <= (leftHorizontalEndsPunct ? maxH * 0.45 : maxH * 0.65) &&
         maxH / Math.max(1, minH) <= 1.65 &&
         !(hasIndependentVerticalPartner(i, j) && hasIndependentVerticalPartner(j, i)) &&
         !(leftHorizontalEndsPunct && (hasIndependentVerticalPartner(i, j) || hasIndependentVerticalPartner(j, i))) &&
@@ -1955,20 +1980,6 @@ export const groupOcrLinesIntoBubbles = (
       const textB = lines[j].text.trim();
       const wordsA = textA.split(/\s+/).length;
       const wordsB = textB.split(/\s+/).length;
-      const isSystemBoxHeader = (txt: string) =>
-        /^(?:SYSTEM(?:\s+PROMPT|\s+NOTICE|\s+MESSAGE|\s+ALERT|\s+WINDOW)?|QUEST(?:\s+INFO|\s+ALERT|\s+NOTICE|\s+UPDATED?)?|NOTICE|WARNING|ALERT|INFO|INFORMATION|NOTIFICATION|TIP|STATUS|PROFILE|STATS|SKILLS?|SKILLS?\s+LIST|INVENTORY|EVOLUTION|ANNOUNCEMENT|CONGRATULATIONS|HINT|OBJECTIVE)\b[:!]?$/i.test(
-          txt,
-        );
-      const isPhoneUiBannerOrHeader = (txt: string) =>
-        /^(?:CALLS|RECENT\s+CALLS|CONTACTS|MESSAGES|INBOX|DAY\s*XX.*|MONTH\s*XX.*|YEAR\s*XX.*|\d{1,2}:\d{2}(?:\s*[AP]M)?)$/i.test(
-          txt,
-        );
-      const isNumberedListItemStart = (txt: string) => /^\s*\d{1,2}\s*[.)]\s*[A-Za-z]/.test(txt);
-      const isNoteSectionStart = (txt: string) =>
-        /^\s*(?:\[\s*(?:[*A-Za-z]|This\b|Due\b)|\*?(?:Excluding|Response\s+Location|Sign\s+and\s+log)\b)/i.test(
-          txt,
-        );
-      const isWebMailTitle = (txt: string) => /^\s*\[?\s*Web\s*Mai?l?\s*\]?\.?\s*$/i.test(txt);
 
       const rotA = lines[i].rotRect;
       const rotB = lines[j].rotRect;
@@ -2109,6 +2120,8 @@ export const groupOcrLinesIntoBubbles = (
 
       // Eğer satırlardan biri iki ayrı yan yana sütunun üstünü kapatan geniş bir başlıksa ("KIM JEONGHYUK"), sütunlarla birleştirme
       const angleDiff = Math.abs((lines[i].angleDeg ?? 0) - (lines[j].angleDeg ?? 0));
+      const bothHaveRot = Boolean(lines[i].rotRect && lines[j].rotRect);
+      const angleThresh = bothHaveRot ? 3.8 : 10.5;
       const tiltedSplitContinuation =
         angleDiff < 12 &&
         overlap > narrow * 0.4 &&
@@ -2125,7 +2138,7 @@ export const groupOcrLinesIntoBubbles = (
         effVGap <= effMinH * 0.72 &&
         (!img || Math.abs(sampleLineCollarLum(img, a) - sampleLineCollarLum(img, b)) < 40);
       if (
-        (angleDiff >= 3.8 && !sameHandwrittenNoteStack && !tiltedSplitContinuation) ||
+        (angleDiff >= angleThresh && !sameHandwrittenNoteStack && !tiltedSplitContinuation) ||
         (!tiltedSplitContinuation &&
           (spansSeparateSideBySideColumns(i, j) || spansSeparateSideBySideColumns(j, i))) ||
         (img &&
@@ -2150,7 +2163,14 @@ export const groupOcrLinesIntoBubbles = (
       const allCapsB = upperB >= 4 && lowerB === 0;
       const mixedHandwritingA = lowerA >= 4 && lowerA >= upperA;
       const mixedHandwritingB = lowerB >= 4 && lowerB >= upperB;
+      const isShortAllCapsSameCavity =
+        ((allCapsA && wordsA <= 3) || (allCapsB && wordsB <= 3)) &&
+        vGap >= -minH * 0.45 &&
+        vGap <= maxH * 0.85 &&
+        overlap > narrow * 0.25 &&
+        (!img || !hasVerticalBubbleBarrier(img, lines[i], lines[j]));
       if (
+        !isShortAllCapsSameCavity &&
         ((allCapsA && mixedHandwritingB) || (allCapsB && mixedHandwritingA)) &&
         minH / Math.max(1, maxH) <= 0.82 &&
         (centerDist > maxH * 0.72 || vGap < -minH * 0.15)
@@ -2175,8 +2195,26 @@ export const groupOcrLinesIntoBubbles = (
       if (heightRatio <= 2.85) {
         const stronglyAligned =
           (overlap > narrow * 0.36 && centerDist < effMaxH * 1.55) ||
-          (overlap > narrow * 0.6 && centerDist < Math.max(wa, wb) * 0.45);
+          (overlap > narrow * 0.6 && centerDist < Math.max(wa, wb) * 0.34);
         if (stronglyAligned && effVGap >= -effMinH * 0.55 && effVGap <= effMaxH * 1.45) {
+          parent[find(j)] = find(i);
+          continue;
+        }
+      }
+
+      // 4. Durum: Tekdüze balon boşluğu (uniform-cavity) içinde yakın dikey satırlar
+      if (
+        img &&
+        heightRatio <= 2.4 &&
+        overlap > narrow * 0.25 &&
+        centerDist < Math.max(effMaxH * 2.2, Math.max(wa, wb) * 0.34) &&
+        effVGap >= -effMinH * 0.5 &&
+        effVGap <= effMaxH * 0.9 &&
+        !hasVerticalBubbleBarrier(img, lines[i], lines[j])
+      ) {
+        const colA = sampleLineCollarRgb(img, a);
+        const colB = sampleLineCollarRgb(img, b);
+        if (Math.hypot(colA.r - colB.r, colA.g - colB.g, colA.b - colB.b) < 42) {
           parent[find(j)] = find(i);
         }
       }
@@ -2193,6 +2231,35 @@ export const groupOcrLinesIntoBubbles = (
 
   const toNormCoord = (val: number, total: number): number =>
     Number(clamp((val / Math.max(1, total)) * 1000, 0, 1000).toFixed(4));
+
+  const joinOcrLineTexts = (rawTexts: readonly string[]): string =>
+    rawTexts
+      .join(' ')
+      .replace(/(\p{L})-[""''`]?\s+(\p{L})/gu, '$1$2')
+      .replace(/\bcongratu[\s-]+(?:(?:l)?i)?tion\b([!?.]*)/gi, 'congratulation$1')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  const computeEmphasisFromRows = (
+    heights: readonly number[],
+    texts: readonly string[],
+  ): number | undefined => {
+    if (heights.length < 2) return undefined;
+    const lastH = heights[heights.length - 1];
+    const otherHeights = heights.slice(0, -1);
+    const avgOtherH = otherHeights.reduce((s, v) => s + v, 0) / otherHeights.length;
+    const maxOtherH = Math.max(...otherHeights);
+    const lastWordsCount = (texts[texts.length - 1] || '').trim().split(/\s+/).filter(Boolean).length;
+    if (
+      avgOtherH > 0 &&
+      lastH / avgOtherH >= 1.48 &&
+      lastH / Math.max(1, maxOtherH) >= 1.38 &&
+      lastWordsCount <= 3
+    ) {
+      return Number(clamp(lastH / avgOtherH, 1.3, 1.65).toFixed(2));
+    }
+    return undefined;
+  };
 
   const bubbles: Array<OcrBubble & { y: number }> = [];
   groups.forEach((group) => {
@@ -2251,8 +2318,9 @@ export const groupOcrLinesIntoBubbles = (
           vOv >= Math.min(hp, hi) * 0.52 &&
           hOv <= Math.min(wp, wi) * 0.35 &&
           Math.abs(centerYp - centerYi) < Math.min(hp, hi) * 0.45 &&
+          Math.max(hp, hi) / Math.max(1, Math.min(hp, hi)) <= 1.65 &&
           hGap >= -Math.min(hp, hi) * 0.4 &&
-          hGap <= Math.min(hp, hi) * 0.65 &&
+          hGap <= Math.max(hp, hi) * 1.15 &&
           (!img || !hasHorizontalBubbleBarrier(img, prev, item))
         ) {
           // Çok yakın yan yana parçaysa ("MURD" + "ER.") boşluksuz veya tek boşlukla birleştir
@@ -2315,32 +2383,13 @@ export const groupOcrLinesIntoBubbles = (
       y1 = Math.max(y1, l.bbox.y1);
     }
 
-    const text = mergedRows
-      .map((l) => l.text)
-      .join(' ')
-      .replace(/(\p{L})-[""''`]?\s+(\p{L})/gu, '$1$2')
-      .replace(/\bcongratu[\s-]+(?:(?:l)?i)?tion\b([!?.]*)/gi, 'congratulation$1')
-      .replace(/\s+/g, ' ')
-      .trim();
+    const text = joinOcrLineTexts(mergedRows.map((l) => l.text));
 
     // Son satırın vurgulu (daha büyük) olup olmadığını hesapla ("ALONE?" gibi)
-    let emphasisLastLineScale: number | undefined;
-    if (mergedRows.length >= 2) {
-      const lastRow = mergedRows[mergedRows.length - 1];
-      const lastH = lastRow.bbox.y1 - lastRow.bbox.y0;
-      const otherHeights = mergedRows.slice(0, -1).map((r) => r.bbox.y1 - r.bbox.y0);
-      const avgOtherH = otherHeights.reduce((s, v) => s + v, 0) / otherHeights.length;
-      const maxOtherH = Math.max(...otherHeights);
-      const lastWordsCount = lastRow.text.trim().split(/\s+/).filter(Boolean).length;
-      if (
-        avgOtherH > 0 &&
-        lastH / avgOtherH >= 1.48 &&
-        lastH / Math.max(1, maxOtherH) >= 1.38 &&
-        lastWordsCount <= 3
-      ) {
-        emphasisLastLineScale = Number(clamp(lastH / avgOtherH, 1.3, 1.65).toFixed(2));
-      }
-    }
+    const emphasisLastLineScale = computeEmphasisFromRows(
+      mergedRows.map((r) => r.bbox.y1 - r.bbox.y0),
+      mergedRows.map((r) => r.text),
+    );
 
     const lineBoxes: OcrBubbleLineBox[] = mergedRows.map((r) => ({
       box: [
@@ -2389,6 +2438,396 @@ export const groupOcrLinesIntoBubbles = (
       });
     }
   });
+
+  // Gruplama Sonrası Aynı Balon Oyuğu Birleştirme (Post-Grouping Same-Cavity Consolidation):
+  // Ön aşamada ayrı düşen üst-alt satırları ("WELL" / "IF IT ISN'T AKANE!", "THE COKE!" / "OH NO!")
+  // figür-8 ikiz balon bel kıvrımı ve yüzen SFX kontrolleriyle güvenle birleştir.
+  if (img && bubbles.length >= 2) {
+    const { data: imgData } = img;
+    const lumAt = (x: number, y: number): number => {
+      const ix = Math.max(0, Math.min(imgWidth - 1, Math.round(x)));
+      const iy = Math.max(0, Math.min(imgHeight - 1, Math.round(y)));
+      const idx = (iy * imgWidth + ix) * 4;
+      return 0.299 * imgData[idx] + 0.587 * imgData[idx + 1] + 0.114 * imgData[idx + 2];
+    };
+    const scanRowBubbleWalls = (
+      yRow: number,
+      leftStartPx: number,
+      rightStartPx: number,
+      maxReachPx: number,
+    ) => {
+      const y = Math.max(0, Math.min(imgHeight - 1, Math.round(yRow)));
+      let hitL = false;
+      let leftX = 0;
+      let darkRun = 0;
+      const lStart = Math.max(0, Math.min(imgWidth - 1, Math.floor(leftStartPx)));
+      const lMin = Math.max(0, lStart - maxReachPx);
+      for (let x = lStart; x >= lMin; x -= 1) {
+        if (lumAt(x, y) <= 135) {
+          darkRun += 1;
+          if (darkRun >= 2) {
+            hitL = true;
+            leftX = x + 2;
+            break;
+          }
+        } else {
+          darkRun = 0;
+        }
+      }
+      let hitR = false;
+      let rightX = imgWidth - 1;
+      darkRun = 0;
+      const rStart = Math.max(0, Math.min(imgWidth - 1, Math.ceil(rightStartPx)));
+      const rMax = Math.min(imgWidth - 1, rStart + maxReachPx);
+      for (let x = rStart; x <= rMax; x += 1) {
+        if (lumAt(x, y) <= 135) {
+          darkRun += 1;
+          if (darkRun >= 2) {
+            hitR = true;
+            rightX = x - 2;
+            break;
+          }
+        } else {
+          darkRun = 0;
+        }
+      }
+      return {
+        hit: hitL && hitR && rightX > leftX,
+        hitL,
+        hitR,
+        leftX,
+        rightX,
+        span: rightX - leftX,
+      };
+    };
+    const normLineToPx = (l: OcrBubbleLineBox): OcrLine => ({
+      text: l.text,
+      confidence: l.confidence ?? 80,
+      bbox: {
+        x0: (l.box[1] / 1000) * imgWidth,
+        y0: (l.box[0] / 1000) * imgHeight,
+        x1: (l.box[3] / 1000) * imgWidth,
+        y1: (l.box[2] / 1000) * imgHeight,
+      },
+      ...(l.angleDeg !== undefined ? { angleDeg: l.angleDeg } : {}),
+      ...(l.rotRect
+        ? {
+            rotRect: {
+              cx: (l.rotRect.cx / 1000) * imgWidth,
+              cy: (l.rotRect.cy / 1000) * imgHeight,
+              w: (l.rotRect.w / 1000) * imgWidth,
+              h: (l.rotRect.h / 1000) * imgHeight,
+              angleDeg: l.rotRect.angleDeg,
+            },
+          }
+        : {}),
+    });
+    const getDominantAng = (b: OcrBubble): number => {
+      const angs = (b.lines ?? []).map((l) => l.rotRect?.angleDeg ?? l.angleDeg ?? 0);
+      return angs.length > 0 ? angs.reduce((s, v) => s + v, 0) / angs.length : 0;
+    };
+    const hasExplicitRot = (b: OcrBubble): boolean =>
+      (b.lines ?? []).some((l) => Boolean(l.rotRect));
+
+    const maxPasses = bubbles.length;
+    for (let pass = 0; pass < maxPasses && bubbles.length >= 2; pass += 1) {
+      bubbles.sort((a, b) => a.box[0] - b.box[0] || a.box[1] - b.box[1]);
+      let mergedIndexPair: [number, number] | null = null;
+
+      for (let i = 0; i < bubbles.length && !mergedIndexPair; i += 1) {
+        const topB = bubbles[i];
+        const tText = topB.text.trim();
+        if (
+          isRpgStatLine(tText) ||
+          isWebMailTitle(tText) ||
+          isSystemBoxHeader(tText)
+        ) {
+          continue;
+        }
+        const topW = topB.box[3] - topB.box[1];
+        const topCx = (topB.box[1] + topB.box[3]) * 0.5;
+        const topIsSfx = isPureSoundEffect(tText, topB.box, topB.lines);
+
+        for (let j = i + 1; j < bubbles.length; j += 1) {
+          const botB = bubbles[j];
+          const bText = botB.text.trim();
+          if (
+            isRpgStatLine(bText) ||
+            isWebMailTitle(bText) ||
+            isSystemBoxHeader(bText) ||
+            isNumberedListItemStart(bText) ||
+            isNoteSectionStart(bText)
+          ) {
+            continue;
+          }
+          const botIsSfx = isPureSoundEffect(bText, botB.box, botB.lines);
+          if (topIsSfx !== botIsSfx) continue;
+
+          const botW = botB.box[3] - botB.box[1];
+          const botCx = (botB.box[1] + botB.box[3]) * 0.5;
+          const ovX = Math.min(topB.box[3], botB.box[3]) - Math.max(topB.box[1], botB.box[1]);
+          if (
+            ovX < Math.min(topW, botW) * 0.28 ||
+            Math.abs(topCx - botCx) > Math.max(topW, botW) * 0.34
+          ) {
+            continue;
+          }
+
+          // Arada yatayda çakışan başka bir blok varsa atlayarak birleştirme
+          let hasIntermediate = false;
+          for (let m = i + 1; m < j; m += 1) {
+            const mb = bubbles[m];
+            const mbMidY = (mb.box[0] + mb.box[2]) * 0.5;
+            if (mbMidY > topB.box[0] && mbMidY < botB.box[2]) {
+              const mOvX =
+                Math.min(Math.max(topB.box[3], botB.box[3]), mb.box[3]) -
+                Math.max(Math.min(topB.box[1], botB.box[1]), mb.box[1]);
+              if (mOvX > 0 && mbMidY > topB.box[2] - 4 && mbMidY < botB.box[0] + 4) {
+                hasIntermediate = true;
+                break;
+              }
+            }
+          }
+          if (hasIntermediate) continue;
+
+          const angDiff = Math.abs(getDominantAng(topB) - getDominantAng(botB));
+          const maxAngAllowed = hasExplicitRot(topB) && hasExplicitRot(botB) ? 5 : 10.5;
+          if (angDiff >= maxAngAllowed) continue;
+
+          const topLinesList = [...(topB.lines ?? [])].sort(
+            (u, v) => u.box[0] - v.box[0] || u.box[1] - v.box[1],
+          );
+          const botLinesList = [...(botB.lines ?? [])].sort(
+            (u, v) => u.box[0] - v.box[0] || u.box[1] - v.box[1],
+          );
+          const topLastNorm: OcrBubbleLineBox = topLinesList[topLinesList.length - 1] ?? {
+            box: topB.box,
+            text: topB.text,
+          };
+          const botFirstNorm: OcrBubbleLineBox = botLinesList[0] ?? {
+            box: botB.box,
+            text: botB.text,
+          };
+          const lastTopOcrLine = normLineToPx(topLastNorm);
+          const firstBotOcrLine = normLineToPx(botFirstNorm);
+
+          const hTopLine = Math.max(1, lastTopOcrLine.bbox.y1 - lastTopOcrLine.bbox.y0);
+          const hBotLine = Math.max(1, firstBotOcrLine.bbox.y1 - firstBotOcrLine.bbox.y0);
+          const vGapPx = firstBotOcrLine.bbox.y0 - lastTopOcrLine.bbox.y1;
+          if (vGapPx < -Math.min(hTopLine, hBotLine) * 0.55) continue;
+
+          const wTopPx = Math.max(1, lastTopOcrLine.bbox.x1 - lastTopOcrLine.bbox.x0);
+          const wBotPx = Math.max(1, firstBotOcrLine.bbox.x1 - firstBotOcrLine.bbox.x0);
+          const maxReachPx = Math.max(96, Math.round(Math.max(wTopPx, wBotPx) * 0.9));
+          const yTop = Math.round((lastTopOcrLine.bbox.y0 + lastTopOcrLine.bbox.y1) * 0.5);
+          const yBot = Math.round((firstBotOcrLine.bbox.y0 + firstBotOcrLine.bbox.y1) * 0.5);
+          const topWalls = scanRowBubbleWalls(
+            yTop,
+            lastTopOcrLine.bbox.x0 - 2,
+            lastTopOcrLine.bbox.x1 + 2,
+            maxReachPx,
+          );
+          const botWalls = scanRowBubbleWalls(
+            yBot,
+            firstBotOcrLine.bbox.x0 - 2,
+            firstBotOcrLine.bbox.x1 + 2,
+            maxReachPx,
+          );
+          const colTop = sampleLineCollarRgb(img, lastTopOcrLine.bbox);
+          const colBot = sampleLineCollarRgb(img, firstBotOcrLine.bbox);
+          const enclosedLightCavity =
+            topWalls.hit && botWalls.hit && colTop.lum >= 165 && colBot.lum >= 165;
+          const lineMidDistPx = Math.abs(
+            (lastTopOcrLine.bbox.x0 + lastTopOcrLine.bbox.x1) * 0.5 -
+              (firstBotOcrLine.bbox.x0 + firstBotOcrLine.bbox.x1) * 0.5,
+          );
+          if (!enclosedLightCavity && lineMidDistPx > Math.max(wTopPx, wBotPx) * 0.34) continue;
+          const maxGapPxAllowed = enclosedLightCavity
+            ? Math.max(hTopLine, hBotLine) * 0.95
+            : Math.min(hTopLine, hBotLine) * 0.45;
+          if (vGapPx > maxGapPxAllowed) continue;
+
+          const ovPxX0 = Math.max(
+            0,
+            Math.ceil(Math.max(lastTopOcrLine.bbox.x0, firstBotOcrLine.bbox.x0)),
+          );
+          const ovPxX1 = Math.min(
+            imgWidth - 1,
+            Math.floor(Math.min(lastTopOcrLine.bbox.x1, firstBotOcrLine.bbox.x1)),
+          );
+          const corrSpan = ovPxX1 - ovPxX0 + 1;
+
+          // Beyaz/açık dikdörtgen anlatım kutusu panel çizgisinin üstüne bindiyse ara boşlukta
+          // yarı saydam gri bir dikiş izi kalabilir; kutu duvarları aynıysa ve dışarıda panel sınırı sürüyorsa birleştir
+          let isTranslucentPanelSeamInSameBox = false;
+          if (
+            enclosedLightCavity &&
+            Math.abs(topWalls.leftX - botWalls.leftX) <= 8 &&
+            Math.abs(topWalls.rightX - botWalls.rightX) <= 8 &&
+            vGapPx >= 2 &&
+            vGapPx <= Math.min(hTopLine, hBotLine) * 0.45 &&
+            Math.min(hTopLine, hBotLine) / Math.max(hTopLine, hBotLine) >= 0.8 &&
+            Math.min(colTop.lum, colBot.lum) >= 225 &&
+            Math.abs(colTop.lum - colBot.lum) <= 22 &&
+            /\s/.test(tText) &&
+            /\s/.test(bText) &&
+            corrSpan >= 8
+          ) {
+            const gY0 = Math.max(0, Math.floor(lastTopOcrLine.bbox.y1) + 1);
+            const gY1 = Math.min(imgHeight - 1, Math.ceil(firstBotOcrLine.bbox.y0) - 1);
+            if (gY1 >= gY0) {
+              let minGapLum = 255;
+              let minRowAvgLum = 255;
+              let seamY = -1;
+              for (let y = gY0; y <= gY1; y += 1) {
+                let rowSum = 0;
+                for (let x = ovPxX0; x <= ovPxX1; x += 1) {
+                  const l = lumAt(x, y);
+                  if (l < minGapLum) minGapLum = l;
+                  rowSum += l;
+                }
+                const rowAvg = rowSum / corrSpan;
+                if (rowAvg < minRowAvgLum) {
+                  minRowAvgLum = rowAvg;
+                  seamY = y;
+                }
+              }
+              if (minGapLum >= 165 && minRowAvgLum <= 228 && seamY >= 0) {
+                let leftDarkCols = 0;
+                const lExt0 = Math.max(0, topWalls.leftX - 28);
+                const lExt1 = Math.max(-1, topWalls.leftX - 4);
+                for (let x = lExt0; x <= lExt1; x += 1) {
+                  let hasDark = false;
+                  for (let dy = -2; dy <= 2; dy += 1) {
+                    const y = Math.max(0, Math.min(imgHeight - 1, seamY + dy));
+                    if (lumAt(x, y) <= 95) {
+                      hasDark = true;
+                      break;
+                    }
+                  }
+                  if (hasDark) leftDarkCols += 1;
+                }
+                let rightDarkCols = 0;
+                const rExt0 = Math.min(imgWidth, topWalls.rightX + 4);
+                const rExt1 = Math.min(imgWidth - 1, topWalls.rightX + 28);
+                for (let x = rExt0; x <= rExt1; x += 1) {
+                  let hasDark = false;
+                  for (let dy = -2; dy <= 2; dy += 1) {
+                    const y = Math.max(0, Math.min(imgHeight - 1, seamY + dy));
+                    if (lumAt(x, y) <= 95) {
+                      hasDark = true;
+                      break;
+                    }
+                  }
+                  if (hasDark) rightDarkCols += 1;
+                }
+                if (leftDarkCols >= 6 || rightDarkCols >= 6) {
+                  isTranslucentPanelSeamInSameBox = true;
+                }
+              }
+            }
+          }
+
+          if (
+            !isTranslucentPanelSeamInSameBox &&
+            hasVerticalBubbleBarrier(img, lastTopOcrLine, firstBotOcrLine)
+          ) {
+            continue;
+          }
+
+          // Figür-8 İkiz Balon Bel Kıvrımı (Waist Cusp) & Yatay Ara Duvar Koruması
+          let hasDarkCorridorWall = false;
+          if (vGapPx >= 2 && corrSpan >= 4) {
+            const yStart = Math.max(
+              0,
+              Math.floor(lastTopOcrLine.bbox.y1) + (vGapPx >= 4 ? 1 : 0),
+            );
+            const yEnd = Math.min(
+              imgHeight - 1,
+              Math.ceil(firstBotOcrLine.bbox.y0) - (vGapPx >= 4 ? 1 : 0),
+            );
+            for (let y = yStart; y <= yEnd; y += 1) {
+              let darkCnt = 0;
+              for (let x = ovPxX0; x <= ovPxX1; x += 1) {
+                if (lumAt(x, y) <= 125) darkCnt += 1;
+              }
+              if (darkCnt / corrSpan >= 0.22) {
+                hasDarkCorridorWall = true;
+                break;
+              }
+            }
+          }
+          if (hasDarkCorridorWall) continue;
+
+          let hasWaistCusp = false;
+          if (enclosedLightCavity) {
+            const yMid = Math.round((lastTopOcrLine.bbox.y1 + firstBotOcrLine.bbox.y0) * 0.5);
+            const midSeedX = Math.round((ovPxX0 + ovPxX1) * 0.5);
+            const fallbackL =
+              Math.min(lastTopOcrLine.bbox.x0, firstBotOcrLine.bbox.x0) - 2;
+            const fallbackR =
+              Math.max(lastTopOcrLine.bbox.x1, firstBotOcrLine.bbox.x1) + 2;
+            for (const offset of [-2, 0, 2]) {
+              const ry = Math.max(0, Math.min(imgHeight - 1, yMid + offset));
+              const seedAtMid = vGapPx >= 4 && lumAt(midSeedX, ry) > 135;
+              const midWalls = scanRowBubbleWalls(
+                ry,
+                seedAtMid ? midSeedX : fallbackL,
+                seedAtMid ? midSeedX : fallbackR,
+                maxReachPx,
+              );
+              if (
+                midWalls.hit &&
+                (midWalls.span < Math.min(topWalls.span, botWalls.span) - 6 ||
+                  (midWalls.leftX >= topWalls.leftX + 5 &&
+                    midWalls.leftX >= botWalls.leftX + 5 &&
+                    midWalls.rightX <= topWalls.rightX - 5 &&
+                    midWalls.rightX <= botWalls.rightX - 5))
+              ) {
+                hasWaistCusp = true;
+                break;
+              }
+            }
+          }
+          if (hasWaistCusp) continue;
+
+          mergedIndexPair = [i, j];
+          break;
+        }
+      }
+
+      if (!mergedIndexPair) break;
+      const [topIdx, botIdx] = mergedIndexPair;
+      const topB = bubbles[topIdx];
+      const botB = bubbles[botIdx];
+      const combinedLines = [...(topB.lines ?? []), ...(botB.lines ?? [])].sort(
+        (u, v) => u.box[0] - v.box[0] || u.box[1] - v.box[1],
+      );
+      const mergedBox: [number, number, number, number] = [
+        Math.min(topB.box[0], botB.box[0]),
+        Math.min(topB.box[1], botB.box[1]),
+        Math.max(topB.box[2], botB.box[2]),
+        Math.max(topB.box[3], botB.box[3]),
+      ];
+      const mergedText = joinOcrLineTexts(
+        combinedLines.length > 0
+          ? combinedLines.map((l) => l.text)
+          : [topB.text, botB.text],
+      );
+      const mergedEmphasis = computeEmphasisFromRows(
+        combinedLines.map((l) => ((l.box[2] - l.box[0]) / 1000) * imgHeight),
+        combinedLines.map((l) => l.text),
+      );
+      bubbles[topIdx] = {
+        box: mergedBox,
+        text: mergedText,
+        lines: combinedLines,
+        emphasisLastLineScale: mergedEmphasis,
+        y: (mergedBox[0] / 1000) * imgHeight,
+      };
+      bubbles.splice(botIdx, 1);
+    }
+  }
 
   // Eğimli telefon ekranı / SMS sohbet arayüzü / sıkışık mikro UI metin kümelerini filtrele
   // (ör. elde tutulan -22° eğimli telefon ekranındaki üst üste yığılmış 7-22px SMS parçaları)

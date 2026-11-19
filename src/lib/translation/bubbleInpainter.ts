@@ -13,7 +13,7 @@ import {
 } from './textLayout';
 import { ScanlationFontKey, TranslationBlock } from './types';
 
-export const TRANSLATION_BLOCK_VERSION = 17;
+export const TRANSLATION_BLOCK_VERSION = 19;
 export const SCANLATION_FONT_FAMILY = FONT_FAMILY_MAP.shantell;
 
 interface ComponentInfo {
@@ -423,9 +423,27 @@ export const inpaintAndRefineBlock = (
       .map((l) => l.rotRect?.angleDeg ?? l.angleDeg)
       .filter((a): a is number => a !== undefined && Math.abs(a) >= 4.5 && Math.abs(a) <= 38.0);
     const hasRotRects = block.lines.some((l) => Boolean(l.rotRect));
+    const totalLines = block.lines.length;
+    const totalBoxW = block.lines.reduce(
+      (s, l) => s + Math.max(1, l.box[3] - l.box[1]),
+      0,
+    );
+    const tiltedBoxW = block.lines.reduce((s, l) => {
+      const a = l.rotRect?.angleDeg ?? l.angleDeg;
+      return a !== undefined && Math.abs(a) >= 4.5 && Math.abs(a) <= 38.0
+        ? s + Math.max(1, l.box[3] - l.box[1])
+        : s;
+    }, 0);
+    const majorityTilted =
+      totalLines === 1
+        ? lineAngs.length === 1
+        : lineAngs.length === totalLines ||
+          (hasRotRects &&
+            lineAngs.length >= Math.ceil(totalLines * 0.6) &&
+            tiltedBoxW >= totalBoxW * 0.62);
     const allLinesTilted =
       lineAngs.length > 0 &&
-      (hasRotRects || lineAngs.length === block.lines.length) &&
+      majorityTilted &&
       lineAngs.every((a) => Math.sign(a) === Math.sign(lineAngs[0])) &&
       Math.max(...lineAngs) - Math.min(...lineAngs) <= 6.5;
     if (allLinesTilted) {
@@ -1315,7 +1333,7 @@ export const inpaintAndRefineBlock = (
           if (
             inCore &&
             !yellowHeadlineOnly &&
-            bgLumInit < 65 &&
+            bgLumInit < 145 &&
             whiteCoreCount >= 18 &&
             pMaxC >= 68 &&
             pChr >= 32 &&
@@ -1335,12 +1353,13 @@ export const inpaintAndRefineBlock = (
           }
         }
       }
-      // Beyaz dış kontur halkasının ("A VERY HOT PLAN") içinde kalan koyu/kırmızı harf iç dolgularını tamamla
-      if (!yellowHeadlineOnly && bgLumInit < 65 && whiteCoreCount >= 18) {
+      // Beyaz dış kontur halkasının ("A VERY HOT PLAN", "IT'S IMPOSSIBLE, RIGHT?") içinde kalan koyu/kırmızı harf iç dolgularını tamamla
+      if (!yellowHeadlineOnly && bgLumInit < 145 && whiteCoreCount >= 18) {
         const yS = Math.max(1, cy0 - 2);
         const yE = Math.min(wh - 2, cy1 + 2);
         const xS = Math.max(1, cx0 - 2);
         const xE = Math.min(ww - 2, cx1 + 2);
+        const holeRayMax = clamp(Math.round(medLineH * 0.45), 16, 36);
         const holeFills: number[] = [];
         for (let y = yS; y <= yE; y += 1) {
           const rOff = y * ww;
@@ -1348,7 +1367,7 @@ export const inpaintAndRefineBlock = (
             const pIdx = rOff + x;
             if (fg[pIdx] || !isInsideAnyCore(x, y)) continue;
             const hasWallDir = (dx: number, dy: number) => {
-              for (let s = 1; s <= 15; s += 1) {
+              for (let s = 1; s <= holeRayMax; s += 1) {
                 const nx = x + dx * s;
                 const ny = y + dy * s;
                 if (nx < 0 || nx >= ww || ny < 0 || ny >= wh) return false;
@@ -1728,7 +1747,8 @@ export const inpaintAndRefineBlock = (
           c.maxx > cx1 + 4 &&
           c.miny < cy0 - 4 &&
           c.maxy > cy1 + 4 &&
-          coreRatio < 0.35)
+          coreRatio < 0.35 &&
+          c.area / Math.max(1, c.w * c.h) < 0.34)
       ) {
         return true;
       }
@@ -2080,13 +2100,13 @@ export const inpaintAndRefineBlock = (
 
     if (
       whiteCoreCount >= 18 &&
-      (pass.accepted.size === 0 || pass.spanW < bw * 0.65)
+      (pass.accepted.size === 0 || pass.spanW < bw * 0.72)
     ) {
       const tightWhiteMask = new Uint8Array(numPixels);
-      const kx0 = Math.max(curWx0 > 0 ? 2 : 0, cx0 - 5);
-      const kx1 = Math.min(curWx1 < fullWidth ? ww - 3 : ww - 1, cx1 + 5);
-      const ky0 = Math.max(curWy0 > 0 ? 2 : 0, cy0 - 4);
-      const ky1 = Math.min(curWy1 < fullHeight ? wh - 3 : wh - 1, cy1 + 4);
+      const kx0 = Math.max(curWx0 > 0 ? 2 : 0, cx0 - 10);
+      const kx1 = Math.min(curWx1 < fullWidth ? ww - 3 : ww - 1, cx1 + 10);
+      const ky0 = Math.max(curWy0 > 0 ? 2 : 0, cy0 - 8);
+      const ky1 = Math.min(curWy1 < fullHeight ? wh - 3 : wh - 1, cy1 + 8);
       for (let py = ky0; py <= ky1; py += 1) {
         const rOff = py * ww;
         for (let px = kx0; px <= kx1; px += 1) {
@@ -2098,11 +2118,101 @@ export const inpaintAndRefineBlock = (
           const lum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
           const chr = Math.max(pr, pg, pb) - Math.min(pr, pg, pb);
           const dBg = Math.max(Math.abs(pr - bgR), Math.abs(pg - bgG), Math.abs(pb - bgB));
-          if (lum >= 228 && (chr <= 22 || dBg >= 46)) {
+          if (lum >= 222 && (chr <= 24 || dBg >= 40)) {
             tightWhiteMask[idx] = 1;
           }
         }
       }
+      // Dış sınır BFS + çekirdek içi beyaz-duvar ışın taraması:
+      // beyaz dış konturlu koyu/mor başlık harflerini ("IT'S IMPOSSIBLE, RIGHT?") açık beyaz zeminle karıştırmadan doldur
+      const bfsVisited = new Uint8Array(numPixels);
+      const bfsQueue = new Int32Array(numPixels);
+      let bfsHead = 0;
+      let bfsTail = 0;
+      const seedExterior = (px: number, py: number) => {
+        const idx = py * ww + px;
+        if (!tightWhiteMask[idx] && !bfsVisited[idx]) {
+          bfsVisited[idx] = 1;
+          bfsQueue[bfsTail++] = idx;
+        }
+      };
+      for (let px = kx0; px <= kx1; px += 1) {
+        seedExterior(px, ky0);
+        seedExterior(px, ky1);
+      }
+      for (let py = ky0; py <= ky1; py += 1) {
+        seedExterior(kx0, py);
+        seedExterior(kx1, py);
+      }
+      while (bfsHead < bfsTail) {
+        const cur = bfsQueue[bfsHead++];
+        const cy = (cur / ww) | 0;
+        const cx = cur - cy * ww;
+        if (cx > kx0) {
+          const n = cur - 1;
+          if (!tightWhiteMask[n] && !bfsVisited[n]) {
+            bfsVisited[n] = 1;
+            bfsQueue[bfsTail++] = n;
+          }
+        }
+        if (cx < kx1) {
+          const n = cur + 1;
+          if (!tightWhiteMask[n] && !bfsVisited[n]) {
+            bfsVisited[n] = 1;
+            bfsQueue[bfsTail++] = n;
+          }
+        }
+        if (cy > ky0) {
+          const n = cur - ww;
+          if (!tightWhiteMask[n] && !bfsVisited[n]) {
+            bfsVisited[n] = 1;
+            bfsQueue[bfsTail++] = n;
+          }
+        }
+        if (cy < ky1) {
+          const n = cur + ww;
+          if (!tightWhiteMask[n] && !bfsVisited[n]) {
+            bfsVisited[n] = 1;
+            bfsQueue[bfsTail++] = n;
+          }
+        }
+      }
+      const rayMax = clamp(Math.round(medLineH * 0.48), 16, 36);
+      const fillIndices: number[] = [];
+      const inY0 = Math.max(ky0, cy0 - 2);
+      const inY1 = Math.min(ky1, cy1 + 2);
+      const inX0 = Math.max(kx0, cx0 - 2);
+      const inX1 = Math.min(kx1, cx1 + 2);
+      for (let py = inY0; py <= inY1; py += 1) {
+        const rOff = py * ww;
+        for (let px = inX0; px <= inX1; px += 1) {
+          const idx = rOff + px;
+          if (tightWhiteMask[idx]) continue;
+          if (!bfsVisited[idx]) {
+            fillIndices.push(idx);
+            continue;
+          }
+          if (!isInsideAnyCore(px, py)) continue;
+          const hitsWhiteWall = (dx: number, dy: number) => {
+            for (let s = 1; s <= rayMax; s += 1) {
+              const nx = px + dx * s;
+              const ny = py + dy * s;
+              if (nx < kx0 || nx > kx1 || ny < ky0 || ny > ky1) return false;
+              if (tightWhiteMask[ny * ww + nx]) return true;
+            }
+            return false;
+          };
+          if (
+            hitsWhiteWall(-1, 0) &&
+            hitsWhiteWall(1, 0) &&
+            hitsWhiteWall(0, -1) &&
+            hitsWhiteWall(0, 1)
+          ) {
+            fillIndices.push(idx);
+          }
+        }
+      }
+      for (const fi of fillIndices) tightWhiteMask[fi] = 1;
       const whiteStrokePass = runMaskPass(tightWhiteMask);
       if (whiteStrokePass.spanW > pass.spanW * 1.15 && whiteStrokePass.accepted.size > 0) {
         pass = whiteStrokePass;
@@ -2242,6 +2352,15 @@ export const inpaintAndRefineBlock = (
     const isVividExternalSidebarArt = (cand: ComponentInfo): boolean => {
       if (overlapsDeletedEmblem(cand)) return true;
       const edgeEmblem = isEdgeEmblemCandidate(cand);
+      if (
+        !isSingleOrDarkSfx &&
+        !cand.overlapsCore &&
+        cand.w >= Math.min(medLineH * 1.4, realLetterH * 1.55) &&
+        cand.h >= Math.min(medLineH * 1.4, realLetterH * 1.55) &&
+        Math.abs(cand.w - cand.h) <= Math.max(8, cand.w * 0.35)
+      ) {
+        return true;
+      }
       if ((cand.overlapsCore && !edgeEmblem) || !coreNeutralInk) return false;
       if (
         edgeEmblem &&
@@ -2562,6 +2681,7 @@ export const inpaintAndRefineBlock = (
         const chroma = Math.max(pr, pg, pb) - Math.min(pr, pg, pb);
         if (
           (pixLum < 128 && dBg >= 68) ||
+          (bgLumInit >= 210 && pixLum < 168 && dBg >= 46) ||
           (dBg >= 84 && chroma >= 64 && pixLum < Math.max(165, bgLumInit - 55))
         ) {
           borderMask[i] = 1;
@@ -2626,6 +2746,13 @@ export const inpaintAndRefineBlock = (
       }
       return Math.abs(pixLum - bgLumInit) >= 88 && (pixLum >= 185 || pChroma <= 36);
     }
+    if (!preferLightFirst && bgLumInit >= 225) {
+      const pChroma = Math.max(pr, pg, pb) - Math.min(pr, pg, pb);
+      const dBg = Math.max(Math.abs(pr - bgR), Math.abs(pg - bgG), Math.abs(pb - bgB));
+      if (dBg >= 36 && (pixLum <= bgLumInit - 28 || pChroma >= 32)) {
+        return true;
+      }
+    }
     if (bgChromaInit >= 22 && bgLumInit >= 130) {
       const pChroma = Math.max(pr, pg, pb) - Math.min(pr, pg, pb);
       const dBg = Math.max(Math.abs(pr - bgR), Math.abs(pg - bgG), Math.abs(pb - bgB));
@@ -2633,12 +2760,13 @@ export const inpaintAndRefineBlock = (
     }
     return false;
   };
+  const checkContrastWall = preferLightFirst || bgChromaInit >= 22 || bgLumInit >= 225;
   const hasWallBandX = (lx: number, by0: number, by1: number): boolean => {
     let total = 0;
     let contrastHits = 0;
     for (let y = by0; y <= by1; y += 2) {
       if (isStructuralWallAt(lx, y)) return true;
-      if (preferLightFirst || bgChromaInit >= 22) {
+      if (checkContrastWall) {
         total += 1;
         if (isContrastBoundaryPixel(lx, y)) contrastHits += 1;
       }
@@ -2650,7 +2778,7 @@ export const inpaintAndRefineBlock = (
     let contrastHits = 0;
     for (let x = bx0; x <= bx1; x += 3) {
       if (isStructuralWallAt(x, ly)) return true;
-      if (preferLightFirst || bgChromaInit >= 22) {
+      if (checkContrastWall) {
         total += 1;
         if (isContrastBoundaryPixel(x, ly)) contrastHits += 1;
       }
@@ -3084,7 +3212,7 @@ export const inpaintAndRefineBlock = (
       (wallHitsEarly < 3 && bgLumInit < 248 && whiteCoreCount >= 12))
   ) {
     const haloSteps = preHaloWhiteOverTinted
-      ? 6
+      ? clamp(Math.round(medGlyphH * 0.24), 6, 18)
       : hasVividColorCoreInk && bgLumInit >= 185
         ? 1
         : bgLumInit < 175 && whiteCoreCount >= 12
@@ -3092,12 +3220,13 @@ export const inpaintAndRefineBlock = (
           : isSingleOrDarkSfx || bgLumInit < 190
             ? 3
             : 2;
+    const preHaloPad = clamp(Math.round(medGlyphH * 0.26), 6, 20);
     for (let step = 0; step < haloSteps; step += 1) {
       let haloAdded = 0;
       const nextMask = new Uint8Array(preDilateMask);
-      for (let y = Math.max(1, gMinY - 6); y <= Math.min(wh - 2, gMaxY + 6); y += 1) {
+      for (let y = Math.max(1, gMinY - preHaloPad); y <= Math.min(wh - 2, gMaxY + preHaloPad); y += 1) {
         const rOff = y * ww;
-        for (let x = Math.max(1, gMinX - 6); x <= Math.min(ww - 2, gMaxX + 6); x += 1) {
+        for (let x = Math.max(1, gMinX - preHaloPad); x <= Math.min(ww - 2, gMaxX + preHaloPad); x += 1) {
           const idx = rOff + x;
           if (preDilateMask[idx] || borderMask[idx]) continue;
           if (
@@ -3655,15 +3784,24 @@ export const inpaintAndRefineBlock = (
   // Kademe 2 (dokulu sahne / SFX / RPG kutusu): Sınır korumalı İzofot Telea Fast Marching + Harmonik Difüzyon
   const ringMedChroma =
     Math.max(ringMedR, ringMedG, ringMedB) - Math.min(ringMedR, ringMedG, ringMedB);
+  const useInteriorGradBounds =
+    hasActualPhysicalWalls &&
+    safeLocalRight > safeLocalLeft + 16 &&
+    safeLocalBottom > safeLocalTop + 16;
+  const gradY0 = useInteriorGradBounds ? clamp(safeLocalTop + 2, 2, wh - 3) : 2;
+  const gradY1 = useInteriorGradBounds ? clamp(safeLocalBottom - 2, gradY0, wh - 3) : wh - 3;
+  const gradX0 = useInteriorGradBounds ? clamp(safeLocalLeft + 2, 2, ww - 3) : 2;
+  const gradX1 = useInteriorGradBounds ? clamp(safeLocalRight - 2, gradX0, ww - 3) : ww - 3;
+
   // Pastel/pembe radyal gradyanlı balonlarda merkez saf beyaz (#FFF) olsa bile dış eteklerde
   // renk/parlaklık gradyanı varsa düz beyaz dolgu yerine doku enterpolasyonu uygula
   let hasOuterGradientTint = false;
   if (!preferLightFirst && !hasTexturedSceneInterior && ringMedLum >= 225) {
     const winLums: number[] = [];
     const winChrs: number[] = [];
-    for (let y = 2; y < wh - 2; y += 3) {
+    for (let y = gradY0; y <= gradY1; y += 3) {
       const rOff = y * ww;
-      for (let x = 2; x < ww - 2; x += 3) {
+      for (let x = gradX0; x <= gradX1; x += 3) {
         const idx = rOff + x;
         if (eraseMask[idx] || borderMask[idx]) continue;
         const c3 = idx * 3;
@@ -3687,19 +3825,97 @@ export const inpaintAndRefineBlock = (
       }
     }
   }
+  let bgGradDelta = 0;
+  if (!preferLightFirst && !hasTexturedSceneInterior && bgLumInit >= 165) {
+    const topL: number[] = [];
+    const topR: number[] = [];
+    const topG: number[] = [];
+    const topB: number[] = [];
+    const botL: number[] = [];
+    const botR: number[] = [];
+    const botG: number[] = [];
+    const botB: number[] = [];
+    const leftL: number[] = [];
+    const leftR: number[] = [];
+    const leftG: number[] = [];
+    const leftB: number[] = [];
+    const rightL: number[] = [];
+    const rightR: number[] = [];
+    const rightG: number[] = [];
+    const rightB: number[] = [];
+    const halfY = (gradY0 + gradY1) * 0.5;
+    const halfX = (gradX0 + gradX1) * 0.5;
+    for (let y = gradY0; y <= gradY1; y += 3) {
+      const rOff = y * ww;
+      for (let x = gradX0; x <= gradX1; x += 3) {
+        const idx = rOff + x;
+        if (eraseMask[idx] || borderMask[idx]) continue;
+        const c3 = idx * 3;
+        const er = winRgb[c3];
+        const eg = winRgb[c3 + 1];
+        const eb = winRgb[c3 + 2];
+        const eLum = 0.299 * er + 0.587 * eg + 0.114 * eb;
+        if (eLum < 165) continue;
+        if (y < halfY) {
+          topL.push(eLum);
+          topR.push(er);
+          topG.push(eg);
+          topB.push(eb);
+        } else {
+          botL.push(eLum);
+          botR.push(er);
+          botG.push(eg);
+          botB.push(eb);
+        }
+        if (x < halfX) {
+          leftL.push(eLum);
+          leftR.push(er);
+          leftG.push(eg);
+          leftB.push(eb);
+        } else {
+          rightL.push(eLum);
+          rightR.push(er);
+          rightG.push(eg);
+          rightB.push(eb);
+        }
+      }
+    }
+    if (topL.length >= 8 && botL.length >= 8) {
+      const vd = Math.max(
+        Math.abs(medianOf(topL) - medianOf(botL)),
+        Math.abs(medianOf(topR) - medianOf(botR)),
+        Math.abs(medianOf(topG) - medianOf(botG)),
+        Math.abs(medianOf(topB) - medianOf(botB)),
+      );
+      if (vd > bgGradDelta) bgGradDelta = vd;
+    }
+    if (leftL.length >= 8 && rightL.length >= 8) {
+      const hd = Math.max(
+        Math.abs(medianOf(leftL) - medianOf(rightL)),
+        Math.abs(medianOf(leftR) - medianOf(rightR)),
+        Math.abs(medianOf(leftG) - medianOf(rightG)),
+        Math.abs(medianOf(leftB) - medianOf(rightB)),
+      );
+      if (hd > bgGradDelta) bgGradDelta = hd;
+    }
+  }
   const isOpenWhiteHaloScene =
     style.hasTextStroke &&
     style.strokeColor.toLowerCase() === '#ffffff' &&
     !hasActualPhysicalWalls &&
-    ringMedLum <= 249;
+    (ringMedLum <= 249 || hasTexturedSceneInterior);
   const isNeutralJpegLightBox =
+    hasActualPhysicalWalls &&
+    wallHits >= 3 &&
     !hasTexturedSceneInterior &&
     !hasWhiteHaloOverGradientOrTintedBg &&
     !hasOuterGradientTint &&
     !isOpenWhiteHaloScene &&
     !preferLightFirst &&
     ringMedLum >= 236 &&
-    ringMedChroma <= 12 &&
+    ringStd < 2.6 &&
+    ringMedChroma <= 6 &&
+    bgGradDelta < 4.5 &&
     ringCloseRatio >= 0.72;
   const isGradientLightBubble =
     !preferLightFirst &&
@@ -3716,7 +3932,9 @@ export const inpaintAndRefineBlock = (
     !isNeutralJpegLightBox &&
     (hasWhiteHaloOverGradientOrTintedBg ||
       hasOuterGradientTint ||
-      (style.hasTextStroke && style.strokeColor.toLowerCase() === '#ffffff' && ringMedLum <= 249) ||
+      (style.hasTextStroke &&
+        style.strokeColor.toLowerCase() === '#ffffff' &&
+        (ringMedLum <= 249 || isOpenWhiteHaloScene || hasTexturedSceneInterior)) ||
       (hasVividColorCoreInk && !hasClosedBubbleWalls && ringMedLum <= 244));
 
   if (isGradientLightBubble || hasWhiteStrokeHalo) {
@@ -3726,29 +3944,109 @@ export const inpaintAndRefineBlock = (
     const rowOuterChroma = new Float32Array(wh);
     rowOuterLum.fill(ringMedLum);
     rowOuterChroma.fill(ringMedChroma);
+    const isDenseTexturedHalo = isOpenWhiteHaloScene && hasTexturedSceneInterior;
+    const scanBandX0 = Math.max(0, egMinX);
+    const scanBandX1 = Math.min(ww - 1, egMaxX);
     for (let y = Math.max(0, egMinY - 4); y <= Math.min(wh - 1, egMaxY + 4); y += 1) {
+      let rowGMinX = ww;
+      let rowGMaxX = -1;
+      const by0 = Math.max(0, y - 3);
+      const by1 = Math.min(wh - 1, y + 3);
+      for (let by = by0; by <= by1; by += 1) {
+        const bOff = by * ww;
+        for (let bx = scanBandX0; bx <= scanBandX1; bx += 1) {
+          if (eraseMask[bOff + bx]) {
+            if (bx < rowGMinX) rowGMinX = bx;
+            if (bx > rowGMaxX) rowGMaxX = bx;
+          }
+        }
+      }
+      if (rowGMaxX < rowGMinX) {
+        rowGMinX = egMinX;
+        rowGMaxX = egMaxX;
+      }
+
       const rOff = y * ww;
-      const oLums: number[] = [];
-      const oChrs: number[] = [];
-      for (let x = Math.max(0, egMinX - 18); x < Math.min(ww, egMaxX + 18); x += 1) {
-        if (x >= egMinX - 4 && x <= egMaxX + 4) continue;
+      const leftLums: number[] = [];
+      const leftChrs: number[] = [];
+      const minLeftX = Math.max(0, rowGMinX - 28);
+      for (let x = rowGMinX - 4; x >= minLeftX; x -= 1) {
         const idx = rOff + x;
-        if (eraseMask[idx] || borderMask[idx]) continue;
+        if (borderMask[idx]) break;
+        if (eraseMask[idx]) continue;
         const cIdx = idx * 3;
         const pr = winRgb[cIdx];
         const pg = winRgb[cIdx + 1];
         const pb = winRgb[cIdx + 2];
-        oLums.push(0.299 * pr + 0.587 * pg + 0.114 * pb);
-        oChrs.push(Math.max(pr, pg, pb) - Math.min(pr, pg, pb));
+        leftLums.push(0.299 * pr + 0.587 * pg + 0.114 * pb);
+        leftChrs.push(Math.max(pr, pg, pb) - Math.min(pr, pg, pb));
       }
-      if (oLums.length >= 6) {
-        rowOuterLum[y] = medianOf(oLums);
-        rowOuterChroma[y] = medianOf(oChrs);
+
+      const rightLums: number[] = [];
+      const rightChrs: number[] = [];
+      const maxRightX = Math.min(ww - 1, rowGMaxX + 28);
+      for (let x = rowGMaxX + 4; x <= maxRightX; x += 1) {
+        const idx = rOff + x;
+        if (borderMask[idx]) break;
+        if (eraseMask[idx]) continue;
+        const cIdx = idx * 3;
+        const pr = winRgb[cIdx];
+        const pg = winRgb[cIdx + 1];
+        const pb = winRgb[cIdx + 2];
+        rightLums.push(0.299 * pr + 0.587 * pg + 0.114 * pb);
+        rightChrs.push(Math.max(pr, pg, pb) - Math.min(pr, pg, pb));
+      }
+
+      if (isDenseTexturedHalo) {
+        const innerLums: number[] = [];
+        const innerChrs: number[] = [];
+        const inX0 = Math.max(0, rowGMinX);
+        const inX1 = Math.min(ww - 1, rowGMaxX);
+        for (let x = inX0; x <= inX1; x += 1) {
+          const idx = rOff + x;
+          if (eraseMask[idx] || borderMask[idx]) continue;
+          const cIdx = idx * 3;
+          const pr = winRgb[cIdx];
+          const pg = winRgb[cIdx + 1];
+          const pb = winRgb[cIdx + 2];
+          const pLum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+          if (pLum < 220) {
+            innerLums.push(pLum);
+            innerChrs.push(Math.max(pr, pg, pb) - Math.min(pr, pg, pb));
+          }
+        }
+        let bestMedLum = Infinity;
+        let bestChrs: number[] | null = null;
+        for (const [cLums, cChrs] of [
+          [leftLums, leftChrs],
+          [rightLums, rightChrs],
+          [innerLums, innerChrs],
+        ]) {
+          if (cLums.length >= 4) {
+            const medL = medianOf(cLums);
+            if (medL < bestMedLum) {
+              bestMedLum = medL;
+              bestChrs = cChrs;
+            }
+          }
+        }
+        if (bestChrs !== null) {
+          rowOuterLum[y] = bestMedLum;
+          rowOuterChroma[y] = medianOf(bestChrs);
+        }
+      } else {
+        const oLums = leftLums.concat(rightLums);
+        const oChrs = leftChrs.concat(rightChrs);
+        if (oLums.length >= 6) {
+          rowOuterLum[y] = medianOf(oLums);
+          rowOuterChroma[y] = medianOf(oChrs);
+        }
       }
     }
 
-    const minWhiteHaloLum =
-      hasOuterGradientTint
+    const minWhiteHaloLum = isDenseTexturedHalo
+      ? 224
+      : hasOuterGradientTint
         ? Math.max(242, ringMedLum + 4)
         : hasWhiteHaloOverGradientOrTintedBg
           ? Math.max(ringMedLum >= 195 ? 222 : 238, ringMedLum + (ringMedLum >= 195 ? 5 : 24))
@@ -3757,22 +4055,36 @@ export const inpaintAndRefineBlock = (
             : ringMedLum < 228 && ringMedChroma <= 12
               ? Math.max(222, ringMedLum + 14)
               : 234;
+    const propHaloSteps = isDenseTexturedHalo
+      ? clamp(Math.round(medGlyphH * 0.45), 10, 22)
+      : clamp(Math.round(medGlyphH * 0.24), 6, 18);
     const maxHaloSteps =
-      hasWhiteHaloOverGradientOrTintedBg
-        ? 7
-        : hasVividColorCoreInk && hasWhiteStrokeHalo
-          ? 6
+      hasWhiteHaloOverGradientOrTintedBg || hasWhiteStrokeHalo
+        ? hasVividColorCoreInk && !hasWhiteStrokeHalo && ringMedLum >= 195
+          ? 0
           : hasVividColorCoreInk
-            ? ringMedLum >= 195
-              ? 0
-              : 3
-            : hasWhiteStrokeHalo
-              ? 4
-              : 7;
-    const haloBoundX0 = hasWhiteStrokeHalo ? Math.max(1, gMinX - 4) : Math.max(1, egMinX - 4);
-    const haloBoundX1 = hasWhiteStrokeHalo ? Math.min(ww - 2, gMaxX + 4) : Math.min(ww - 2, egMaxX + 4);
-    const haloBoundY0 = hasWhiteStrokeHalo ? Math.max(1, gMinY - 4) : Math.max(1, egMinY - 4);
-    const haloBoundY1 = hasWhiteStrokeHalo ? Math.min(wh - 2, gMaxY + 4) : Math.min(wh - 2, egMaxY + 4);
+            ? Math.max(6, Math.min(12, propHaloSteps))
+            : propHaloSteps
+        : hasVividColorCoreInk
+          ? ringMedLum >= 195
+            ? 0
+            : 3
+          : 7;
+    const haloBoundPad = isDenseTexturedHalo
+      ? clamp(Math.round(medGlyphH * 0.48), 10, 24)
+      : clamp(Math.round(medGlyphH * 0.26), 6, 20);
+    const haloBoundX0 = hasWhiteStrokeHalo
+      ? Math.max(1, gMinX - haloBoundPad)
+      : Math.max(1, egMinX - haloBoundPad);
+    const haloBoundX1 = hasWhiteStrokeHalo
+      ? Math.min(ww - 2, gMaxX + haloBoundPad)
+      : Math.min(ww - 2, egMaxX + haloBoundPad);
+    const haloBoundY0 = hasWhiteStrokeHalo
+      ? Math.max(1, gMinY - haloBoundPad)
+      : Math.max(1, egMinY - haloBoundPad);
+    const haloBoundY1 = hasWhiteStrokeHalo
+      ? Math.min(wh - 2, gMaxY + haloBoundPad)
+      : Math.min(wh - 2, egMaxY + haloBoundPad);
     for (let step = 0; step < maxHaloSteps; step += 1) {
       let gHaloAdded = 0;
       const prevErase = new Uint8Array(eraseMask);
@@ -3785,28 +4097,35 @@ export const inpaintAndRefineBlock = (
         for (let x = haloBoundX0; x <= haloBoundX1; x += 1) {
           const idx = rOff + x;
           if (prevErase[idx] || borderMask[idx]) continue;
-          if (
+          const hasNeighbor =
             prevErase[idx - 1] ||
             prevErase[idx + 1] ||
             prevErase[idx - ww] ||
-            prevErase[idx + ww]
-          ) {
+            prevErase[idx + ww] ||
+            (isDenseTexturedHalo &&
+              (prevErase[idx - ww - 1] ||
+                prevErase[idx - ww + 1] ||
+                prevErase[idx + ww - 1] ||
+                prevErase[idx + ww + 1]));
+          if (hasNeighbor) {
             const cIdx = idx * 3;
             const pr = winRgb[cIdx];
             const pg = winRgb[cIdx + 1];
             const pb = winRgb[cIdx + 2];
             const pLum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
             const pChroma = Math.max(pr, pg, pb) - Math.min(pr, pg, pb);
-            const haloStepDelta =
-              hasOuterGradientTint
+            const haloStepDelta = isDenseTexturedHalo
+              ? 10
+              : hasOuterGradientTint
                 ? 4
                 : hasVividColorCoreInk && hasWhiteStrokeHalo
                   ? 6
                   : hasWhiteStrokeHalo && !hasWhiteHaloOverGradientOrTintedBg && ringMedLum < 228
                     ? 18
                     : 9;
-            const maxStrokeChr =
-              hasWhiteStrokeHalo && !hasWhiteHaloOverGradientOrTintedBg && !hasOuterGradientTint && ringMedLum < 228
+            const maxStrokeChr = isDenseTexturedHalo
+              ? Math.max(24, refChr * 0.72)
+              : hasWhiteStrokeHalo && !hasWhiteHaloOverGradientOrTintedBg && !hasOuterGradientTint && ringMedLum < 228
                 ? 14
                 : Math.max(20, refChr * 0.72);
             const isNeutralWhiteHalo =
@@ -3828,6 +4147,40 @@ export const inpaintAndRefineBlock = (
         }
       }
       if (gHaloAdded === 0) break;
+    }
+
+    if (isDenseTexturedHalo) {
+      const prevFringe = new Uint8Array(eraseMask);
+      for (let y = haloBoundY0; y <= haloBoundY1; y += 1) {
+        const rOff = y * ww;
+        const refLum = Math.min(ringMedLum, rowOuterLum[y]);
+        const refChr = Math.max(ringMedChroma, rowOuterChroma[y]);
+        for (let x = haloBoundX0; x <= haloBoundX1; x += 1) {
+          const idx = rOff + x;
+          if (prevFringe[idx] || borderMask[idx]) continue;
+          if (
+            prevFringe[idx - 1] ||
+            prevFringe[idx + 1] ||
+            prevFringe[idx - ww] ||
+            prevFringe[idx + ww]
+          ) {
+            const cIdx = idx * 3;
+            const pr = winRgb[cIdx];
+            const pg = winRgb[cIdx + 1];
+            const pb = winRgb[cIdx + 2];
+            const pLum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+            const pChroma = Math.max(pr, pg, pb) - Math.min(pr, pg, pb);
+            if (pLum >= Math.max(175, refLum + 32) && pChroma <= Math.max(48, refChr * 0.85)) {
+              eraseMask[idx] = 1;
+              eraseCount += 1;
+              if (x < egMinX) egMinX = x;
+              if (x > egMaxX) egMaxX = x;
+              if (y < egMinY) egMinY = y;
+              if (y > egMaxY) egMaxY = y;
+            }
+          }
+        }
+      }
     }
   }
 
@@ -4066,8 +4419,14 @@ export const inpaintAndRefineBlock = (
     const sweepX0 = isYellowNotePaper ? Math.max(1, cx0 - 180) : Math.max(1, gMinX - 40);
     const sweepX1 = isYellowNotePaper ? Math.min(ww - 2, cx1 + 180) : Math.min(ww - 2, gMaxX + 40);
     for (let x = sweepX0; x <= sweepX1; x += 1) {
-      const topLimit = colTopBezel[x] >= 0 ? Math.max(sweepY0, colTopBezel[x] + 1) : Math.max(1, cy0 - 24);
-      const botLimit = colBotBezel[x] >= 0 ? Math.min(sweepY1, colBotBezel[x] - 1) : Math.min(wh - 2, cy1 + 24);
+      const topLimit =
+        colTopBezel[x] >= 0
+          ? Math.max(sweepY0, colTopBezel[x] + 1)
+          : Math.max(1, cy0 - (isYellowNotePaper ? 56 : 24));
+      const botLimit =
+        colBotBezel[x] >= 0
+          ? Math.min(sweepY1, colBotBezel[x] - 1)
+          : Math.min(wh - 2, cy1 + (isYellowNotePaper ? 56 : 24));
       if (botLimit < topLimit) continue;
       for (let y = topLimit; y <= botLimit; y += 1) {
         if (rowLeftBezel[y] >= 0 && x <= rowLeftBezel[y]) continue;
@@ -4102,14 +4461,19 @@ export const inpaintAndRefineBlock = (
         }
         const nearRightCut = isYellowNotePaper && x >= Math.max(0, cx1 - 64) && x <= Math.min(ww - 1, cx1 + 28);
         if (x >= cx0 && x <= cx1 && y >= cy0 && y <= cy1 && !nearRightCut) continue;
-        const inSideTail = isYellowNotePaper ? y >= cy0 - 24 && y <= cy1 + 24 : y >= cy0 - 10 && y <= cy1 + 10;
+        const slopeY = isYellowNotePaper
+          ? (x - (cx0 + cx1) * 0.5) * Math.tan(((style.rotationDeg ?? 0) * Math.PI) / 180)
+          : 0;
+        const inSideTail = isYellowNotePaper
+          ? y >= cy0 + slopeY - 26 && y <= cy1 + slopeY + 26
+          : y >= cy0 - 10 && y <= cy1 + 10;
         const inOwnCoreBand =
           isYellowNotePaper &&
           (x > cx1 || x < cx0 || nearRightCut) &&
-          y >= cy0 - 16 &&
-          y <= cy1 + 18;
-        const inTopCut = colTopBezel[x] >= 0 && y < cy0 && cy0 - colTopBezel[x] <= 84;
-        const inBotCut = colBotBezel[x] >= 0 && y > cy1 && colBotBezel[x] - cy1 <= 84;
+          y >= cy0 + slopeY - 16 &&
+          y <= cy1 + slopeY + 18;
+        const inTopCut = colTopBezel[x] >= 0 && y < cy0 && cy0 - colTopBezel[x] <= 110;
+        const inBotCut = colBotBezel[x] >= 0 && y > cy1 && colBotBezel[x] - cy1 <= 110;
         if (!inSideTail && !inTopCut && !inBotCut) continue;
         if (!isYellowNotePaper && !inSideTail) continue;
         if (!inOwnCoreBand && overlapsAnySiblingAbs(wx0 + x, wy0 + y, wx0 + x + 1, wy0 + y + 1)) continue;
@@ -4149,13 +4513,17 @@ export const inpaintAndRefineBlock = (
 
   const cleaned = new Float32Array(winRgb);
   const isFlatLightBubble =
+    hasActualPhysicalWalls &&
+    wallHits >= 3 &&
     !hasTexturedSceneInterior &&
     !hasWhiteHaloOverGradientOrTintedBg &&
     !hasOuterGradientTint &&
     !isOpenWhiteHaloScene &&
+    bgGradDelta < 4.5 &&
+    ringStd < 2.6 &&
     (isNeutralJpegLightBox ||
-      (!isGradientLightBubble && ringStd < 4.5 && ringMedLum >= 232) ||
-      (wallHits >= 3 && ringStd < 4.8 && ringMedLum >= 175 && ringMedChroma <= 12));
+      ringMedLum >= 232 ||
+      (ringMedLum >= 175 && ringMedChroma <= 12));
   const isFlatDarkBanner =
     !hasTexturedSceneInterior &&
     preferLightFirst &&
@@ -4374,7 +4742,7 @@ export const inpaintAndRefineBlock = (
     // Silme Sonrası Artık İz Kontrolü (Post-Inpaint Residual Verification):
     // Harf kutusunun hemen içinde hala yüksek kontrastlı kontur/gölge kalıntısı varsa 2. geçişle temizle.
     // Gradyan balonlarda yanlış tetiklenmemesi için her pikseli kendi 5px komşuluğuyla kıyasla.
-    const residualThresh = Math.max(42, ringStd * 2.5);
+    const residualThresh = ringStd < 10 ? Math.max(22, ringStd * 2.0) : Math.max(42, ringStd * 2.5);
     let residualFound = 0;
     const resMask = new Uint8Array(numPixels);
     for (let y = Math.max(3, gMinY - 2); y <= Math.min(wh - 4, gMaxY + 2); y += 1) {
@@ -4739,11 +5107,16 @@ export const inpaintAndRefineBlock = (
       absRotRadOrig > 0.08
         ? clamp(0.22 / Math.max(0.75, Math.cos(absRotRadOrig)), 0.2, 0.28)
         : 0.72;
+    if (!hasClosedBubbleWalls && origLineCount === 1 && bh >= 32 && absRotRadOrig < 0.08 && origCapH < bh * 0.52) {
+      origCapH = Math.max(origCapH, Math.round(bh * 0.68));
+    }
     if (origCapH < bh * 0.48 && (capHeights.length < 4 || medGlyphH < 18)) {
       origCapH = Math.max(origCapH, Math.round(bh * tiltScale));
     } else if (absRotRadOrig >= 0.14) {
       origCapH = Math.min(origCapH, Math.max(14, Math.round(bh * tiltScale * 1.45)));
     }
+  } else if (!hasClosedBubbleWalls && origLineCount === 1 && bh >= 32 && absRotRadOrig < 0.08 && origCapH < bh * 0.52) {
+    origCapH = Math.max(origCapH, Math.round(bh * 0.68));
   }
   if (
     style.kind === 'sfx' &&
@@ -4767,6 +5140,14 @@ export const inpaintAndRefineBlock = (
   let finalBoxW: number;
   let finalBoxH: number;
   let finalLineWidthsPct: number[] | undefined;
+  let postContourMeasureFn:
+    | ((
+        w: ReturnType<typeof computeSmartWrappedLines>,
+        curBoxW: number,
+        curFontPx: number,
+        curLineH: number,
+      ) => { rowSpans: number[]; rowPcts: number[] })
+    | null = null;
   let emphasisLastLineScale = block.emphasisLastLineScale;
   const ribbonBgMax = Math.max(bgR, bgG, bgB);
   const isVividBannerNow = ribbonBgMax >= 135 && ribbonBgMax - Math.min(bgR, bgG, bgB) >= 65;
@@ -5061,7 +5442,7 @@ export const inpaintAndRefineBlock = (
     const rawLeftWall = hitLeftWall ? safeLocalLeft - wallPadX : safeLocalLeft;
     const rawRightWall = hitRightWall ? safeLocalRight + wallPadX : safeLocalRight;
     const rawWallSpan = Math.max(glyphW, rawRightWall - rawLeftWall);
-    const targetWallClear = clamp(Math.round(medGlyphH * 0.12), 2, 4);
+    const targetWallClear = clamp(Math.round(medGlyphH * 0.16), 3, 6);
     const maxDrawableW = Math.max(glyphW, rawWallSpan - 2 * targetWallClear);
     const interiorSpan =
       safeLocalRight > safeLocalLeft + 24 ? safeLocalRight - safeLocalLeft : safeW;
@@ -5278,11 +5659,10 @@ export const inpaintAndRefineBlock = (
 
     const canMeasureContour =
       hasActualPhysicalWalls &&
-      hitLeftWall &&
-      hitRightWall &&
+      (hitLeftWall || hitRightWall) &&
       !isOpenMultilineScene;
     const contourScanX = clamp(Math.round(layoutCenterX), 0, ww - 1);
-    const contourPadX = clamp(Math.round(medGlyphH * 0.24), 5, 9);
+    const contourPadX = clamp(Math.round(medGlyphH * 0.28), 6, 11);
     const lineHeightRatio =
       style.fontFamily === 'anton' || style.fontFamily === 'bangers' ? 1.09 : 1.09;
 
@@ -5290,6 +5670,7 @@ export const inpaintAndRefineBlock = (
       yTopLocal: number,
       yBotLocal: number,
       isEdgeRow: boolean,
+      fallbackW: number,
     ): number => {
       const yMid = Math.round((yTopLocal + yBotLocal) * 0.5);
       const sampleYs = [
@@ -5321,10 +5702,14 @@ export const inpaintAndRefineBlock = (
         }
         if (hitL && hitR) {
           halfSpans.push(Math.max(medGlyphH * 0.85, Math.min(halfL, halfR)));
+        } else if (hitLeftWall && hitL) {
+          halfSpans.push(Math.max(medGlyphH * 0.85, halfL));
+        } else if (hitRightWall && hitR) {
+          halfSpans.push(Math.max(medGlyphH * 0.85, halfR));
         }
       }
       if (halfSpans.length === 0) {
-        return finalBoxW * 0.88;
+        return fallbackW;
       }
       halfSpans.sort((a, b) => a - b);
       // Uç satırlarda (ilk/son) kubbe eğriliğine çarpmamak için en dar kesiti, orta satırlarda medyanı esas al
@@ -5332,30 +5717,36 @@ export const inpaintAndRefineBlock = (
       return Math.max(medGlyphH * 1.75, 2 * pickedHalf);
     };
 
-    const computeRowPctsForWrapped = (
+    const measureContourForWrap = (
       wrappedRes: ReturnType<typeof computeSmartWrappedLines>,
+      curBoxWrapW: number,
+      curFontPx: number,
+      curLineH: number,
     ): { rowSpans: number[]; rowPcts: number[] } => {
       const rowSpans: number[] = [];
       const rowPcts: number[] = [];
       if (!canMeasureContour || wrappedRes.lines.length < 1) {
         return { rowSpans, rowPcts };
       }
-      const boxWrapW = Math.max(1, finalBoxW * 0.88);
+      const safeWrapW = Math.max(1, curBoxWrapW);
       let curY = layoutCenterY - wrappedRes.totalHeightPx * 0.5;
       for (let li = 0; li < wrappedRes.lines.length; li += 1) {
         const line = wrappedRes.lines[li];
-        const lh = fontPx * (line.scale ?? 1) * lineHeightRatio;
-        const y0 = Math.round(curY + lh * 0.20);
-        const y1 = Math.round(curY + lh * 0.80);
+        const lh = curFontPx * (line.scale ?? 1) * curLineH;
+        const y0 = Math.round(curY + lh * 0.10);
+        const y1 = Math.round(curY + lh * 0.90);
         const isEdgeRow =
           wrappedRes.lines.length >= 2 && (li === 0 || li === wrappedRes.lines.length - 1);
-        const spanPx = measureRowClearSpanPx(y0, y1, isEdgeRow);
+        const spanPx = measureRowClearSpanPx(y0, y1, isEdgeRow, safeWrapW);
         rowSpans.push(spanPx);
-        rowPcts.push(Number(clamp(spanPx / boxWrapW, 0.52, 1.0).toFixed(3)));
+        rowPcts.push(Number(clamp(spanPx / safeWrapW, 0.52, 1.0).toFixed(3)));
         curY += lh;
       }
       return { rowSpans, rowPcts };
     };
+    if (canMeasureContour) {
+      postContourMeasureFn = measureContourForWrap;
+    }
 
     for (let step = 0; step < 26; step += 1) {
       const allowHyphenation = step >= 22;
@@ -5372,7 +5763,12 @@ export const inpaintAndRefineBlock = (
         },
       );
 
-      let { rowSpans, rowPcts } = computeRowPctsForWrapped(wrapped);
+      let { rowSpans, rowPcts } = measureContourForWrap(
+        wrapped,
+        finalBoxW * 0.88,
+        fontPx,
+        lineHeightRatio,
+      );
       if (canMeasureContour && wrapped.lines.length >= 2 && rowPcts.some((p) => p < 0.96)) {
         const contoured = computeSmartWrappedLines(
           measureCtx,
@@ -5387,9 +5783,38 @@ export const inpaintAndRefineBlock = (
             allowHyphenation,
           },
         );
-        if (contoured.lines.length === rowPcts.length) {
+        if (contoured.lines.length >= 2 && contoured.lines.length <= 8) {
           wrapped = contoured;
-          ({ rowSpans, rowPcts } = computeRowPctsForWrapped(wrapped));
+          ({ rowSpans, rowPcts } = measureContourForWrap(
+            wrapped,
+            finalBoxW * 0.88,
+            fontPx,
+            lineHeightRatio,
+          ));
+          if (rowPcts.some((p) => p < 0.96)) {
+            const contoured2 = computeSmartWrappedLines(
+              measureCtx,
+              displayText,
+              finalBoxW * 0.88,
+              fontPx,
+              {
+                fontFamily: style.fontFamily,
+                fontWeight: style.fontWeight,
+                lineWidthsPct: rowPcts,
+                emphasisLastLineScale,
+                allowHyphenation,
+              },
+            );
+            if (contoured2.lines.length >= 2 && contoured2.lines.length <= 8) {
+              wrapped = contoured2;
+              ({ rowSpans, rowPcts } = measureContourForWrap(
+                wrapped,
+                finalBoxW * 0.88,
+                fontPx,
+                lineHeightRatio,
+              ));
+            }
+          }
         }
       }
 
@@ -5397,7 +5822,7 @@ export const inpaintAndRefineBlock = (
       if (canMeasureContour && rowSpans.length === wrapped.lines.length) {
         for (let li = 0; li < wrapped.lines.length; li += 1) {
           const line = wrapped.lines[li];
-          const drawnW = line.widthPx * (line.scale ?? 1);
+          const drawnW = (line.scale ?? 1) < 1 ? line.widthPx * (line.scale ?? 1) : line.widthPx;
           if (drawnW > rowSpans[li] * 0.91 && fontPx > effMinFontPx * 1.04) {
             linesClearWalls = false;
             break;
@@ -5542,9 +5967,32 @@ export const inpaintAndRefineBlock = (
         emphasisLastLineScale,
         lineHeightRatio: postLineHeightRatio,
       });
+      let postLinesClearWalls = true;
+      if (postContourMeasureFn) {
+        const { rowSpans: postRowSpans, rowPcts: postRowPcts } = postContourMeasureFn(
+          checkWrap,
+          postBoxW * 0.88,
+          fontPx,
+          postLineHeightRatio,
+        );
+        if (postRowSpans.length === checkWrap.lines.length) {
+          for (let li = 0; li < checkWrap.lines.length; li += 1) {
+            const line = checkWrap.lines[li];
+            const drawnW = (line.scale ?? 1) < 1 ? line.widthPx * (line.scale ?? 1) : line.widthPx;
+            if (drawnW > postRowSpans[li] * 0.92 && fontPx > 9.5) {
+              postLinesClearWalls = false;
+              break;
+            }
+          }
+          if (postLinesClearWalls) {
+            finalLineWidthsPct = postRowPcts.some((p) => p < 0.98) ? postRowPcts : undefined;
+          }
+        }
+      }
       if (
         checkWrap.totalHeightPx <= postBoxH * 0.96 &&
         checkWrap.maxWordWidth <= postBoxW * 0.92 &&
+        postLinesClearWalls &&
         (!isSmallTiltedUiRow ||
           origLineCount > 1 ||
           (checkWrap.lines.length <= 1 &&
@@ -5574,7 +6022,7 @@ export const inpaintAndRefineBlock = (
   // Çok satırlı blok farklı parlaklık kuşaklarına yayılıyorsa (ör. üst yarı beyaz, alt yarı siyah panel)
   // her satırın altındaki gerçek arka plan parlaklığına göre otomatik kontrast rengi belirle
   let finalLineStyles: TranslationBlock['lineStyles'] | undefined;
-  if (!isSingleLineStat) {
+  if (!isSingleLineStat && !style.hasTextStroke) {
     const finalWrap = computeSmartWrappedLines(
       measureCtx,
       displayText,

@@ -3,7 +3,11 @@ import { downloadPageBlob } from '@/lib/offline/downloadManager';
 import { isStoredMediaUrl, unwrapManagedMediaUrl } from '@/lib/mediaStorage';
 import { TranslationBlock } from './types';
 import { getLanguageName } from './languages';
-import { TranslationSettings, normalizeApiKeysList } from './translationSettings';
+import {
+  normalizeApiKeysList,
+  normalizeDeepLApiKeysList,
+  TranslationSettings,
+} from './translationSettings';
 import { ensureScanlationFontReady, inpaintAndRefineBlock } from './bubbleInpainter';
 import { runFastWebtoonOcr } from './fastOcr';
 import { isCreditOrPromoText, isPureSoundEffect, OcrBubble } from './ocrCore';
@@ -16,7 +20,7 @@ const DEFAULT_KEY_COOLDOWN_MS = 12_000;
 const INVALID_KEY_ISOLATION_MS = 5 * 60_000;
 const PER_REQUEST_TIMEOUT_MS = 20_000;
 const DEFAULT_TRANSLATE_PROXY_URL =
-  'https://toonparrot-scraper-proxy.caganhuseyinerdil.workers.dev/translate';
+  'https://toonparrot-scraper-proxy.caganherdil.workers.dev/translate';
 
 const GEMINI_TEXT_TRANSLATE_SCHEMA = {
   type: Type.OBJECT,
@@ -147,15 +151,21 @@ export const isFatalAuthOrKeyError = (error: unknown): boolean => {
 };
 
 export const classifyTranslationError = (error: unknown): string => {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  if (message.includes('deepl_key_invalid') || (message.includes('deepl') && message.includes('anahtar'))) {
+    return 'DeepL API anahtarı geçersiz veya eksik. Lütfen ayarlar panelinden kontrol edin.';
+  }
+  if (message.includes('deepl_quota_exceeded')) {
+    return 'DeepL kota sınırı doldu. Ek API anahtarı ekleyebilir veya Google Çeviri motorunu seçebilirsiniz.';
+  }
   if (isFatalAuthOrKeyError(error)) {
     return 'Gemini API anahtarı geçersiz veya yetkisiz. Lütfen ayarlar panelinden kontrol edin.';
   }
   if (isRateLimitError(error)) {
     return 'Gemini kota sınırı doldu (429). Ek API anahtarı ekleyebilir veya biraz bekleyebilirsiniz.';
   }
-  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
   if (message.includes('api_key_invalid') || message.includes('api anahtarı bulunamadı')) {
-    return 'Gemini API anahtarı eksik. Lütfen Görsel Çeviri panelinden bir API anahtarı ekleyin veya Google Çeviri motorunu seçin.';
+    return 'Seçili çeviri motoru için API anahtarı eksik. Lütfen Görsel Çeviri panelinden bir API anahtarı ekleyin veya Google Çeviri motorunu seçin.';
   }
   if (
     message.includes('503') ||
@@ -416,6 +426,23 @@ const getTranslateProxyEndpoint = (): string => {
     .map((u) => u.trim().replace(/\/+$/, ''))
     .find(Boolean);
   return firstProxy ? `${firstProxy}/translate` : DEFAULT_TRANSLATE_PROXY_URL;
+};
+
+const getDeepLTranslateProxyEndpoint = (): string => {
+  const env = typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : undefined;
+  const directDeepL = String(env?.VITE_DEEPL_PROXY_URL || '')
+    .trim()
+    .replace(/\/+$/, '');
+  if (directDeepL) {
+    return directDeepL.endsWith('/translate') ? directDeepL : `${directDeepL}/translate`;
+  }
+  const scraperUrls = String(env?.VITE_SCRAPER_PROXY_URL || '')
+    .split(',')
+    .map((u) => u.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+  const caganherdilProxy = scraperUrls.find((u) => u.includes('caganherdil.workers.dev'));
+  if (caganherdilProxy) return `${caganherdilProxy}/translate`;
+  return DEFAULT_TRANSLATE_PROXY_URL;
 };
 
 const STRICT_TURKISH_CHAR_REGEX = /[çğıİşÇĞŞ]/;
@@ -943,6 +970,127 @@ const normalizeEnglishForGoogleTranslate = (raw: string, targetLang = 'tr'): str
   return s.replace(/\s+/g, ' ').trim();
 };
 
+const postProcessTranslatedBubbleText = (
+  origSrc: string,
+  rawCand: string,
+  targetLang: string,
+): string => {
+  let cand = rawCand
+    .replace(/\bAshgray\b/gi, 'Ash Gray')
+    .replace(/[iİ]lk[iİ]'?y[iİ]/giu, 'ilkeyi');
+  if (targetLang === 'tr') {
+    if (/\bnoona\b/i.test(origSrc) && !/\bnoon\b/i.test(origSrc)) {
+      cand = cand.replace(/\böğlen(?:e|i|den)?\b/giu, 'Noona');
+    }
+    if (/\bharam\b/i.test(origSrc)) {
+      cand = cand.replace(/\bMescid-i\s+Haram/giu, 'Haram');
+      if (/\bjung\b/i.test(origSrc)) {
+        cand = cand.replace(/\byasadışı\b/giu, 'HARAM');
+      }
+    }
+    if (/\bdenji\b/i.test(origSrc)) {
+      cand = cand.replace(/\bworthy\b/giu, 'Denji');
+    }
+    if (/^\s*pochita[.!?…]*\s*$/i.test(origSrc)) {
+      cand = origSrc.replace(/pochita/i, 'Pochita');
+    }
+    if (/^\s*push\s*[.!]?\s*$/i.test(origSrc)) {
+      cand = 'İT';
+    }
+    if (/^\s*h+m+([?!.…]*)\s*$/i.test(origSrc)) {
+      const tail = origSrc.match(/^\s*h+m+([?!.…]*)\s*$/i)?.[1] || '';
+      cand = `Hmm${tail}`;
+    } else if (/^\s*u+m+([?!.…]*)\s*$/i.test(origSrc)) {
+      const tail = origSrc.match(/^\s*u+m+([?!.…]*)\s*$/i)?.[1] || '';
+      cand = `Şey${tail}`;
+    } else if (/^\s*do\s+you([.…]+)\s*$/i.test(origSrc)) {
+      const tail = origSrc.match(/^\s*do\s+you([.…]+)\s*$/i)?.[1] || '...';
+      cand = `Acaba${tail}`;
+    } else if (/^\s*yes[!.]*\s+here\s+you\s+go([!.]*)\s*$/i.test(origSrc)) {
+      const tail = origSrc.match(/^\s*yes[!.]*\s+here\s+you\s+go([!.]*)\s*$/i)?.[1] || '!';
+      cand = `Evet! Buyurun${tail}`;
+    } else if (/^\s*download\s*$/i.test(origSrc)) {
+      cand = 'İndir';
+    } else if (/^\s*h+u+p+[-–—.!~\s…]*$/i.test(origSrc)) {
+      cand = 'Hııh-';
+    } else if (/^\s*ahem[,.\s…]+then([.!?\s…]*)$/i.test(origSrc)) {
+      const tail = origSrc.match(/^\s*ahem[,.\s…]+then([.!?\s…]*)$/i)?.[1] || '...';
+      cand = `Öhö, o zaman${tail}`;
+    } else if (/^\s*ahem[,.\s…]+yes([.!?\s…]*)$/i.test(origSrc)) {
+      const tail = origSrc.match(/^\s*ahem[,.\s…]+yes([.!?\s…]*)$/i)?.[1] || '.';
+      cand = `Öhö, evet${tail}`;
+    } else if (/^\s*wait([.!?\s…]*)$/i.test(origSrc) && /^\s*beklemek\b/i.test(cand)) {
+      const tail = origSrc.match(/^\s*wait([.!?\s…]*)$/i)?.[1] || '...';
+      cand = `Bekle${tail}`;
+    }
+    if (/^\s*u+m+[,.…!\s]+/i.test(origSrc) && /^\s*um\b/i.test(cand)) {
+      cand = cand.replace(/^\s*um\b/i, 'Şey');
+    }
+    if (/^\s*h+n+h+[,.…!\s]+/i.test(origSrc) && /^\s*h+n+h+\b/i.test(cand)) {
+      cand = cand.replace(/^\s*h+n+h+\b/i, 'Hııh');
+    }
+    if (/\bahem\b/i.test(origSrc)) {
+      cand = cand.replace(/\bahem\b/gi, 'Öhö');
+    }
+    if (/\bmaeng\b/i.test(origSrc) && !/\bmaeng\b/i.test(cand)) {
+      cand = cand.replace(/\b(şef|Şef|ŞEF)([.!?\s…]*)$/u, (_, chief, tail) =>
+        chief === 'ŞEF' ? `ŞEF MAENG${tail}` : `Şef Maeng${tail}`,
+      );
+    }
+    cand = cand
+      .replace(/\bkolye\s+kolyesi(ni|ne|nde|nden)?\b/giu, (_, suf: string | undefined) => {
+        const sfxMap: Record<string, string> = { ni: 'yi', ne: 'ye', nde: 'de', nden: 'den' };
+        const mapped = suf ? sfxMap[suf.toLowerCase()] ?? '' : '';
+        return `kolye${mapped}`;
+      })
+      .replace(/\boturum\s+aç[ıiİI]n\s+ve\s+oturum\s+aç[ıiİI]n\b/giu, 'kayıt olup giriş yapın')
+      .replace(/(^|[^\p{L}])(önceki\s+günden\s+itibaren\s+fazla\s+mesai)(?=$|[^\p{L}])/giu, (_, lead: string, match: string) => {
+        if (match === match.toLocaleUpperCase('tr-TR')) return `${lead}ÖNCEKİ GÜNÜN FAZLA MESAİSİ`;
+        if (/^[A-ZÇĞİÖŞÜ]/.test(match)) return `${lead}Önceki günün fazla mesaisi`;
+        return `${lead}önceki günün fazla mesaisi`;
+      });
+    if (/\b(?:a\s+)?thousand\s+won\b/i.test(origSrc)) {
+      cand = cand.replace(/\b(bin|yüz)\s+kazand[ıiİI](?![\p{L}\p{N}_])/giu, '$1 won');
+    }
+    const sStopMatch = origSrc.match(/^\s*s-+\s*stop([.!?\s…]*)$/i);
+    if (sStopMatch) {
+      const tailPunct = (sStopMatch[1] || '').replace(/\s+/g, '');
+      cand = `D-dur${tailPunct}`;
+    } else if (/^\s*stop([.!?\s…]*)$/i.test(origSrc) && /^\s*durmak\b/i.test(cand)) {
+      cand = cand.replace(/^\s*durmak\b/i, 'Dur');
+    }
+    if (/\bkendini\b/i.test(cand) && /\boldu[ğg]unuz\b/i.test(cand)) {
+      cand = cand
+        .replace(/\bolduğunuz\b/gu, 'olduğun')
+        .replace(/\bOLDUĞUNUZ\b/gu, 'OLDUĞUN')
+        .replace(/\bsize\b/giu, (m) => (m === m.toUpperCase() ? 'SANA' : 'sana'));
+    }
+    if (/[)\]]\s*$/.test(cand) && !cand.includes('(') && !cand.includes('[')) {
+      cand = cand.replace(/[)\]]+\s*$/, '').trim();
+    }
+    cand = cand.replace(
+      /\b(lojistik|üretim)\s+(?:ekip|ekibi|takımı)\s+park[ıi]\b/giu,
+      (_, dept: string) =>
+        `${dept.charAt(0).toLocaleUpperCase('tr-TR')}${dept.slice(1).toLocaleLowerCase('tr-TR')} Ekibi, Park`,
+    );
+  }
+  return cand;
+};
+
+const cleanupTurkishAcabaDuplicates = (out: string[], targetLang: string): string[] => {
+  if (targetLang === 'tr') {
+    for (let k = 1; k < out.length; k += 1) {
+      if (/^\s*acaba[.…\s]*$/i.test(out[k - 1] || '') && /^\s*acaba\s+/i.test(out[k] || '')) {
+        const rest = (out[k] || '').replace(/^\s*acaba\s+/i, '');
+        if (rest) {
+          out[k] = rest.charAt(0).toLocaleUpperCase('tr-TR') + rest.slice(1);
+        }
+      }
+    }
+  }
+  return out;
+};
+
 /**
  * Google Çeviri API proxy'si ile toplu metin çevirisi (100% Ücretsiz, API Key istemez).
  */
@@ -987,118 +1135,10 @@ export const translateBatchWithGoogleFree = async (
         nonEmptyIndices.forEach((origIdx, i) => {
           const origSrc = trimmedList[origIdx] || '';
           const rawCand = typeof json.translations![i] === 'string' ? json.translations![i].trim() : '';
-          let cand = rawCand
-            .replace(/\bAshgray\b/gi, 'Ash Gray')
-            .replace(/[iİ]lk[iİ]'?y[iİ]/giu, 'ilkeyi');
-          if (targetLang === 'tr') {
-            if (/\bnoona\b/i.test(origSrc) && !/\bnoon\b/i.test(origSrc)) {
-              cand = cand.replace(/\böğlen(?:e|i|den)?\b/giu, 'Noona');
-            }
-            if (/\bharam\b/i.test(origSrc)) {
-              cand = cand.replace(/\bMescid-i\s+Haram/giu, 'Haram');
-              if (/\bjung\b/i.test(origSrc)) {
-                cand = cand.replace(/\byasadışı\b/giu, 'HARAM');
-              }
-            }
-            if (/\bdenji\b/i.test(origSrc)) {
-              cand = cand.replace(/\bworthy\b/giu, 'Denji');
-            }
-            if (/^\s*pochita[.!?…]*\s*$/i.test(origSrc)) {
-              cand = origSrc.replace(/pochita/i, 'Pochita');
-            }
-            if (/^\s*push\s*[.!]?\s*$/i.test(origSrc)) {
-              cand = 'İT';
-            }
-            if (/^\s*h+m+([?!.…]*)\s*$/i.test(origSrc)) {
-              const tail = origSrc.match(/^\s*h+m+([?!.…]*)\s*$/i)?.[1] || '';
-              cand = `Hmm${tail}`;
-            } else if (/^\s*u+m+([?!.…]*)\s*$/i.test(origSrc)) {
-              const tail = origSrc.match(/^\s*u+m+([?!.…]*)\s*$/i)?.[1] || '';
-              cand = `Şey${tail}`;
-            } else if (/^\s*do\s+you([.…]+)\s*$/i.test(origSrc)) {
-              const tail = origSrc.match(/^\s*do\s+you([.…]+)\s*$/i)?.[1] || '...';
-              cand = `Acaba${tail}`;
-            } else if (/^\s*yes[!.]*\s+here\s+you\s+go([!.]*)\s*$/i.test(origSrc)) {
-              const tail = origSrc.match(/^\s*yes[!.]*\s+here\s+you\s+go([!.]*)\s*$/i)?.[1] || '!';
-              cand = `Evet! Buyurun${tail}`;
-            } else if (/^\s*download\s*$/i.test(origSrc)) {
-              cand = 'İndir';
-            } else if (/^\s*h+u+p+[-–—.!~\s…]*$/i.test(origSrc)) {
-              cand = 'Hııh-';
-            } else if (/^\s*ahem[,.\s…]+then([.!?\s…]*)$/i.test(origSrc)) {
-              const tail = origSrc.match(/^\s*ahem[,.\s…]+then([.!?\s…]*)$/i)?.[1] || '...';
-              cand = `Öhö, o zaman${tail}`;
-            } else if (/^\s*ahem[,.\s…]+yes([.!?\s…]*)$/i.test(origSrc)) {
-              const tail = origSrc.match(/^\s*ahem[,.\s…]+yes([.!?\s…]*)$/i)?.[1] || '.';
-              cand = `Öhö, evet${tail}`;
-            } else if (/^\s*wait([.!?\s…]*)$/i.test(origSrc) && /^\s*beklemek\b/i.test(cand)) {
-              const tail = origSrc.match(/^\s*wait([.!?\s…]*)$/i)?.[1] || '...';
-              cand = `Bekle${tail}`;
-            }
-            if (/^\s*u+m+[,.…!\s]+/i.test(origSrc) && /^\s*um\b/i.test(cand)) {
-              cand = cand.replace(/^\s*um\b/i, 'Şey');
-            }
-            if (/^\s*h+n+h+[,.…!\s]+/i.test(origSrc) && /^\s*h+n+h+\b/i.test(cand)) {
-              cand = cand.replace(/^\s*h+n+h+\b/i, 'Hııh');
-            }
-            if (/\bahem\b/i.test(origSrc)) {
-              cand = cand.replace(/\bahem\b/gi, 'Öhö');
-            }
-            if (/\bmaeng\b/i.test(origSrc) && !/\bmaeng\b/i.test(cand)) {
-              cand = cand.replace(/\b(şef|Şef|ŞEF)([.!?\s…]*)$/u, (_, chief, tail) =>
-                chief === 'ŞEF' ? `ŞEF MAENG${tail}` : `Şef Maeng${tail}`,
-              );
-            }
-            cand = cand
-              .replace(/\bkolye\s+kolyesi(ni|ne|nde|nden)?\b/giu, (_, suf: string | undefined) => {
-                const sfxMap: Record<string, string> = { ni: 'yi', ne: 'ye', nde: 'de', nden: 'den' };
-                const mapped = suf ? sfxMap[suf.toLowerCase()] ?? '' : '';
-                return `kolye${mapped}`;
-              })
-              .replace(/\boturum\s+aç[ıiİI]n\s+ve\s+oturum\s+aç[ıiİI]n\b/giu, 'kayıt olup giriş yapın')
-              .replace(/(^|[^\p{L}])(önceki\s+günden\s+itibaren\s+fazla\s+mesai)(?=$|[^\p{L}])/giu, (_, lead: string, match: string) => {
-                if (match === match.toLocaleUpperCase('tr-TR')) return `${lead}ÖNCEKİ GÜNÜN FAZLA MESAİSİ`;
-                if (/^[A-ZÇĞİÖŞÜ]/.test(match)) return `${lead}Önceki günün fazla mesaisi`;
-                return `${lead}önceki günün fazla mesaisi`;
-              });
-            if (/\b(?:a\s+)?thousand\s+won\b/i.test(origSrc)) {
-              cand = cand.replace(/\b(bin|yüz)\s+kazand[ıiİI](?![\p{L}\p{N}_])/giu, '$1 won');
-            }
-            const sStopMatch = origSrc.match(/^\s*s-+\s*stop([.!?\s…]*)$/i);
-            if (sStopMatch) {
-              const tailPunct = (sStopMatch[1] || '').replace(/\s+/g, '');
-              cand = `D-dur${tailPunct}`;
-            } else if (/^\s*stop([.!?\s…]*)$/i.test(origSrc) && /^\s*durmak\b/i.test(cand)) {
-              cand = cand.replace(/^\s*durmak\b/i, 'Dur');
-            }
-            if (/\bkendini\b/i.test(cand) && /\boldu[ğg]unuz\b/i.test(cand)) {
-              cand = cand
-                .replace(/\bolduğunuz\b/gu, 'olduğun')
-                .replace(/\bOLDUĞUNUZ\b/gu, 'OLDUĞUN')
-                .replace(/\bsize\b/giu, (m) => (m === m.toUpperCase() ? 'SANA' : 'sana'));
-            }
-            if (/[)\]]\s*$/.test(cand) && !cand.includes('(') && !cand.includes('[')) {
-              cand = cand.replace(/[)\]]+\s*$/, '').trim();
-            }
-            cand = cand.replace(
-              /\b(lojistik|üretim)\s+(?:ekip|ekibi|takımı)\s+park[ıi]\b/giu,
-              (_, dept: string) =>
-                `${dept.charAt(0).toLocaleUpperCase('tr-TR')}${dept.slice(1).toLocaleLowerCase('tr-TR')} Ekibi, Park`,
-            );
-          }
+          const cand = postProcessTranslatedBubbleText(origSrc, rawCand, targetLang);
           if (cand) out[origIdx] = cand;
         });
-        if (targetLang === 'tr') {
-          for (let k = 1; k < out.length; k += 1) {
-            if (/^\s*acaba[.…\s]*$/i.test(out[k - 1] || '') && /^\s*acaba\s+/i.test(out[k] || '')) {
-              const rest = (out[k] || '').replace(/^\s*acaba\s+/i, '');
-              if (rest) {
-                out[k] = rest.charAt(0).toLocaleUpperCase('tr-TR') + rest.slice(1);
-              }
-            }
-          }
-        }
-        return out;
+        return cleanupTurkishAcabaDuplicates(out, targetLang);
       }
     }
   } catch {
@@ -1106,6 +1146,140 @@ export const translateBatchWithGoogleFree = async (
   }
 
   return trimmedList;
+};
+
+const deeplKeyPoolSlots = new Map<string, { invalidUntil: number; cooldownUntil: number }>();
+
+/**
+ * DeepL API proxy'si ile toplu metin çevirisi (çoklu anahtar havuzu + kota/hata durumunda Google Çeviri fallback'i).
+ */
+export const translateBatchWithDeepL = async (
+  texts: readonly string[],
+  targetLang: string,
+  deeplKeys: readonly string[],
+  signal?: AbortSignal,
+): Promise<string[]> => {
+  if (texts.length === 0) return [];
+  const normalizedKeys = normalizeDeepLApiKeysList(deeplKeys);
+  if (normalizedKeys.length === 0) {
+    throw new Error('DEEPL_KEY_INVALID: DeepL API anahtarı bulunamadı.');
+  }
+
+  const trimmedList = texts.map((t) => (t || '').trim());
+  const nonEmptyIndices: number[] = [];
+  const payloadTexts: string[] = [];
+
+  trimmedList.forEach((t, idx) => {
+    if (t.length > 1) {
+      nonEmptyIndices.push(idx);
+      payloadTexts.push(normalizeEnglishForGoogleTranslate(t, targetLang));
+    }
+  });
+
+  if (payloadTexts.length === 0) return trimmedList;
+
+  const endpoint = getDeepLTranslateProxyEndpoint();
+  const maxAttempts = Math.max(normalizedKeys.length * 2, 3);
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (signal?.aborted) {
+      throw new DOMException('İptal edildi', 'AbortError');
+    }
+    const now = Date.now();
+    const validKeys = normalizedKeys.filter((k) => {
+      const slot = deeplKeyPoolSlots.get(k);
+      return !slot || slot.invalidUntil <= now;
+    });
+    if (validKeys.length === 0) {
+      throw new Error('DEEPL_KEY_INVALID: DeepL API anahtarı geçersiz.');
+    }
+    const readyKeys = validKeys.filter((k) => {
+      const slot = deeplKeyPoolSlots.get(k);
+      return !slot || slot.cooldownUntil <= now;
+    });
+    if (readyKeys.length === 0) {
+      break;
+    }
+
+    const activeKey = readyKeys[attempt % readyKeys.length];
+    let slot = deeplKeyPoolSlots.get(activeKey);
+    if (!slot) {
+      slot = { invalidUntil: 0, cooldownUntil: 0 };
+      deeplKeyPoolSlots.set(activeKey, slot);
+    }
+
+    try {
+      const reqSignal = signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(12000)])
+        : AbortSignal.timeout(12000);
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `DeepL-Auth-Key ${activeKey}`,
+        },
+        body: JSON.stringify({
+          provider: 'deepl',
+          tl: targetLang,
+          texts: payloadTexts,
+        }),
+        signal: reqSignal,
+      });
+
+      const json = (await res.json().catch(() => null)) as {
+        error?: string;
+        translations?: unknown;
+      } | null;
+
+      if (
+        res.status === 401 ||
+        res.status === 403 ||
+        json?.error === 'DEEPL_KEY_INVALID' ||
+        json?.error === 'DEEPL_API_KEY_REQUIRED'
+      ) {
+        slot.invalidUntil = Date.now() + INVALID_KEY_ISOLATION_MS;
+        continue;
+      }
+      if (res.status === 429 || json?.error === 'DEEPL_QUOTA_EXCEEDED') {
+        slot.cooldownUntil = Date.now() + DEFAULT_KEY_COOLDOWN_MS;
+        continue;
+      }
+
+      if (
+        res.ok &&
+        Array.isArray(json?.translations) &&
+        json.translations.length === payloadTexts.length
+      ) {
+        const out = [...trimmedList];
+        nonEmptyIndices.forEach((origIdx, i) => {
+          const origSrc = trimmedList[origIdx] || '';
+          const rawCand =
+            typeof json.translations![i] === 'string' ? json.translations![i].trim() : '';
+          const cand = postProcessTranslatedBubbleText(origSrc, rawCand, targetLang);
+          if (cand) out[origIdx] = cand;
+        });
+        return cleanupTurkishAcabaDuplicates(out, targetLang);
+      }
+
+      slot.cooldownUntil = Date.now() + 4000;
+    } catch (err) {
+      if (isAbortTranslationError(err) || signal?.aborted) {
+        throw new DOMException('İptal edildi', 'AbortError');
+      }
+      slot.cooldownUntil = Date.now() + 4000;
+    }
+  }
+
+  const remainingValid = normalizedKeys.some((k) => {
+    const slot = deeplKeyPoolSlots.get(k);
+    return !slot || slot.invalidUntil <= Date.now();
+  });
+  if (!remainingValid) {
+    throw new Error('DEEPL_KEY_INVALID: DeepL API anahtarı geçersiz.');
+  }
+
+  console.warn('[DeepL Fallback to Google Translate]');
+  return await translateBatchWithGoogleFree(texts, targetLang, signal);
 };
 
 export const translateWithGoogleFree = async (
@@ -1223,6 +1397,7 @@ export interface TranslatePageResult {
 export interface TranslatePageOptions {
   apiKey?: string;
   apiKeys?: readonly string[];
+  deeplApiKeys?: readonly string[];
   provider?: TranslationSettings['provider'];
   imageSrc: string;
   targetLang: string;
@@ -1655,6 +1830,7 @@ export const translateAndInpaintPage = async ({
   ocrData,
   apiKey,
   apiKeys,
+  deeplApiKeys,
   provider = 'gemini',
   targetLang,
   signal,
@@ -1662,6 +1838,7 @@ export const translateAndInpaintPage = async ({
   ocrData: ExtractedPageOcr;
   apiKey?: string;
   apiKeys?: readonly string[];
+  deeplApiKeys?: readonly string[];
   provider?: TranslationSettings['provider'];
   targetLang: string;
   signal?: AbortSignal;
@@ -1697,11 +1874,15 @@ export const translateAndInpaintPage = async ({
     }
 
     const effectiveKeys = normalizeApiKeysList(apiKeys, apiKey);
+    const effectiveDeepLKeys = normalizeDeepLApiKeysList(deeplApiKeys);
     if (translatableIndices.length > 0 && provider === 'gemini' && effectiveKeys.length === 0) {
       throw new Error('API_KEY_INVALID: Gemini API anahtarı bulunamadı.');
     }
+    if (translatableIndices.length > 0 && provider === 'deepl' && effectiveDeepLKeys.length === 0) {
+      throw new Error('DEEPL_KEY_INVALID: DeepL API anahtarı bulunamadı.');
+    }
 
-    // Çeviri Motoru (Google Çeviri veya Gemini Flash-Lite Text)
+    // Çeviri Motoru (Google Çeviri, DeepL veya Gemini Flash-Lite Text)
     const translatedByIndex = new Map<number, string>();
     if (translatableIndices.length > 0) {
       const tTransStart = performance.now();
@@ -1709,12 +1890,19 @@ export const translateAndInpaintPage = async ({
       const translatedTexts =
         provider === 'google'
           ? await translateBatchWithGoogleFree(originalTexts, targetLang, signal)
-          : await translateBatchWithGeminiText(
-              originalTexts,
-              targetLang,
-              effectiveKeys,
-              signal,
-            );
+          : provider === 'deepl'
+            ? await translateBatchWithDeepL(
+                originalTexts,
+                targetLang,
+                effectiveDeepLKeys,
+                signal,
+              )
+            : await translateBatchWithGeminiText(
+                originalTexts,
+                targetLang,
+                effectiveKeys,
+                signal,
+              );
       transMs = Math.round(performance.now() - tTransStart);
       translatableIndices.forEach((origIdx, arrPos) => {
         translatedByIndex.set(origIdx, translatedTexts[arrPos] ?? rawBubbles[origIdx].text);
@@ -1838,8 +2026,12 @@ export const translatePageImage = async (
   options: TranslatePageOptions,
 ): Promise<TranslatePageResult> => {
   const effectiveKeys = normalizeApiKeysList(options.apiKeys, options.apiKey);
+  const effectiveDeepLKeys = normalizeDeepLApiKeysList(options.deeplApiKeys);
   if (options.provider === 'gemini' && effectiveKeys.length === 0) {
     throw new Error('API_KEY_INVALID: Gemini API anahtarı bulunamadı.');
+  }
+  if (options.provider === 'deepl' && effectiveDeepLKeys.length === 0) {
+    throw new Error('DEEPL_KEY_INVALID: DeepL API anahtarı bulunamadı.');
   }
 
   const ocrData = await extractPageOcr({
@@ -1852,6 +2044,7 @@ export const translatePageImage = async (
     ocrData,
     apiKey: options.apiKey,
     apiKeys: options.apiKeys,
+    deeplApiKeys: options.deeplApiKeys,
     provider: options.provider,
     targetLang: options.targetLang,
     signal: options.signal,

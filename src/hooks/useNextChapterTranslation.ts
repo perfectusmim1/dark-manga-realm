@@ -4,6 +4,7 @@ import { normalizeLanguageCode } from '@/lib/seriesLanguage';
 import {
   TranslationSettings,
   getEffectiveApiKeys,
+  getEffectiveDeepLApiKeys,
 } from '@/lib/translation/translationSettings';
 import {
   isAbortTranslationError,
@@ -109,9 +110,13 @@ export const useNextChapterTranslation = ({
       return;
     }
 
-    // 3. Sağlayıcı kontrolü: Gemini ise geçerli en az 1 API anahtarı olmalı
+    // 3. Sağlayıcı kontrolü: Gemini veya DeepL ise geçerli en az 1 API anahtarı olmalı
     const activeKeys = getEffectiveApiKeys(settings);
-    if (settings.provider === 'gemini' && activeKeys.length === 0) {
+    const activeDeepLKeys = getEffectiveDeepLApiKeys(settings);
+    if (
+      (settings.provider === 'gemini' && activeKeys.length === 0) ||
+      (settings.provider === 'deepl' && activeDeepLKeys.length === 0)
+    ) {
       setIsPretranslating(false);
       return;
     }
@@ -192,6 +197,7 @@ export const useNextChapterTranslation = ({
             const { blocks } = await translatePageImage({
               apiKey: activeKeys[0] || settings.apiKey,
               apiKeys: activeKeys,
+              deeplApiKeys: activeDeepLKeys,
               provider: settings.provider,
               imageSrc,
               targetLang,

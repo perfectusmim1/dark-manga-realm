@@ -30,8 +30,10 @@ import {
 } from '@/lib/translation/localTranslationCache';
 import {
   getEffectiveApiKeys,
+  getEffectiveDeepLApiKeys,
   maskApiKey,
   parseApiKeysInput,
+  parseDeepLApiKeysInput,
 } from '@/lib/translation/translationSettings';
 import { ResolvedReaderPage } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -75,15 +77,23 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
   const [isSavingOffline, setIsSavingOffline] = useState(false);
   const zipAbortRef = useRef<AbortController | null>(null);
 
-  const effectiveKeys = useMemo(() => getEffectiveApiKeys(settings), [settings]);
+  const activeProvider = settings.provider || 'gemini';
+  const isGoogleProvider = activeProvider === 'google';
+  const isDeepLProvider = activeProvider === 'deepl';
+  const activeKeys = useMemo(
+    () => (isDeepLProvider ? getEffectiveDeepLApiKeys(settings) : getEffectiveApiKeys(settings)),
+    [isDeepLProvider, settings],
+  );
 
   const commitDraftKeys = useCallback(
     (silent = false): number => {
-      const parsed = parseApiKeysInput(draftKeyInput);
+      const parsed = isDeepLProvider
+        ? parseDeepLApiKeysInput(draftKeyInput)
+        : parseApiKeysInput(draftKeyInput);
       if (parsed.length === 0) return 0;
 
-      const existingSet = new Set(effectiveKeys);
-      const nextKeys = [...effectiveKeys];
+      const existingSet = new Set(activeKeys);
+      const nextKeys = [...activeKeys];
       let addedCount = 0;
 
       for (const candidate of parsed) {
@@ -95,7 +105,7 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
       }
 
       if (addedCount > 0) {
-        updateSettings({ apiKeys: nextKeys });
+        updateSettings(isDeepLProvider ? { deeplApiKeys: nextKeys } : { apiKeys: nextKeys });
         if (!silent) {
           toast.success(
             addedCount === 1 ? 'API anahtarı eklendi.' : `${addedCount} API anahtarı eklendi.`,
@@ -105,15 +115,15 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
       setDraftKeyInput('');
       return addedCount;
     },
-    [draftKeyInput, effectiveKeys, updateSettings],
+    [activeKeys, draftKeyInput, isDeepLProvider, updateSettings],
   );
 
   const handleAddKeyButton = () => {
     const trimmed = draftKeyInput.trim();
     if (!trimmed) return;
-    const parsed = parseApiKeysInput(trimmed);
+    const parsed = isDeepLProvider ? parseDeepLApiKeysInput(trimmed) : parseApiKeysInput(trimmed);
     if (parsed.length === 0) {
-      toast.error('Geçerli bir Gemini API anahtarı girin.');
+      toast.error(`Geçerli bir ${isDeepLProvider ? 'DeepL' : 'Gemini'} API anahtarı girin.`);
       return;
     }
     const added = commitDraftKeys(false);
@@ -123,12 +133,12 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
   };
 
   const handleRemoveKey = (keyToRemove: string) => {
-    const nextKeys = effectiveKeys.filter((item) => item !== keyToRemove);
-    updateSettings({ apiKeys: nextKeys });
+    const nextKeys = activeKeys.filter((item) => item !== keyToRemove);
+    updateSettings(isDeepLProvider ? { deeplApiKeys: nextKeys } : { apiKeys: nextKeys });
   };
 
   const handleClearAllKeys = () => {
-    updateSettings({ apiKeys: [] });
+    updateSettings(isDeepLProvider ? { deeplApiKeys: [] } : { apiKeys: [] });
     setDraftKeyInput('');
   };
 
@@ -353,171 +363,184 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
 
       {/* Çeviri Motoru Seçimi */}
       <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <Label className="text-xs font-semibold text-muted-foreground">Çeviri Motoru</Label>
-          {settings.provider === 'google' ? (
-            <span className="rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400">
-              Ücretsiz · Anahtar Gerekmez
-            </span>
-          ) : (
-            <span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-              gemini-flash-lite-latest
-            </span>
-          )}
-        </div>
-        <div className="grid grid-cols-2 gap-1 rounded-xl border border-border/60 bg-secondary/40 p-1">
-          <button
-            type="button"
-            onClick={() => updateSettings({ provider: 'gemini' })}
-            className={cn(
-              'flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-semibold transition-all',
-              (settings.provider || 'gemini') === 'gemini'
-                ? 'bg-primary text-primary-foreground shadow-sm'
-                : 'text-muted-foreground hover:bg-secondary/70 hover:text-foreground',
-            )}
-          >
-            <span>Gemini Flash-Lite</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => updateSettings({ provider: 'google' })}
-            className={cn(
-              'flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-semibold transition-all',
-              settings.provider === 'google'
-                ? 'bg-primary text-primary-foreground shadow-sm'
-                : 'text-muted-foreground hover:bg-secondary/70 hover:text-foreground',
-            )}
-          >
-            <span>Google Çeviri</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Çoklu Gemini API Anahtarı */}
-      <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-2">
-          <Label htmlFor="gemini-api-token-input" className="text-xs font-semibold text-muted-foreground">
-            Gemini API Anahtarları
-          </Label>
-          <div className="flex items-center gap-1.5">
-            {effectiveKeys.length > 0 ? (
-              <>
-                <span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-primary">
-                  {effectiveKeys.length} aktif
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setRevealKeys((prev) => !prev)}
-                  className="inline-flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                  title={revealKeys ? 'Anahtarları gizle' : 'Anahtarları göster'}
-                >
-                  {revealKeys ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                </button>
-              </>
-            ) : settings.provider === 'google' ? (
-              <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                Google seçili (Opsiyonel)
-              </span>
-            ) : (
-              <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-500">
-                Anahtar gerekli
-              </span>
+          <Label className="text-xs font-semibold text-muted-foreground">Çeviri Motoru</Label>
+          <span
+            className={cn(
+              'truncate rounded-md px-1.5 py-0.5 text-[10px] font-semibold',
+              isGoogleProvider
+                ? 'bg-emerald-500/15 text-emerald-400'
+                : 'bg-primary/15 text-primary',
             )}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <Input
-            id="gemini-api-token-input"
-            name="gemini-api-token-noautofill"
-            type="text"
-            autoComplete="new-password"
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck={false}
-            data-lpignore="true"
-            data-form-type="other"
-            data-1p-ignore="true"
-            aria-autocomplete="none"
-            style={{
-              WebkitTextSecurity: revealKeys ? 'none' : 'disc',
-            } as React.CSSProperties}
-            placeholder={
-              effectiveKeys.length > 0
-                ? 'Ek anahtar ekle (AIza...)'
-                : 'AIza... (aistudio.google.com)'
-            }
-            value={draftKeyInput}
-            onChange={(event) => setDraftKeyInput(event.target.value)}
-            onBlur={() => {
-              if (draftKeyInput.trim()) {
-                commitDraftKeys(true);
-              }
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                handleAddKeyButton();
-              }
-            }}
-            className="h-8 flex-1 rounded-xl border-border bg-secondary/40 text-xs font-mono focus-visible:border-primary/50 focus-visible:ring-1 focus-visible:ring-primary/30 focus-visible:ring-offset-0"
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={!draftKeyInput.trim()}
-            onClick={handleAddKeyButton}
-            className="h-8 shrink-0 gap-1 rounded-xl border-border/70 bg-background/60 px-2.5 text-xs hover:border-primary/40"
           >
-            <Plus className="h-3.5 w-3.5 text-primary" />
-            <span>Ekle</span>
-          </Button>
+            {isGoogleProvider
+              ? 'Ücretsiz · Anahtar Gerekmez'
+              : isDeepLProvider
+                ? 'DeepL API'
+                : 'gemini-flash-lite-latest'}
+          </span>
         </div>
-
-        {effectiveKeys.length > 0 && (
-          <div className="reader-scroll-thin max-h-28 space-y-1 overflow-y-auto rounded-xl border border-border/60 bg-background/45 p-1.5">
-            {effectiveKeys.map((keyItem, idx) => (
-              <div
-                key={keyItem}
-                className="flex items-center justify-between gap-2 rounded-lg bg-secondary/45 px-2 py-1 text-[11px]"
+        <div className="grid grid-cols-3 gap-1 rounded-xl border border-border/60 bg-secondary/40 p-1">
+          {(
+            [
+              { id: 'gemini', label: 'Gemini' },
+              { id: 'google', label: 'Google' },
+              { id: 'deepl', label: 'DeepL' },
+            ] as const
+          ).map((item) => {
+            const isActive = activeProvider === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                aria-pressed={isActive}
+                onClick={() => {
+                  setDraftKeyInput('');
+                  updateSettings({ provider: item.id });
+                }}
+                className={cn(
+                  'flex min-w-0 items-center justify-center rounded-lg px-1.5 py-1.5 text-xs font-semibold transition-all',
+                  isActive
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:bg-secondary/70 hover:text-foreground',
+                )}
               >
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <span className="shrink-0 font-semibold tabular-nums text-primary">
-                    #{idx + 1}
-                  </span>
-                  <span className="truncate font-mono text-foreground/90">
-                    {revealKeys ? keyItem : maskApiKey(keyItem)}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveKey(keyItem)}
-                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-red-300"
-                  title="Anahtarı kaldır"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
-            {effectiveKeys.length > 1 && (
-              <div className="flex justify-end pt-0.5">
-                <button
-                  type="button"
-                  onClick={handleClearAllKeys}
-                  className="text-[10px] font-medium text-muted-foreground transition-colors hover:text-red-300"
-                >
-                  Tüm anahtarları kaldır
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        <p className="text-[11px] leading-snug text-muted-foreground">
-          Tarayıcıda saklanır. Çoklu anahtarda kota dolunca otomatik sıradakine geçer · aistudio.google.com
-        </p>
+                <span className="truncate">{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
+
+      {/* Çoklu API Anahtarı (Gemini veya DeepL seçiliyken) */}
+      {!isGoogleProvider && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="translation-api-token-input" className="text-xs font-semibold text-muted-foreground">
+              {isDeepLProvider ? 'DeepL API Anahtarları' : 'Gemini API Anahtarları'}
+            </Label>
+            <div className="flex items-center gap-1.5">
+              {activeKeys.length > 0 ? (
+                <>
+                  <span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-primary">
+                    {activeKeys.length} aktif
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setRevealKeys((prev) => !prev)}
+                    className="inline-flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    title={revealKeys ? 'Anahtarları gizle' : 'Anahtarları göster'}
+                  >
+                    {revealKeys ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                  </button>
+                </>
+              ) : (
+                <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-500">
+                  Anahtar gerekli
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <Input
+              id="translation-api-token-input"
+              name="translation-api-token-noautofill"
+              type="text"
+              autoComplete="new-password"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              data-lpignore="true"
+              data-form-type="other"
+              data-1p-ignore="true"
+              aria-autocomplete="none"
+              style={{
+                WebkitTextSecurity: revealKeys ? 'none' : 'disc',
+              } as React.CSSProperties}
+              placeholder={
+                activeKeys.length > 0
+                  ? isDeepLProvider
+                    ? 'Ek DeepL anahtarı ekle (...:fx)'
+                    : 'Ek anahtar ekle (AIza...)'
+                  : isDeepLProvider
+                    ? '...:fx veya Pro (deepl.com/pro-api)'
+                    : 'AIza... (aistudio.google.com)'
+              }
+              value={draftKeyInput}
+              onChange={(event) => setDraftKeyInput(event.target.value)}
+              onBlur={() => {
+                if (draftKeyInput.trim()) {
+                  commitDraftKeys(true);
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  handleAddKeyButton();
+                }
+              }}
+              className="h-8 flex-1 rounded-xl border-border bg-secondary/40 text-xs font-mono focus-visible:border-primary/50 focus-visible:ring-1 focus-visible:ring-primary/30 focus-visible:ring-offset-0"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!draftKeyInput.trim()}
+              onClick={handleAddKeyButton}
+              className="h-8 shrink-0 gap-1 rounded-xl border-border/70 bg-background/60 px-2.5 text-xs hover:border-primary/40"
+            >
+              <Plus className="h-3.5 w-3.5 text-primary" />
+              <span>Ekle</span>
+            </Button>
+          </div>
+
+          {activeKeys.length > 0 && (
+            <div className="reader-scroll-thin max-h-28 space-y-1 overflow-y-auto rounded-xl border border-border/60 bg-background/45 p-1.5">
+              {activeKeys.map((keyItem, idx) => (
+                <div
+                  key={keyItem}
+                  className="flex items-center justify-between gap-2 rounded-lg bg-secondary/45 px-2 py-1 text-[11px]"
+                >
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="shrink-0 font-semibold tabular-nums text-primary">
+                      #{idx + 1}
+                    </span>
+                    <span className="truncate font-mono text-foreground/90">
+                      {revealKeys ? keyItem : maskApiKey(keyItem)}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveKey(keyItem)}
+                    className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-red-300"
+                    title="Anahtarı kaldır"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+              {activeKeys.length > 1 && (
+                <div className="flex justify-end pt-0.5">
+                  <button
+                    type="button"
+                    onClick={handleClearAllKeys}
+                    className="text-[10px] font-medium text-muted-foreground transition-colors hover:text-red-300"
+                  >
+                    Tüm anahtarları kaldır
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <p className="text-[11px] leading-snug text-muted-foreground">
+            {isDeepLProvider
+              ? 'Tarayıcıda saklanır. Ücretsiz (...:fx) ve Pro destekli · deepl.com/pro-api'
+              : 'Tarayıcıda saklanır. Çoklu anahtarda kota dolunca otomatik sıradakine geçer · aistudio.google.com'}
+          </p>
+        </div>
+      )}
 
       {/* Mod Seçenekleri */}
       <div className="space-y-2.5">

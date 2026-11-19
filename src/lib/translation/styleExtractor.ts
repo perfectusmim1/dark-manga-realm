@@ -789,8 +789,13 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
 
     // Dikey renk geçişi (gradient) kontrolü: yalnızca konturlu sahne/başlık yazılarında ("KIM JEONGHYUK" vb.)
     if (!hasThinWhiteFill && coreYs.length >= 24) {
-      const minY = Math.min(...coreYs);
-      const maxY = Math.max(...coreYs);
+      let minY = Infinity;
+      let maxY = -Infinity;
+      for (let i = 0; i < coreYs.length; i += 1) {
+        const y = coreYs[i];
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
       const spanY = maxY - minY;
       if (spanY >= 16) {
         const topCut = minY + spanY * 0.38;
