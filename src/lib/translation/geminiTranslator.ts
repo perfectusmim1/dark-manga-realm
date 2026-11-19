@@ -1934,13 +1934,15 @@ export const translateAndInpaintPage = async ({
 
     const allBubbleBoxes = rawBubbles.map((b) => b.box);
     const blocks: TranslationBlock[] = [];
+    let lastYieldAt = performance.now();
 
     for (let idx = 0; idx < rawBubbles.length; idx += 1) {
       if (signal?.aborted) {
         throw new DOMException('İptal edildi', 'AbortError');
       }
-      if (idx > 0 && idx % 3 === 0) {
+      if (idx > 0 && performance.now() - lastYieldAt >= 12) {
         await new Promise((resolve) => setTimeout(resolve, 0));
+        lastYieldAt = performance.now();
       }
       const bubble = rawBubbles[idx];
       const siblingBoxes = allBubbleBoxes.filter((_, sIdx) => sIdx !== idx);

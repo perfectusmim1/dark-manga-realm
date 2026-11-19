@@ -2154,16 +2154,18 @@ export const groupOcrLinesIntoBubbles = (
       }
 
       // Balon içi ALL-CAPS ana diyalog ile balon kenarı dışında kalan küçük el yazısı yan notların
-      // ("Nothing but stuff" / "a part timer~") birleşmesini önle
-      const upperA = (textA.match(/[A-Z]/g) || []).length;
-      const lowerA = (textA.match(/[a-z]/g) || []).length;
-      const upperB = (textB.match(/[A-Z]/g) || []).length;
-      const lowerB = (textB.match(/[a-z]/g) || []).length;
+      // ("Nothing but stuff" / "a part timer~", "UN POCO, JAJAJA." / "¿Podría decirse...") birleşmesini önle
+      const upperA = (textA.match(/[A-ZÁÉÍÓÚÜÑÇĞİÖŞ]/g) || []).length;
+      const lowerA = (textA.match(/[a-záéíóúüñçğıöş]/g) || []).length;
+      const upperB = (textB.match(/[A-ZÁÉÍÓÚÜÑÇĞİÖŞ]/g) || []).length;
+      const lowerB = (textB.match(/[a-záéíóúüñçğıöş]/g) || []).length;
       const allCapsA = upperA >= 4 && lowerA === 0;
       const allCapsB = upperB >= 4 && lowerB === 0;
       const mixedHandwritingA = lowerA >= 4 && lowerA >= upperA;
       const mixedHandwritingB = lowerB >= 4 && lowerB >= upperB;
       const isShortAllCapsSameCavity =
+        !mixedHandwritingA &&
+        !mixedHandwritingB &&
         ((allCapsA && wordsA <= 3) || (allCapsB && wordsB <= 3)) &&
         vGap >= -minH * 0.45 &&
         vGap <= maxH * 0.85 &&
@@ -2172,8 +2174,10 @@ export const groupOcrLinesIntoBubbles = (
       if (
         !isShortAllCapsSameCavity &&
         ((allCapsA && mixedHandwritingB) || (allCapsB && mixedHandwritingA)) &&
-        minH / Math.max(1, maxH) <= 0.82 &&
-        (centerDist > maxH * 0.72 || vGap < -minH * 0.15)
+        (minH / Math.max(1, maxH) <= 0.82 ||
+          centerDist > maxH * 0.72 ||
+          vGap >= minH * 0.55 ||
+          vGap < -minH * 0.15)
       ) {
         continue;
       }
@@ -2562,6 +2566,17 @@ export const groupOcrLinesIntoBubbles = (
           }
           const botIsSfx = isPureSoundEffect(bText, botB.box, botB.lines);
           if (topIsSfx !== botIsSfx) continue;
+
+          // Tamamı büyük harf olan ana diyalog balonu ile küçük harfli el yazısı yan notu ("UN POCO, JAJAJA." / "¿Podría decirse...") birleştirme
+          const upperT = (tText.match(/[A-ZÁÉÍÓÚÜÑÇĞİÖŞ]/g) || []).length;
+          const lowerT = (tText.match(/[a-záéíóúüñçğıöş]/g) || []).length;
+          const upperB = (bText.match(/[A-ZÁÉÍÓÚÜÑÇĞİÖŞ]/g) || []).length;
+          const lowerB = (bText.match(/[a-záéíóúüñçğıöş]/g) || []).length;
+          const allCapsT = upperT >= 4 && lowerT === 0;
+          const allCapsB = upperB >= 4 && lowerB === 0;
+          const mixedHwT = lowerT >= 4 && lowerT >= upperT;
+          const mixedHwB = lowerB >= 4 && lowerB >= upperB;
+          if ((allCapsT && mixedHwB) || (allCapsB && mixedHwT)) continue;
 
           const botW = botB.box[3] - botB.box[1];
           const botCx = (botB.box[1] + botB.box[3]) * 0.5;

@@ -27,13 +27,27 @@ const OCR_JOB_TIMEOUT_MS = 90_000;
 
 // ---------- PaddleOCR Çoklu Web Worker Havuzu ----------
 
+const IS_MOBILE_OCR_DEVICE =
+  typeof navigator !== 'undefined' &&
+  (/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '') ||
+    (((navigator as { maxTouchPoints?: number }).maxTouchPoints ?? 0) > 2 &&
+      typeof window !== 'undefined' &&
+      Math.min(window.innerWidth || 1024, window.innerHeight || 1024) <= 900));
+
+const OCR_DEVICE_MEMORY_GB =
+  typeof navigator !== 'undefined'
+    ? ((navigator as { deviceMemory?: number }).deviceMemory ?? (IS_MOBILE_OCR_DEVICE ? 4 : 8))
+    : 8;
+
 const MAX_OCR_WORKERS =
   typeof navigator !== 'undefined'
-    ? (navigator.hardwareConcurrency || 4) >= 8
-      ? 3
-      : (navigator.hardwareConcurrency || 4) >= 4
-        ? 2
-        : 1
+    ? IS_MOBILE_OCR_DEVICE || OCR_DEVICE_MEMORY_GB <= 4
+      ? 1
+      : (navigator.hardwareConcurrency || 4) >= 8 && OCR_DEVICE_MEMORY_GB >= 8
+        ? 3
+        : (navigator.hardwareConcurrency || 4) >= 4
+          ? 2
+          : 1
     : 1;
 
 interface PendingJob {

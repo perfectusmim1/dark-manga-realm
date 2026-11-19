@@ -30,7 +30,6 @@ import { ArrowUpToLine, ArrowDownToLine, Download, WifiOff, FileQuestion, Messag
 import ReaderControls from '@/components/reader/ReaderControls';
 import VerticalReader from '@/components/reader/VerticalReader';
 import HorizontalReader from '@/components/reader/HorizontalReader';
-import TranslationStatusPill from '@/components/reader/TranslationStatusPill';
 import { useChapterTranslation } from '@/hooks/useChapterTranslation';
 import { useNextChapterTranslation } from '@/hooks/useNextChapterTranslation';
 import { offlineDownloadManager } from '@/lib/offline/downloadManager';
@@ -2394,18 +2393,6 @@ const Reader: React.FC = () => {
           >
             <ArrowDownToLine className="h-5 w-5" />
           </Button>
-        </div>
-
-        {/* Orta: Çeviri Durumu Kartı */}
-        <div className="flex min-w-0 flex-1 items-center justify-center px-1">
-          <TranslationStatusPill
-            summary={translation.summary}
-            nextChapterProgress={nextChapterTranslation.progress}
-            onCancel={translation.cancelTranslation}
-            onCancelNextChapter={nextChapterTranslation.cancelPretranslation}
-            onRetry={translation.retryFailedPages}
-            onDismiss={translation.dismissStatusFeedback}
-          />
         </div>
 
         {/* Sağ: En Üste Git */}

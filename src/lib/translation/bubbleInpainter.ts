@@ -13,7 +13,7 @@ import {
 } from './textLayout';
 import { ScanlationFontKey, TranslationBlock } from './types';
 
-export const TRANSLATION_BLOCK_VERSION = 19;
+export const TRANSLATION_BLOCK_VERSION = 20;
 export const SCANLATION_FONT_FAMILY = FONT_FAMILY_MAP.shantell;
 
 interface ComponentInfo {
@@ -749,7 +749,15 @@ export const inpaintAndRefineBlock = (
             fullCtx.clip();
             fullCtx.drawImage(outPatchCanvas, pagePatchX0, pagePatchY0);
             fullCtx.restore();
+            if (drawSrc !== rotCanvas) {
+              drawSrc.width = 0;
+              drawSrc.height = 0;
+            }
           }
+          outPatchCanvas.width = 0;
+          outPatchCanvas.height = 0;
+          rotCanvas.width = 0;
+          rotCanvas.height = 0;
 
           const upRefCx = ((upRes.box[1] + upRes.box[3]) * 0.5 / 1000) * rotW - rotHalfW;
           const upRefCy = ((upRes.box[0] + upRes.box[2]) * 0.5 / 1000) * rotH - rotHalfH;
@@ -1973,8 +1981,217 @@ export const inpaintAndRefineBlock = (
             }
           }
           if (stripped > 0) {
-            res = extractComponents(splitMask);
+            activeMask = splitMask;
+            res = extractComponents(activeMask);
           }
+        }
+      }
+      // İnce konuşma balonu sınır çizgisinin (1-6px kalınlıkta yatay/eğik duvar) metin çekirdeği kenarındaki
+      // harf veya kelimeye ("que" gibi) yandan değerek onu `touchesBorder=true` (borderMask) içine
+      // yutmasını önle: önce siyah mürekkepli bloklarda sınır bileşenine yapışan açık/renkli gölgeleri (pembe saç vb. lum >= 120)
+      // temizle, ardından üst, alt ve iç-yan koridoru boş olan (Jordan kutusu) harf/kelime adacığını 2px boğumdan ayır.
+      if (!preferLightFirst) {
+        if (jetBlackCoreCount >= 14) {
+          const borderTouchIds = new Set<number>();
+          for (const c of res.comps) {
+            if (c.touchesBorder && c.overlapsCore && c.corePixels >= 10 && !isValidGlyphComponent(c)) {
+              borderTouchIds.add(c.id);
+            }
+          }
+          if (borderTouchIds.size > 0) {
+            const darkCleanMask = new Uint8Array(activeMask);
+            let cleaned = 0;
+            for (let i = 0; i < numPixels; i += 1) {
+              if (!borderTouchIds.has(res.labels[i])) continue;
+              const c3 = i * 3;
+              const pixLum = 0.299 * winRgb[c3] + 0.587 * winRgb[c3 + 1] + 0.114 * winRgb[c3 + 2];
+              if (pixLum >= 120) {
+                darkCleanMask[i] = 0;
+                cleaned += 1;
+              }
+            }
+            if (cleaned > 0) {
+              activeMask = darkCleanMask;
+              res = extractComponents(activeMask);
+            }
+          }
+        }
+        let severedMask: Uint8Array | null = null;
+        const maxPeninsulaW = Math.max(48, Math.round(medLineH * 2.25));
+        const minClearHalfH = 9;
+        const maxClearHalfH = Math.max(18, Math.round(medLineH * 0.72));
+        for (const c of res.comps) {
+          if (!c.touchesBorder || !c.overlapsCore || c.corePixels < 10) continue;
+          if (isValidGlyphComponent(c)) continue;
+          const isCompAt = (px: number, py: number): boolean =>
+            px >= 0 && px < ww && py >= 0 && py < wh && res.labels[py * ww + px] === c.id;
+          const getLocalSpan = (
+            px: number,
+            y0: number,
+            y1: number,
+          ): { cnt: number; minY: number; maxY: number; span: number } => {
+            let cnt = 0;
+            let minY = wh;
+            let maxY = -1;
+            const sy0 = Math.max(0, y0);
+            const sy1 = Math.min(wh - 1, y1);
+            for (let py = sy0; py <= sy1; py += 1) {
+              if (res.labels[py * ww + px] === c.id) {
+                cnt += 1;
+                if (py < minY) minY = py;
+                if (py > maxY) maxY = py;
+              }
+            }
+            return { cnt, minY, maxY, span: cnt > 0 ? maxY - minY + 1 : 0 };
+          };
+          for (const lc of lineCores) {
+            const lcMidY = (lc.y0 + lc.y1) >> 1;
+            const neckScanY0 = Math.max(0, lc.y0 - 2);
+            const neckScanY1 = Math.min(wh - 1, lc.y1 - 2);
+            // 1) Soldan gelen ince sınır çizgisinin satır sol kenarında (lc.x0 civarı) harf/kelime adacığında bitmesi
+            const leftMinX = Math.max(4, Math.min(cx0, lc.x0) - 18);
+            const leftMaxX = Math.min(ww - 10, Math.max(cx0, lc.x0) + 10);
+            for (let pinchX = leftMinX; pinchX <= leftMaxX; pinchX += 1) {
+              const s0 = getLocalSpan(pinchX, neckScanY0, neckScanY1);
+              if (s0.span < 1 || s0.span > 6) continue;
+              const neckMidY = (s0.minY + s0.maxY) >> 1;
+              if (Math.abs(neckMidY - lcMidY) > Math.max(18, (lc.y1 - lc.y0) * 0.65)) continue;
+              const nBand0 = neckMidY - 8;
+              const nBand1 = neckMidY + 8;
+              const sm1 = getLocalSpan(pinchX - 1, nBand0, nBand1);
+              const sm2 = getLocalSpan(pinchX - 2, nBand0, nBand1);
+              if (
+                sm1.span < 1 ||
+                sm1.span > 6 ||
+                sm2.span < 1 ||
+                sm2.span > 6 ||
+                Math.max(s0.maxY, sm1.maxY, sm2.maxY) - Math.min(s0.minY, sm1.minY, sm2.minY) + 1 > 7
+              ) {
+                continue;
+              }
+              const sp1 = getLocalSpan(pinchX + 1, neckMidY - 14, neckMidY + 14);
+              const sp2 = getLocalSpan(pinchX + 2, neckMidY - 14, neckMidY + 14);
+              const sp3 = getLocalSpan(pinchX + 3, neckMidY - 14, neckMidY + 14);
+              if (Math.max(sp1.span, sp2.span, sp3.span) < s0.span + 4) continue;
+
+              // Üst (locY0) ve alt (locY1) boş koridor satırlarını bul
+              let foundCut = false;
+              const maxBx = Math.min(ww - 2, pinchX + maxPeninsulaW);
+              for (let topOff = minClearHalfH; topOff <= maxClearHalfH && !foundCut; topOff += 1) {
+                const locY0 = neckMidY - topOff;
+                if (locY0 < 1 || isCompAt(pinchX - 1, locY0) || isCompAt(pinchX, locY0)) continue;
+                for (let botOff = minClearHalfH; botOff <= maxClearHalfH && !foundCut; botOff += 1) {
+                  const locY1 = neckMidY + botOff;
+                  if (locY1 >= wh - 1 || isCompAt(pinchX - 1, locY1) || isCompAt(pinchX, locY1)) continue;
+                  let glyphEndX = -1;
+                  let maxSpan = 0;
+                  let tallCols = 0;
+                  for (let bx = pinchX + 1; bx <= maxBx; bx += 1) {
+                    if (isCompAt(bx, locY0) || isCompAt(bx, locY1)) break;
+                    const sb = getLocalSpan(bx, locY0 + 1, locY1 - 1);
+                    if (sb.cnt === 0) {
+                      glyphEndX = bx - 1;
+                      break;
+                    }
+                    if (sb.span > maxSpan) maxSpan = sb.span;
+                    if (sb.span >= 9) tallCols += 1;
+                  }
+                  const glyphW = glyphEndX - pinchX;
+                  if (
+                    glyphEndX > pinchX &&
+                    glyphW >= 6 &&
+                    glyphW <= maxPeninsulaW &&
+                    maxSpan >= 10 &&
+                    tallCols >= 4
+                  ) {
+                    if (!severedMask) severedMask = new Uint8Array(activeMask);
+                    for (let py = locY0; py <= locY1; py += 1) {
+                      for (let cutX = pinchX - 2; cutX <= pinchX; cutX += 1) {
+                        if (cutX >= 0 && res.labels[py * ww + cutX] === c.id) {
+                          severedMask[py * ww + cutX] = 0;
+                        }
+                      }
+                    }
+                    foundCut = true;
+                  }
+                }
+              }
+              if (foundCut) break;
+            }
+            // 2) Sağdan gelen ince sınır çizgisinin satır sağ kenarında (lc.x1 civarı) harf/kelime adacığında bitmesi
+            const rightMaxX = Math.min(ww - 5, Math.max(cx1, lc.x1) + 18);
+            const rightMinX = Math.max(9, Math.min(cx1, lc.x1) - 10);
+            for (let pinchX = rightMaxX; pinchX >= rightMinX; pinchX -= 1) {
+              const s0 = getLocalSpan(pinchX, neckScanY0, neckScanY1);
+              if (s0.span < 1 || s0.span > 6) continue;
+              const neckMidY = (s0.minY + s0.maxY) >> 1;
+              if (Math.abs(neckMidY - lcMidY) > Math.max(18, (lc.y1 - lc.y0) * 0.65)) continue;
+              const nBand0 = neckMidY - 8;
+              const nBand1 = neckMidY + 8;
+              const sp1 = getLocalSpan(pinchX + 1, nBand0, nBand1);
+              const sp2 = getLocalSpan(pinchX + 2, nBand0, nBand1);
+              if (
+                sp1.span < 1 ||
+                sp1.span > 6 ||
+                sp2.span < 1 ||
+                sp2.span > 6 ||
+                Math.max(s0.maxY, sp1.maxY, sp2.maxY) - Math.min(s0.minY, sp1.minY, sp2.minY) + 1 > 7
+              ) {
+                continue;
+              }
+              const sm1 = getLocalSpan(pinchX - 1, neckMidY - 14, neckMidY + 14);
+              const sm2 = getLocalSpan(pinchX - 2, neckMidY - 14, neckMidY + 14);
+              const sm3 = getLocalSpan(pinchX - 3, neckMidY - 14, neckMidY + 14);
+              if (Math.max(sm1.span, sm2.span, sm3.span) < s0.span + 4) continue;
+
+              let foundCut = false;
+              const minBx = Math.max(1, pinchX - maxPeninsulaW);
+              for (let topOff = minClearHalfH; topOff <= maxClearHalfH && !foundCut; topOff += 1) {
+                const locY0 = neckMidY - topOff;
+                if (locY0 < 1 || isCompAt(pinchX, locY0) || isCompAt(pinchX + 1, locY0)) continue;
+                for (let botOff = minClearHalfH; botOff <= maxClearHalfH && !foundCut; botOff += 1) {
+                  const locY1 = neckMidY + botOff;
+                  if (locY1 >= wh - 1 || isCompAt(pinchX, locY1) || isCompAt(pinchX + 1, locY1)) continue;
+                  let glyphStartX = -1;
+                  let maxSpan = 0;
+                  let tallCols = 0;
+                  for (let bx = pinchX - 1; bx >= minBx; bx -= 1) {
+                    if (isCompAt(bx, locY0) || isCompAt(bx, locY1)) break;
+                    const sb = getLocalSpan(bx, locY0 + 1, locY1 - 1);
+                    if (sb.cnt === 0) {
+                      glyphStartX = bx + 1;
+                      break;
+                    }
+                    if (sb.span > maxSpan) maxSpan = sb.span;
+                    if (sb.span >= 9) tallCols += 1;
+                  }
+                  const glyphW = pinchX - glyphStartX;
+                  if (
+                    glyphStartX >= 0 &&
+                    glyphW >= 6 &&
+                    glyphW <= maxPeninsulaW &&
+                    maxSpan >= 10 &&
+                    tallCols >= 4
+                  ) {
+                    if (!severedMask) severedMask = new Uint8Array(activeMask);
+                    for (let py = locY0; py <= locY1; py += 1) {
+                      for (let cutX = pinchX; cutX <= pinchX + 2; cutX += 1) {
+                        if (cutX < ww && res.labels[py * ww + cutX] === c.id) {
+                          severedMask[py * ww + cutX] = 0;
+                        }
+                      }
+                    }
+                    foundCut = true;
+                  }
+                }
+              }
+              if (foundCut) break;
+            }
+          }
+        }
+        if (severedMask) {
+          activeMask = severedMask;
+          res = extractComponents(activeMask);
         }
       }
       // Açık/karmaşık sahnede beyaz konturlu koyu/renkli yazılar ("IT'S IMPOSSIBLE, RIGHT?")
@@ -2098,6 +2315,7 @@ export const inpaintAndRefineBlock = (
       }
     }
 
+    let usedWhiteStrokePass = false;
     if (
       whiteCoreCount >= 18 &&
       (pass.accepted.size === 0 || pass.spanW < bw * 0.72)
@@ -2216,6 +2434,7 @@ export const inpaintAndRefineBlock = (
       const whiteStrokePass = runMaskPass(tightWhiteMask);
       if (whiteStrokePass.spanW > pass.spanW * 1.15 && whiteStrokePass.accepted.size > 0) {
         pass = whiteStrokePass;
+        usedWhiteStrokePass = true;
       }
     }
 
@@ -2581,6 +2800,7 @@ export const inpaintAndRefineBlock = (
       lineCores,
       isVividExternalSidebarArt,
       hasVividColorCoreInk,
+      usedWhiteStrokePass,
     };
   };
 
@@ -2631,6 +2851,7 @@ export const inpaintAndRefineBlock = (
     lineCores,
     isVividExternalSidebarArt,
     hasVividColorCoreInk,
+    usedWhiteStrokePass,
   } = winResult;
 
   if (accepted.size === 0) {
@@ -2659,8 +2880,25 @@ export const inpaintAndRefineBlock = (
       })
       .map((c) => c.id),
   );
+  // Orijinal harf kümesinin sınırlarını ve medyan harf boyutunu hesapla
+  let accComps = valid.filter((c) => accepted.has(c.id));
+  let gMinX = ww;
+  let gMaxX = 0;
+  let gMinY = wh;
+  let gMaxY = 0;
+  for (const c of accComps) {
+    if (c.minx < gMinX) gMinX = c.minx;
+    if (c.maxx > gMaxX) gMaxX = c.maxx;
+    if (c.miny < gMinY) gMinY = c.miny;
+    if (c.maxy > gMaxY) gMaxY = c.maxy;
+  }
+
   const borderMask = new Uint8Array(numPixels);
   const rawGlyphMask = new Uint8Array(numPixels);
+  const coreOrGlyphX0 = Math.min(cx0, gMinX) - 2;
+  const coreOrGlyphX1 = Math.max(cx1, gMaxX) + 2;
+  const coreOrGlyphY0 = Math.min(cy0, gMinY) - 2;
+  const coreOrGlyphY1 = Math.max(cy1, gMaxY) + 2;
 
   for (let i = 0; i < numPixels; i += 1) {
     const lbl = labels[i];
@@ -2671,7 +2909,12 @@ export const inpaintAndRefineBlock = (
       // Kalın siyah, renkli (kırmızı/mor) veya koyu konturlu konuşma balonları ve telefon/UI çerçeveleri
       const ly = (i / ww) | 0;
       const lx = i - ly * ww;
-      if (lx < cx0 - 2 || lx > cx1 + 2 || ly < cy0 - 2 || ly > cy1 + 2) {
+      if (
+        lx < coreOrGlyphX0 ||
+        lx > coreOrGlyphX1 ||
+        ly < coreOrGlyphY0 ||
+        ly > coreOrGlyphY1
+      ) {
         const cIdx = i * 3;
         const pr = winRgb[cIdx];
         const pg = winRgb[cIdx + 1];
@@ -2688,19 +2931,6 @@ export const inpaintAndRefineBlock = (
         }
       }
     }
-  }
-
-  // Orijinal harf kümesinin sınırlarını ve medyan harf boyutunu hesapla
-  let accComps = valid.filter((c) => accepted.has(c.id));
-  let gMinX = ww;
-  let gMaxX = 0;
-  let gMinY = wh;
-  let gMaxY = 0;
-  for (const c of accComps) {
-    if (c.minx < gMinX) gMinX = c.minx;
-    if (c.maxx > gMaxX) gMaxX = c.maxx;
-    if (c.miny < gMinY) gMinY = c.miny;
-    if (c.maxy > gMaxY) gMaxY = c.maxy;
   }
 
   const minGlyphH =
@@ -3261,6 +3491,66 @@ export const inpaintAndRefineBlock = (
       }
       preDilateMask = nextMask;
       if (haloAdded === 0) break;
+    }
+    if (usedWhiteStrokePass) {
+      // `whiteStrokePass` (tightWhiteMask) ile yakalanan beyaz dolgulu/bulutlu harflerin ("que" içindeki "q" gibi)
+      // dış kenarda kalan 2-4px siyah/koyu harf konturlarını, ince yatay balon duvarına (dikey kalınlık <= 3px)
+      // sıçramadan emerek silme maskesine dahil et.
+      const dkX0 = Math.max(2, Math.min(cx0, gMinX) - 4);
+      const dkX1 = Math.min(ww - 3, Math.max(cx1, gMaxX) + 4);
+      const dkY0 = Math.max(2, Math.min(cy0, gMinY) - 4);
+      const dkY1 = Math.min(wh - 3, Math.max(cy1, gMaxY) + 4);
+      const darkOutlineLumLimit = Math.min(152, bgLumInit - 14);
+      const hasVerticalDarkThickness = (px: number, py: number): boolean => {
+        let run = 1;
+        for (let dy = 1; dy <= 4 && py - dy >= 0; dy += 1) {
+          const c3 = ((py - dy) * ww + px) * 3;
+          const lum = 0.299 * winRgb[c3] + 0.587 * winRgb[c3 + 1] + 0.114 * winRgb[c3 + 2];
+          if (lum <= darkOutlineLumLimit) run += 1;
+          else break;
+        }
+        for (let dy = 1; dy <= 4 && py + dy < wh; dy += 1) {
+          const c3 = ((py + dy) * ww + px) * 3;
+          const lum = 0.299 * winRgb[c3] + 0.587 * winRgb[c3 + 1] + 0.114 * winRgb[c3 + 2];
+          if (lum <= darkOutlineLumLimit) run += 1;
+          else break;
+        }
+        return run >= 4;
+      };
+      for (let step = 0; step < 4; step += 1) {
+        let darkAdded = 0;
+        const nextMask = new Uint8Array(preDilateMask);
+        for (let y = dkY0; y <= dkY1; y += 1) {
+          const rOff = y * ww;
+          for (let x = dkX0; x <= dkX1; x += 1) {
+            const idx = rOff + x;
+            if (preDilateMask[idx] || borderMask[idx]) continue;
+            const touches8 =
+              preDilateMask[idx - 1] ||
+              preDilateMask[idx + 1] ||
+              preDilateMask[idx - ww] ||
+              preDilateMask[idx + ww] ||
+              preDilateMask[idx - ww - 1] ||
+              preDilateMask[idx - ww + 1] ||
+              preDilateMask[idx + ww - 1] ||
+              preDilateMask[idx + ww + 1];
+            if (!touches8) continue;
+            const c3 = idx * 3;
+            const pLum = 0.299 * winRgb[c3] + 0.587 * winRgb[c3 + 1] + 0.114 * winRgb[c3 + 2];
+            if (
+              pLum <= darkOutlineLumLimit &&
+              (preDilateMask[idx - ww] ||
+                preDilateMask[idx + ww] ||
+                hasVerticalDarkThickness(x, y))
+            ) {
+              nextMask[idx] = 1;
+              darkAdded += 1;
+            }
+          }
+        }
+        preDilateMask = nextMask;
+        if (darkAdded === 0) break;
+      }
     }
   } else if (preferLightFirst) {
     // Dış halka arkaplan parlaklığını satır bazlı ve genel olarak ölç ("lineCores" siyah dış kontur yüzünden yanılmış olsa bile!)
@@ -4512,18 +4802,30 @@ export const inpaintAndRefineBlock = (
   }
 
   const cleaned = new Float32Array(winRgb);
-  const isFlatLightBubble =
+  const isFlatNeutralGrayBubble =
     hasActualPhysicalWalls &&
     wallHits >= 3 &&
     !hasTexturedSceneInterior &&
-    !hasWhiteHaloOverGradientOrTintedBg &&
     !hasOuterGradientTint &&
     !isOpenWhiteHaloScene &&
     bgGradDelta < 4.5 &&
-    ringStd < 2.6 &&
-    (isNeutralJpegLightBox ||
-      ringMedLum >= 232 ||
-      (ringMedLum >= 175 && ringMedChroma <= 12));
+    ringStd < 3.5 &&
+    ringMedLum >= 165 &&
+    ringMedLum <= 228 &&
+    ringMedChroma <= 8;
+  const isFlatLightBubble =
+    isFlatNeutralGrayBubble ||
+    (hasActualPhysicalWalls &&
+      wallHits >= 3 &&
+      !hasTexturedSceneInterior &&
+      !hasWhiteHaloOverGradientOrTintedBg &&
+      !hasOuterGradientTint &&
+      !isOpenWhiteHaloScene &&
+      bgGradDelta < 4.5 &&
+      ringStd < 2.6 &&
+      (isNeutralJpegLightBox ||
+        ringMedLum >= 232 ||
+        (ringMedLum >= 175 && ringMedChroma <= 12)));
   const isFlatDarkBanner =
     !hasTexturedSceneInterior &&
     preferLightFirst &&
@@ -4540,10 +4842,22 @@ export const inpaintAndRefineBlock = (
 
   if (isFlatLightBubble || isFlatDarkBanner || isSmoothDarkOval) {
     if (isFlatLightBubble) {
-      const dotDiffThresh = ringStd < 4.5 ? 10 : 16;
-      for (let y = Math.max(0, cy0 - 2); y <= Math.min(wh - 1, cy1 + 4); y += 1) {
+      const dotDiffThresh = isFlatNeutralGrayBubble ? 6 : ringStd < 4.5 ? 10 : 16;
+      const sweepY0 = isFlatNeutralGrayBubble
+        ? Math.max(safeLocalTop + 1, Math.min(cy0, egMinY) - 8)
+        : Math.max(0, cy0 - 2);
+      const sweepY1 = isFlatNeutralGrayBubble
+        ? Math.min(safeLocalBottom - 1, Math.max(cy1, egMaxY) + 8)
+        : Math.min(wh - 1, cy1 + 4);
+      const sweepX0 = isFlatNeutralGrayBubble
+        ? Math.max(safeLocalLeft + 1, Math.min(cx0, egMinX) - 8)
+        : Math.max(0, cx0 - 4);
+      const sweepX1 = isFlatNeutralGrayBubble
+        ? Math.min(safeLocalRight - 1, Math.max(cx1, egMaxX) + 8)
+        : Math.min(ww - 1, cx1 + 4);
+      for (let y = sweepY0; y <= sweepY1; y += 1) {
         const rOff = y * ww;
-        for (let x = Math.max(0, cx0 - 4); x <= Math.min(ww - 1, cx1 + 4); x += 1) {
+        for (let x = sweepX0; x <= sweepX1; x += 1) {
           const idx = rOff + x;
           if (eraseMask[idx] || borderMask[idx]) continue;
           if (overlapsAnySiblingAbs(wx0 + x, wy0 + y, wx0 + x + 1, wy0 + y + 1)) continue;
@@ -4566,9 +4880,19 @@ export const inpaintAndRefineBlock = (
     }
     // Düz konuşma balonlarında veya düz siyah şeritlerde ("CHAINSAWMAN") dış gökyüzü/doku sızmasını engelle;
     // yalnızca mevcut silme maskesinin komşuluğundaki anti-aliasing/parlama kalıntılarını temizle!
-    const flatExpandSteps = isSmoothDarkOval ? 6 : isFlatDarkBanner ? 2 : ringMedLum <= 240 ? 4 : 1;
-    const flatDiffThresh = isSmoothDarkOval ? 10 : isFlatDarkBanner ? 16 : ringMedLum <= 240 ? 9 : 14;
-    const flatPad = isSmoothDarkOval ? 6 : isFlatDarkBanner ? 2 : ringMedLum <= 240 ? 4 : 2;
+    const flatExpandSteps =
+      isSmoothDarkOval || isFlatNeutralGrayBubble ? 6 : isFlatDarkBanner ? 2 : ringMedLum <= 240 ? 4 : 1;
+    const flatDiffThresh = isFlatNeutralGrayBubble
+      ? 5
+      : isSmoothDarkOval
+        ? 10
+        : isFlatDarkBanner
+          ? 16
+          : ringMedLum <= 240
+            ? 9
+            : 14;
+    const flatPad =
+      isSmoothDarkOval || isFlatNeutralGrayBubble ? 6 : isFlatDarkBanner ? 2 : ringMedLum <= 240 ? 4 : 2;
     for (let fStep = 0; fStep < flatExpandSteps; fStep += 1) {
       let flatAdded = 0;
       const baseErase = new Uint8Array(eraseMask);
@@ -5015,6 +5339,8 @@ export const inpaintAndRefineBlock = (
     );
     patchDataUrl = patchCanvas.toDataURL('image/webp', 0.92);
   }
+  patchCanvas.width = 0;
+  patchCanvas.height = 0;
 
   const patchBox: [number, number, number, number] = [
     toNorm(absPatchY0, fullHeight),
