@@ -357,7 +357,7 @@ const CREDITS_START_REGEX =
 const CREDITS_INLINE_REGEX =
   /(?:^|[\/|•<\[])\s*(?:(?:hikaye|öykü|senaryo|yazar|çizer|çizim|sanat|editör|editor|çeviri|çevirmen|dizgi|temizleme|story|art|artist|author|coloring|traducción|traduccion|edición|edicion|limpieza|typeset)(?![\p{L}\p{N}_])(?:\s*[:\-]|[\]|/>])|(?:background\s*art|script\s*editing|written\s+by|art\s+by|story\s+by|original\s+work|scanlation|fansub|lee\s+antes\s+en|read\s+(?:first\s+)?(?:at|on))(?![\p{L}\p{N}_])\s*[:\-]?)/iu;
 const WATERMARK_DOMAIN_REGEX =
-  /(?:https?:\/\/|discord\.gg\/|\b[a-z0-9-]+\.(?:com|net|org|club|me|online|io|gg|xyz|to|site)\b|omegascansorg)/i;
+  /(?:https?:\/\/|discord\.gg\/|[\p{L}\p{N}-]+\.(?:com|net|org|club|me|online|io|gg|xyz|to|site|con|cor|corn|comm|c0m)\b|omegascansorg|manga18fx|뉴토주소|뉴토끼|뉴도끼|뉴보시|뉴토주|토주소|토조소|뉴!주소|주소\.com|^\.?comm?$|^om$|^on$|가장\s*(?:빠른|바|피른|씨)|(?:만화|민화)\s*\/\s*(?:애니|애는|애비)|장확는|^(?:1?만화|웹툰|애니|소설)$|^(?:작화|채색|재색|스토리|원작|제작)(?:\s|$))/iu;
 
 const isPlaceholderMaskText = (t: string): boolean => {
   const alpha = t.replace(/[^\p{L}]/gu, '');
@@ -373,6 +373,7 @@ export const shouldSkipBlock = (
   targetLang = 'tr',
   box?: [number, number, number, number],
   lines?: OcrBubble['lines'],
+  isPostTranslation = false,
 ): boolean => {
   const t = text.trim();
   if (t.length <= 1) return true;
@@ -390,10 +391,12 @@ export const shouldSkipBlock = (
   if (SFX_WRAP_REGEX.test(t)) return true;
   if (WATERMARK_DOMAIN_REGEX.test(t) || isCreditOrPromoText(t)) return true;
 
-  // Hedef dil Korece/Japonca/Çince değilse çevrilmeden kalan Hangul/Kana/CJK blokları atla
-  if (targetLang !== 'ko' && /[\uAC00-\uD7AF\u3131-\u318E]/.test(t)) return true;
-  if (targetLang !== 'ja' && /[\u3040-\u30FF]/.test(t)) return true;
-  if (targetLang !== 'zh' && targetLang !== 'ja' && /[\u4E00-\u9FFF]/.test(t)) return true;
+  // Çeviri SONRASINDA hedef dil Korece/Japonca/Çince değilse çevrilmeden kalan Hangul/Kana/CJK blokları atla
+  if (isPostTranslation) {
+    if (targetLang !== 'ko' && /[\uAC00-\uD7AF\u3131-\u318E]/.test(t)) return true;
+    if (targetLang !== 'ja' && /[\u3040-\u30FF]/.test(t)) return true;
+    if (targetLang !== 'zh' && targetLang !== 'ja' && /[\u4E00-\u9FFF]/.test(t)) return true;
+  }
 
   const stripped = t.replace(/^[<\[({◁▷◀▶★☆•\-~\s]+|[>\])}◁▷◀▶★☆•\-~\s]+$/g, '').trim();
   if (!stripped || stripped.length <= 1) return true;
@@ -703,6 +706,9 @@ const SAFE_Z_WORD_REGEX =
   /^(?:jazz|buzz|fuzz|fizz|quiz|whiz|frizz|blitz|ritz|waltz|quartz|topaz|klutz|chintz|pizzazz|ersatz|spritz|fez|wiz|biz|ad[sz]|plz|cuz|ghz|mhz|khz|hz)$/i;
 
 const normalizeEnglishForGoogleTranslate = (raw: string, targetLang = 'tr'): string => {
+  if (/[\uAC00-\uD7AF\u3131-\u318E\u3040-\u30FF\u4E00-\u9FFF]/.test(raw)) {
+    return raw.trim().replace(/\s+/g, ' ');
+  }
   let s = raw
     .trim()
     .replace(/\s+/g, ' ')
@@ -1114,38 +1120,81 @@ export const translateBatchWithGoogleFree = async (
   if (payloadTexts.length === 0) return trimmedList;
 
   const endpoint = getTranslateProxyEndpoint();
-  try {
-    const reqSignal = signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(8000)])
-      : AbortSignal.timeout(8000);
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sl: 'auto',
-        tl: targetLang,
-        texts: payloadTexts,
-      }),
-      signal: reqSignal,
-    });
-    if (res.ok) {
-      const json = (await res.json()) as { translations?: unknown };
-      if (Array.isArray(json?.translations) && json.translations.length === payloadTexts.length) {
-        const out = [...trimmedList];
-        nonEmptyIndices.forEach((origIdx, i) => {
-          const origSrc = trimmedList[origIdx] || '';
-          const rawCand = typeof json.translations![i] === 'string' ? json.translations![i].trim() : '';
-          const cand = postProcessTranslatedBubbleText(origSrc, rawCand, targetLang);
-          if (cand) out[origIdx] = cand;
-        });
-        return cleanupTurkishAcabaDuplicates(out, targetLang);
-      }
+  const out = [...trimmedList];
+
+  // Uzun webtoon sayfalarındaki 40-80 balonu tek istekte yollamak yerine küçük parçalara böl
+  // (Google Translate ücretsiz uç noktası tek istekte karakter sınırını aşınca son balonları çevirmeden döndürüyor)
+  const MAX_CHUNK_ITEMS = 20;
+  const MAX_CHUNK_CHARS = 1400;
+  const chunks: Array<{ indices: number[]; texts: string[] }> = [];
+  let curIndices: number[] = [];
+  let curTexts: string[] = [];
+  let curChars = 0;
+
+  for (let i = 0; i < payloadTexts.length; i += 1) {
+    const txt = payloadTexts[i];
+    if (
+      curTexts.length > 0 &&
+      (curTexts.length >= MAX_CHUNK_ITEMS || curChars + txt.length > MAX_CHUNK_CHARS)
+    ) {
+      chunks.push({ indices: curIndices, texts: curTexts });
+      curIndices = [];
+      curTexts = [];
+      curChars = 0;
     }
-  } catch {
-    // Proxy ulaşılamazsa orijinal listeyi koru
+    curIndices.push(nonEmptyIndices[i]);
+    curTexts.push(txt);
+    curChars += txt.length + 8;
+  }
+  if (curTexts.length > 0) {
+    chunks.push({ indices: curIndices, texts: curTexts });
   }
 
-  return trimmedList;
+  const translateChunk = async (chunk: { indices: number[]; texts: string[] }): Promise<void> => {
+    try {
+      const reqSignal = signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(10000)])
+        : AbortSignal.timeout(10000);
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sl: 'auto',
+          tl: targetLang,
+          texts: chunk.texts,
+        }),
+        signal: reqSignal,
+      });
+      if (res.ok) {
+        const json = (await res.json()) as { translations?: unknown };
+        if (Array.isArray(json?.translations) && json.translations.length === chunk.texts.length) {
+          chunk.indices.forEach((origIdx, i) => {
+            const origSrc = trimmedList[origIdx] || '';
+            const rawCand = typeof json.translations![i] === 'string' ? json.translations![i].trim() : '';
+            const cand = postProcessTranslatedBubbleText(origSrc, rawCand, targetLang);
+            if (cand) out[origIdx] = cand;
+          });
+        }
+      }
+    } catch {
+      // Proxy ulaşılamazsa orijinal metni koru
+    }
+  };
+
+  // En fazla 2 eşzamanlı parça ile hızlı ama rate-limit dostu çeviri
+  let nextChunkIdx = 0;
+  const workerCount = Math.min(2, chunks.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextChunkIdx < chunks.length) {
+        const idx = nextChunkIdx;
+        nextChunkIdx += 1;
+        await translateChunk(chunks[idx]);
+      }
+    }),
+  );
+
+  return cleanupTurkishAcabaDuplicates(out, targetLang);
 };
 
 const deeplKeyPoolSlots = new Map<string, { invalidUntil: number; cooldownUntil: number }>();
@@ -1743,8 +1792,12 @@ export const extractPageOcr = async ({
 
             const verticallyValid =
               edgeSide === 'top'
-                ? by0Strip <= sb.ymaxPx + 12 && by1Strip >= seam.seamY - 6
-                : by1Strip >= sb.yminPx - 12 && by0Strip <= seam.seamY + 6;
+                ? by0Strip <= sb.ymaxPx + 12 &&
+                  by1Strip >= seam.seamY - 6 &&
+                  by1Strip <= sb.ymaxPx + 42
+                : by1Strip >= sb.yminPx - 12 &&
+                  by0Strip <= seam.seamY + 6 &&
+                  by0Strip >= sb.yminPx - 42;
             if (!verticallyValid) continue;
 
             if (overlapX >= bestOverlap) {
@@ -1921,7 +1974,9 @@ export const translateAndInpaintPage = async ({
     const hasTranslatableSentence = translatableIndices.some(
       (idx) =>
         FOREIGN_STOPWORD_REGEX.test(rawBubbles[idx].text) ||
-        rawBubbles[idx].text.trim().split(/\s+/).length >= 3,
+        rawBubbles[idx].text.trim().split(/\s+/).length >= 3 ||
+        (rawBubbles[idx].text.trim().length >= 3 &&
+          /[\uAC00-\uD7AF\u3131-\u318E\u3040-\u30FF\u4E00-\u9FFF]/.test(rawBubbles[idx].text)),
     );
     if (
       targetLang !== 'en' &&
@@ -1985,7 +2040,7 @@ export const translateAndInpaintPage = async ({
       if (
         translated === '[SFX]' ||
         translated.toUpperCase() === '[SFX]' ||
-        shouldSkipBlock(translated, targetLang)
+        shouldSkipBlock(translated, targetLang, undefined, undefined, true)
       ) {
         continue;
       }

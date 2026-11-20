@@ -42,10 +42,20 @@ export type OcrModelRunner = (
   dims: [number, number, number, number],
 ) => Promise<{ data: Float32Array; dims: readonly number[] }>;
 
+export type OcrScriptId = 'en' | 'korean' | 'cjk';
+
+export interface OcrRecognizerPack {
+  rec: OcrModelRunner;
+  dictionary: string[];
+}
+
 export interface OcrRunners {
   det: OcrModelRunner;
   rec: OcrModelRunner;
   dictionary: string[];
+  activeScript?: OcrScriptId;
+  loadRecognizer?: (script: OcrScriptId) => Promise<OcrRecognizerPack | null>;
+  onScriptSelected?: (script: OcrScriptId) => void;
 }
 
 const DET_MEAN = [0.485, 0.456, 0.406];
@@ -286,8 +296,10 @@ const ctcDecode = (
     const off = t * classes;
     let maxIdx = 0;
     let maxVal = -Infinity;
+    let hasOutOfUnitRange = false;
     for (let k = 0; k < classes; k += 1) {
       const v = data[off + k];
+      if (v < -0.001 || v > 1.001) hasOutOfUnitRange = true;
       if (v > maxVal) {
         maxVal = v;
         maxIdx = k;
@@ -297,7 +309,17 @@ const ctcDecode = (
       const ch = dict[maxIdx - 1] ?? '';
       if (ch) {
         text += ch;
-        probSum += maxVal;
+        let prob = maxVal;
+        if (hasOutOfUnitRange) {
+          let expSum = 0;
+          for (let k = 0; k < classes; k += 1) {
+            expSum += Math.exp(data[off + k] - maxVal);
+          }
+          prob = expSum > 0 ? 1 / expSum : 0;
+        } else {
+          prob = clamp(maxVal, 0, 1);
+        }
+        probSum += prob;
         probCount += 1;
       }
     }
@@ -715,6 +737,8 @@ export const runPaddleOcr = async (
   const stepSrc = Math.round((DET_SLICE_H - DET_SLICE_OVERLAP) / scale);
   const lines: OcrLine[] = [];
 
+  const detectedBoxes: DetBox[] = [];
+
   for (let sy = 0; sy < height; sy += stepSrc) {
     checkAbort(signal);
     const srcH = Math.min(sliceSrcH, height - sy);
@@ -813,25 +837,228 @@ export const runPaddleOcr = async (
       const bw = box.x1 - box.x0;
       const bh = box.y1 - box.y0;
       if (bw < 10 || bh < 8 || bh > bw * 5) continue;
-
-      checkAbort(signal);
-      const rec = await recognizeBox(img, box, runners);
-      const text = rec.text.trim();
-      // 34+ güvenli parçaları da tut; aynı satırdaki veya aynı balon içindeki yüksek güvenli satırların devamıysa kurtarılacak
-      if (!text || rec.confidence < 34) continue;
-      lines.push({
-        text,
-        confidence: rec.confidence,
-        bbox: {
-          x0: Math.round(box.x0),
-          y0: Math.round(box.y0),
-          x1: Math.round(box.x1),
-          y1: Math.round(box.y1),
-        },
-        ...(b.angleDeg !== undefined ? { angleDeg: b.angleDeg } : {}),
-      });
+      detectedBoxes.push(box);
     }
     if (isLast) break;
+  }
+
+  if (detectedBoxes.length === 0) return [];
+
+  // Çok dilli otomatik alfabe algılama (PP-OCRv3 en varsayılan -> Korece -> Japonca/Çince)
+  // Köşe filigranlarını (.com, 뉴토주소.com) prob dışına iterek Latin dışı sayfaların kaçırılmasını engeller.
+  let activeRunners: OcrRunners = runners;
+  let activeScript: OcrScriptId = runners.activeScript ?? 'en';
+  const precomputedRec = new Map<number, { text: string; confidence: number }>();
+
+  if (runners.loadRecognizer) {
+    const isCornerWatermarkBox = (box: DetBox): boolean => {
+      const bw = box.x1 - box.x0;
+      const bh = box.y1 - box.y0;
+      return (
+        bh <= 30 &&
+        bw <= Math.max(175, width * 0.28) &&
+        box.y0 >= height * 0.88 &&
+        (box.x0 <= width * 0.24 || box.x1 >= width * 0.76)
+      );
+    };
+
+    const nonWatermarkIndices = detectedBoxes
+      .map((box, idx) => ({ box, idx }))
+      .filter(({ box }) => !isCornerWatermarkBox(box));
+    const probePool =
+      nonWatermarkIndices.length > 0
+        ? nonWatermarkIndices
+        : detectedBoxes.map((box, idx) => ({ box, idx }));
+
+    const probeIndices = probePool
+      .map(({ box, idx }) => {
+        const bw = box.x1 - box.x0;
+        const bh = box.y1 - box.y0;
+        // Normal konuşma balonu satır yüksekliklerini (14..85px) dev stilize SFX çizimlerinin önüne koy
+        const dialogueHeightBonus = bh >= 14 && bh <= 85 ? 4.0 : bh > 110 ? 0.15 : 1.0;
+        const horizBonus = bw >= bh * 0.8 ? 1.5 : 0.6;
+        return { idx, score: Math.min(bw * bh, 60_000) * dialogueHeightBonus * horizBonus };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, Math.min(6, probePool.length))
+      .map((item) => item.idx);
+
+    const isWatermarkLikeProbeText = (text: string): boolean =>
+      /(?:\.(?:com|net|org|con|cor|corn|comm)\b|^\.?comm?$|뉴토주소|뉴토끼|뉴토주|토주소|manga18|www\.)/i.test(
+        text.trim(),
+      );
+
+    const countNativeChars = (text: string, script: OcrScriptId): number => {
+      if (script === 'korean') {
+        return text.match(/[\uAC00-\uD7AF\u3131-\u318E]/g)?.length ?? 0;
+      }
+      if (script === 'cjk') {
+        return text.match(/[\u3040-\u30FF\u4E00-\u9FFF]/g)?.length ?? 0;
+      }
+      return text.match(/[A-Za-zÀ-ÖØ-öø-ÿĞğİıŞşÇçÖöÜü]/g)?.length ?? 0;
+    };
+
+    const probeScript = async (
+      script: OcrScriptId,
+      pack: OcrRecognizerPack,
+    ): Promise<{
+      script: OcrScriptId;
+      pack: OcrRecognizerPack;
+      results: Map<number, { text: string; confidence: number }>;
+      usableCount: number;
+      nonWatermarkProbeCount: number;
+      avgUsableConf: number;
+      nativeRatio: number;
+      totalScore: number;
+    }> => {
+      const candidateRunners: OcrRunners = { ...runners, rec: pack.rec, dictionary: pack.dictionary };
+      const results = new Map<number, { text: string; confidence: number }>();
+      let usableCount = 0;
+      let nonWatermarkProbeCount = 0;
+      let usableConfSum = 0;
+      let nativeChars = 0;
+      let totalLetters = 0;
+      let totalScore = 0;
+
+      for (const idx of probeIndices) {
+        checkAbort(signal);
+        const box = detectedBoxes[idx];
+        const rec = await recognizeBox(img, box, candidateRunners);
+        results.set(idx, rec);
+        const text = rec.text.trim();
+        if (isWatermarkLikeProbeText(text)) continue;
+        nonWatermarkProbeCount += 1;
+        if (!text || rec.confidence < 34) continue;
+        const line: OcrLine = {
+          text,
+          confidence: rec.confidence,
+          bbox: {
+            x0: Math.round(box.x0),
+            y0: Math.round(box.y0),
+            x1: Math.round(box.x1),
+            y1: Math.round(box.y1),
+          },
+          ...(box.angleDeg !== undefined ? { angleDeg: box.angleDeg } : {}),
+        };
+        if (isUsableOcrLine(line)) {
+          usableCount += 1;
+          usableConfSum += rec.confidence;
+          const letters = text.match(/\p{L}/gu)?.length ?? 0;
+          const native = countNativeChars(text, script);
+          totalLetters += letters;
+          nativeChars += native;
+          const nativeWeight = script === 'en' ? 1.0 : native >= 2 ? 1.4 : 0.6;
+          totalScore += rec.confidence * Math.min(18, Math.max(2, letters)) * nativeWeight;
+        }
+      }
+
+      const avgUsableConf = usableCount > 0 ? usableConfSum / usableCount : 0;
+      const nativeRatio = totalLetters > 0 ? nativeChars / totalLetters : 0;
+      return {
+        script,
+        pack,
+        results,
+        usableCount,
+        nonWatermarkProbeCount,
+        avgUsableConf,
+        nativeRatio,
+        totalScore,
+      };
+    };
+
+    const isStrongAccept = (p: {
+      script: OcrScriptId;
+      usableCount: number;
+      nonWatermarkProbeCount: number;
+      avgUsableConf: number;
+      nativeRatio: number;
+    }): boolean => {
+      if (p.usableCount === 0) return false;
+      const denom = Math.max(1, p.nonWatermarkProbeCount);
+      const usableRatio = p.usableCount / denom;
+      if (
+        p.script === 'en' &&
+        p.usableCount >= 3 &&
+        p.avgUsableConf >= 75 &&
+        p.nativeRatio >= 0.7
+      ) {
+        return true;
+      }
+      return (
+        p.avgUsableConf >= 78 &&
+        p.nativeRatio >= 0.55 &&
+        (usableRatio >= 0.55 || (p.usableCount >= 3 && usableRatio >= 0.4))
+      );
+    };
+
+    const primaryProbe = await probeScript(activeScript, {
+      rec: runners.rec,
+      dictionary: runners.dictionary,
+    });
+    let bestProbe = primaryProbe;
+
+    // Yalnızca gerçek metin kutusu (filigran dışı) varsa yedek dil dene
+    const hasOnlyCornerWatermarks =
+      nonWatermarkIndices.length === 0 && primaryProbe.nonWatermarkProbeCount === 0;
+
+    if (!hasOnlyCornerWatermarks && !isStrongAccept(primaryProbe)) {
+      const fallbackOrder: OcrScriptId[] =
+        activeScript === 'en'
+          ? ['korean', 'cjk']
+          : activeScript === 'korean'
+            ? ['en', 'cjk']
+            : ['en', 'korean'];
+
+      for (const candidate of fallbackOrder) {
+        checkAbort(signal);
+        let pack: OcrRecognizerPack | null = null;
+        try {
+          pack = await runners.loadRecognizer(candidate);
+        } catch {
+          pack = null;
+        }
+        if (!pack) continue;
+        const probe = await probeScript(candidate, pack);
+        if (
+          probe.totalScore > bestProbe.totalScore * 1.1 ||
+          (bestProbe.usableCount === 0 && probe.usableCount > 0)
+        ) {
+          bestProbe = probe;
+        }
+        if (isStrongAccept(probe) && bestProbe.script === probe.script) {
+          break;
+        }
+      }
+    }
+
+    if (bestProbe.script !== activeScript) {
+      activeScript = bestProbe.script;
+      activeRunners = { ...runners, rec: bestProbe.pack.rec, dictionary: bestProbe.pack.dictionary };
+      runners.onScriptSelected?.(activeScript);
+    }
+    for (const [idx, rec] of bestProbe.results.entries()) {
+      precomputedRec.set(idx, rec);
+    }
+  }
+
+  for (let i = 0; i < detectedBoxes.length; i += 1) {
+    const box = detectedBoxes[i];
+    checkAbort(signal);
+    const rec = precomputedRec.get(i) ?? (await recognizeBox(img, box, activeRunners));
+    const text = rec.text.trim();
+    // 34+ güvenli parçaları da tut; aynı satırdaki veya aynı balon içindeki yüksek güvenli satırların devamıysa kurtarılacak
+    if (!text || rec.confidence < 34) continue;
+    lines.push({
+      text,
+      confidence: rec.confidence,
+      bbox: {
+        x0: Math.round(box.x0),
+        y0: Math.round(box.y0),
+        x1: Math.round(box.x1),
+        y1: Math.round(box.y1),
+      },
+      ...(box.angleDeg !== undefined ? { angleDeg: box.angleDeg } : {}),
+    });
   }
 
   // Dilim örtüşmelerinden gelen çift ve iç içe geçmiş alt-kutu tekrarlarını IoU + kapsama ile tekilleştir
@@ -957,7 +1184,7 @@ export const runPaddleOcr = async (
       const roiCy = meanY + uMidShift * sinA + vMidShift * cosA;
 
       const upBuf = rotateSubRegionToBuffer(img, roiCx, roiCy, upW, upH, domDeg, upScale);
-      const rawUpLines = await runDetOnSubBuffer(upBuf, runners, 0.43, signal);
+      const rawUpLines = await runDetOnSubBuffer(upBuf, activeRunners, 0.43, signal);
       const validUpLines = rawUpLines.filter(
         (ul) =>
           (ul.angleDeg === undefined || Math.abs(ul.angleDeg) <= 4.8) &&
@@ -1068,6 +1295,9 @@ export const isUsableOcrLine = (line: OcrLine, minConfidence = MIN_LINE_CONFIDEN
     /^[a-zA-Z0-9]+(?:[\s.,!?'"“”‘’…:;()\-–—~]+[a-zA-Z0-9]+)*[\s.,!?'"“”‘’…:;()\-–—~]*$/.test(
       stripped || text,
     );
+  const hasNonLatinScript = /[\uAC00-\uD7AF\u3131-\u318E\u3040-\u30FF\u4E00-\u9FFF\u0400-\u04FF\u0600-\u06FF]/u.test(
+    text,
+  );
   const hasLatinVowel = /[aeiouy]/i.test(stripped);
   const wordParts = text.split(/\s+/).filter((w) => /\p{L}/u.test(w));
   const hasHeavyConsonantGarble = wordParts.some((w) =>
@@ -1076,16 +1306,20 @@ export const isUsableOcrLine = (line: OcrLine, minConfidence = MIN_LINE_CONFIDEN
 
   const effectiveMinConf = isShortMeaningful
     ? Math.min(minConfidence, Math.abs(line.angleDeg ?? 0) >= 8 ? 68 : 58)
-    : isCleanText && wordParts.length >= 2 && letters >= 6 && hasLatinVowel && !hasHeavyConsonantGarble
-      ? Math.min(minConfidence, 68)
-      : isCleanText && hasLatinVowel && !hasHeavyConsonantGarble
-        ? Math.min(minConfidence, letters >= 6 ? 72 : 76)
-        : minConfidence;
+    : hasNonLatinScript && junk === 0
+      ? Math.min(minConfidence, letters >= 2 ? 62 : 74)
+      : isCleanText && wordParts.length >= 2 && letters >= 6 && hasLatinVowel && !hasHeavyConsonantGarble
+        ? Math.min(minConfidence, 68)
+        : isCleanText && hasLatinVowel && !hasHeavyConsonantGarble
+          ? Math.min(minConfidence, letters >= 6 ? 72 : 76)
+          : minConfidence;
 
   if (line.confidence < effectiveMinConf) return false;
   if (hasHeavyConsonantGarble && line.confidence < 76) return false;
   if (letters === 0) return false;
-  if (letters < 2 && !/^(?:I|A|O)[!?.…,]*$/i.test(text)) return false;
+  if (letters < 2 && !(hasNonLatinScript && line.confidence >= 74) && !/^(?:I|A|O)[!?.…,]*$/i.test(text)) {
+    return false;
+  }
   // Sembol oranı yüksek satırlar (ör. "| 7 A - _ =", "| 2 7 27") çizim gürültüsüdür
   if (junk / Math.max(1, letters + digits + junk) > 0.25) return false;
   // Sansürlü/gizlenmiş tablo dolgu metinleri ("XXXXXX", "XXXX-XXXI", "XXXX-XX", "XX:XXXX")
@@ -1179,7 +1413,7 @@ const PURE_SFX_STEMS = new Set([
   'presst', 'splurt', 'splukt', 'smach', 'emack', 'smacki', 'qeam',
   'twich', 'towitch', 'twitchy', 'twica',
   'huft', 'har', 'saveeze', 'shlick', 'schlick', 'splork', 'fap', 'throb', 'glomp',
-  'hangh', 'hanngh', 'hnnh',
+  'hangh', 'hanngh', 'hnnh', 'colok',
 ]);
 
 /** Tek başına anlamlı kelime olabilecek ama 2-3 kez arka arkaya tekrarlandığında ses efekti olan kelimeler ("TAP TAP TAP", "STEP STEP", "DRIP DRIP", "CLAP CLAP") */
@@ -1195,6 +1429,9 @@ export const REPEATED_ONLY_SFX_STEMS = new Set([
 const collapseRepeatedChars = (word: string): string =>
   word.toLowerCase().replace(/([a-z])\1{2,}/g, '$1$1').replace(/([a-z])\1+/g, '$1');
 
+const PURE_KOREAN_SFX_REGEX =
+  /^(?:꽈+악+|과+악+|콰+악+|콱+|퍽+|탁+|쿵+|두근(?:두근)?|흐+윽+|아+흑+|꿈+들+|별+령+|벌+령+|벌+렁+|철+퍽+|찔+꺽+|꿀+꺽+|츄+릅+|쪽+|아+앗*|으+악+|으+응+|하+악+|하+앙+|흡+|헉+|슥+|쓱+|휙+|탁+|톡+|툭+|찰+싹+|짝+|쿵+|쾅+|탕+)[!.~…]*$/;
+
 export const isPureSoundEffect = (
   text: string,
   box?: [number, number, number, number],
@@ -1204,6 +1441,22 @@ export const isPureSoundEffect = (
     .trim()
     .replace(/^[¡¿.,!?:;…\-_~*^'"/\\()[\]{}<>◁▷◀▶★☆•\s]+|[¡¿.,!?:;…\-_~*^'"/\\()[\]{}<>◁▷◀▶★☆•\s]+$/g, '');
   if (!cleaned) return true;
+
+  const boxHNorm = box ? Math.max(0, box[2] - box[0]) : 0;
+  const compactAll = cleaned.replace(/\s+/g, '');
+  // Sayfanın %20'sinden yüksek dev stilize 1-3 karakterlik çizim/başlık/SFX ("m악", "식스포", "No" gibi)
+  if (boxHNorm >= 200 && compactAll.length <= 3 && !/[?!.]/.test(text)) {
+    return true;
+  }
+
+  // Latin dışı (Korece/Japonca/Çince vb.) 1-4 kelimelik normal diyalogları ASCII SFX döngüsüyle ASLA silme!
+  if (!/[a-z]/i.test(cleaned)) {
+    if (PURE_KOREAN_SFX_REGEX.test(compactAll)) return true;
+    if (boxHNorm >= 150 && compactAll.length <= 2 && !/[?!.]/.test(text)) {
+      return true;
+    }
+    return false;
+  }
 
   const rawTokens = cleaned
     .split(/[\s¡¿.,!?:;…\-_~*^'"/\\()[\]{}<>]+/)
@@ -1231,6 +1484,7 @@ export const isPureSoundEffect = (
   const joinedAlpha = rawTokens.join('').replace(/[^a-z]/g, '');
   if (
     joinedAlpha &&
+    !/[\uAC00-\uD7AF\u3040-\u30FF\u4E00-\u9FFF]/.test(cleaned) &&
     (PURE_SFX_STEMS.has(joinedAlpha) || PURE_SFX_STEMS.has(collapseRepeatedChars(joinedAlpha)))
   ) {
     return true;
@@ -1247,18 +1501,24 @@ export const isPureSoundEffect = (
   }
 
   // Tüm tokenlar saf ses efekti köklerinden oluşuyorsa (ör. "BOOM!", "KWAANG!", "BA-DUMP", "CLANG CRASH")
-  const allPureSfx = rawTokens.every((tok) => {
-    const exact = tok.replace(/[^a-z]/g, '');
-    if (!exact) return true;
-    if (PURE_SFX_STEMS.has(exact)) return true;
-    const collapsed = collapseRepeatedChars(exact);
-    if (PURE_SFX_STEMS.has(collapsed)) return true;
-    // "shhhhh", "zzzzzz", "grrrrr", "krrrr", "bzzzz" gibi ünsüz uzatmaları
-    if (/^(?:sh+|z+|g+r+|k+r+|b+z+|f+s+h+|s+w+i+s+h+|w+h+o+s+h+|t+h+u+d+|b+o+m+|b+a+m+|p+o+w+)$/i.test(exact)) {
-      return true;
-    }
-    return false;
-  });
+  const hasAsciiToken = rawTokens.some((tok) => /[a-z]/i.test(tok));
+  const allPureSfx =
+    hasAsciiToken &&
+    rawTokens.every((tok) => {
+      if (/[^\x00-\x7F]/.test(tok) && /\p{L}/u.test(tok) && !/[a-z]/i.test(tok)) {
+        return false;
+      }
+      const exact = tok.replace(/[^a-z]/g, '');
+      if (!exact) return true;
+      if (PURE_SFX_STEMS.has(exact)) return true;
+      const collapsed = collapseRepeatedChars(exact);
+      if (PURE_SFX_STEMS.has(collapsed)) return true;
+      // "shhhhh", "zzzzzz", "grrrrr", "krrrr", "bzzzz" gibi ünsüz uzatmaları
+      if (/^(?:sh+|z+|g+r+|k+r+|b+z+|f+s+h+|s+w+i+s+h+|w+h+o+s+h+|t+h+u+d+|b+o+m+|b+a+m+|p+o+w+)$/i.test(exact)) {
+        return true;
+      }
+      return false;
+    });
   if (allPureSfx) return true;
 
   // "TAP TAP", "STEP STEP STEP", "DRIP DRIP", "TICK TOCK", "DING DONG" gibi tekrarlı efektler
@@ -1950,9 +2210,11 @@ export const groupOcrLinesIntoBubbles = (
       const hGap = Math.max(a.x0, b.x0) - Math.min(a.x1, b.x1);
       const leftHorizontalLine = a.x0 <= b.x0 ? lines[i] : lines[j];
       const leftHorizontalEndsPunct = /[.!?…]$/.test(leftHorizontalLine.text.trim());
+      const hOverlapX = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
       if (
         vOverlap >= minH * 0.52 &&
-        hGap >= -minH * 0.35 &&
+        (hGap >= -minH * 0.35 ||
+          (vOverlap >= minH * 0.72 && hGap >= -minH * 0.9 && hOverlapX < Math.min(wa, wb) * 0.45)) &&
         hGap <= (leftHorizontalEndsPunct ? maxH * 0.45 : maxH * 0.65) &&
         maxH / Math.max(1, minH) <= 1.65 &&
         !(hasIndependentVerticalPartner(i, j) && hasIndependentVerticalPartner(j, i)) &&
@@ -2070,6 +2332,16 @@ export const groupOcrLinesIntoBubbles = (
         effVGap > effMaxH * 1.5 ||
         effVGap < -effMinH * 0.62 ||
         effCenterYDist < effMinH * 0.45
+      ) {
+        continue;
+      }
+      // Korece/Japonca/Çince anlatım paragrafları arasında 1+ satır yüksekliğinde beyaz boşluk varsa
+      // (veya satır sayfa kenarından kesilmişse) ayrı paragraf/balon olarak tut (ek yeri silmesinde sonraki paragrafı yutma!)
+      if (
+        effVGap > effMaxH * 1.02 &&
+        (/[\uAC00-\uD7AF\u3040-\u30FF\u4E00-\u9FFF]/.test(textTop) ||
+          a.y0 <= 4 ||
+          b.y1 >= imgHeight - 4)
       ) {
         continue;
       }
@@ -3012,6 +3284,8 @@ export const groupOcrLinesIntoBubbles = (
   const footerPromoAnchors = keptBubbles.filter(
     (b) =>
       b.box[0] >= 420 &&
+      // Küçük köşe site damgaları (ör. sol-alt 뉴토주소.com tavşan damgası) tüm sayfa altını silemez
+      !(b.box[3] - b.box[1] <= 240 && (b.box[3] <= 260 || b.box[1] >= 740)) &&
       (promoMarkerRe.test(b.text) || CREDIT_LINE_REGEX.test(b.text) || URL_LINE_REGEX.test(b.text)),
   );
   if (footerPromoAnchors.length >= 2) {
@@ -3063,11 +3337,11 @@ export const groupOcrLinesIntoBubbles = (
 };
 
 const CREDIT_LINE_REGEX =
-  /(?<![\p{L}\p{N}_])(?:translator|translation|proofreader|proofreading|cleaner|cleaning|redrawer|redraw|typesetter|typesetting|quality\s*checker|coloring|background\s*art|script\s*editing|editor|raw\s*provider|scanlation|fansub|fansube|kurohana|w?nmega\s*scans?|omegascans(?:org)?|asurascans|asura\s*scans|reaperscans|reaper\s*scans|flamescans|flame\s*scans|flame[\s-]*chan|reaper[\s-]*chan|asura[\s-]*chan|luminousscans|vortexscans|drakescans|manhuaplus|manhuaus|hivetoons|realmscans|leviathanscans|reset\s*scans|rizz\s*comic|rizz\s*fables|cosmic\s*scans|night\s*scans|void\s*scans|disaster\s*scans|surya\s*scans|templescan|thunderscans|philiascans|arven\s*comics|nex[o0c]*mic|[gc]radex[\s.\-]*(?:tan|tay)trums?|taytrums?|webtoon\s*xyz|kunmanga|manganato|mangakakalot|zinmanga|1stkissmanga|manhwaclub|manhwafreak|tappytoon|toomics|tapas|lezhin|recruiting|discord|patreon|paypal|ko-?fi|join\s+(?:our|us)|support(?:ing)?\s+us|payment\s*methods?|other\s*series\s*we\s*do|create\s+a\s+ticket|read\s*early\s*(?:at|on)?|readearly|read\s+(?:it\s+)?(?:at|on|first)|manga\s*&\s*manhwa|in\s+english\s+free\s+at|do\s+not\s+mirror|do\s+not\s+reupload|manga\s*stream|chapter\s*\d+|çevirmen|çeviri|editör|dizgi|temizleme)(?![\p{L}\p{N}_])|\.com\s*mirror\b|^mirror$|^dsns$|^staff$|omegascansorg|(?:^|\s)(?:tl|pr|cl|rd|ts|qc|ktl|tlc)(?:\s*[:\-]\s*|\s+)[a-z0-9_]{2,14}$/iu;
+  /(?<![\p{L}\p{N}_])(?:translator|translation|proofreader|proofreading|cleaner|cleaning|redrawer|redraw|typesetter|typesetting|quality\s*checker|coloring|background\s*art|script\s*editing|editor|raw\s*provider|scanlation|fansub|fansube|kurohana|w?nmega\s*scans?|omegascans(?:org)?|asurascans|asura\s*scans|reaperscans|reaper\s*scans|flamescans|flame\s*scans|flame[\s-]*chan|reaper[\s-]*chan|asura[\s-]*chan|luminousscans|vortexscans|drakescans|manhuaplus|manhuaus|hivetoons|realmscans|leviathanscans|reset\s*scans|rizz\s*comic|rizz\s*fables|cosmic\s*scans|night\s*scans|void\s*scans|disaster\s*scans|surya\s*scans|templescan|thunderscans|philiascans|arven\s*comics|nex[o0c]*mic|[gc]radex[\s.\-]*(?:tan|tay)trums?|taytrums?|webtoon\s*xyz|kunmanga|manganato|mangakakalot|zinmanga|1stkissmanga|manhwaclub|manhwafreak|tappytoon|toomics|tapas|lezhin|manga18fx|thanks\s+for\s*(?:reading)?|recruiting|discord|patreon|paypal|ko-?fi|join\s+(?:our|us)|support(?:ing)?\s+us|payment\s*methods?|other\s*series\s*we\s*do|create\s+a\s+ticket|read\s*early\s*(?:at|on)?|readearly|read\s+(?:it\s+)?(?:at|on|first)|read\s+manga\s+online|manga\s*&\s*manhwa|in\s+english\s+free(?:\s+at)?|do\s+not\s+mirror|do\s+not\s+reupload|manga\s*stream|chapter\s*\d+|çevirmen|çeviri|editör|dizgi|temizleme)(?![\p{L}\p{N}_])|\.com\s*mirror\b|^mirror$|^dsns$|^staff$|omegascansorg|뉴토주소|뉴토끼|뉴도끼|뉴보시|뉴토주|토주소|토조소|뉴!주소|최초\s*배포|1주일\s*먼저|빠르게\s*감[상삼]|가장\s*(?:빠른|바|피른|씨)|(?:만화|민화)\s*\/\s*(?:애니|애는|애비)|장확는|^(?:1?만화|웹툰|애니|소설)$|^(?:작화|채색|재색|스토리|원작|제작)(?:\s|$)|(?:^|\s)(?:tl|pr|cl|rd|ts|qc|ktl|tlc)(?:\s*[:\-]\s*|\s+)[a-z0-9_]{2,14}$/iu;
 const URL_LINE_REGEX =
-  /(?:https?:\/\/|www\.|discord\.gg|\b[a-z0-9-]+\.(?:com|net|org|gg|io|me|to|xyz|club|online|site)\b|omegascansorg)/i;
+  /(?:https?:\/\/|www\.|discord\.gg|[\p{L}\p{N}-]+\.(?:com|net|org|gg|io|me|to|xyz|club|online|site|con|cor|corn|comm|c0m)\b|^\.?comm?$|주소\.com|뉴토주소|omegascansorg)/iu;
 const STRONG_PROMO_REGEX =
-  /(?:https?:\/\/|www\.|discord|patreon|paypal|ko-?fi|recruiting|join\s+(?:our|us)|supporting\s+us|payment\s*methods?|other\s*series\s*we\s*do|w?nmega\s*scans?|omegascans(?:org)?|asurascans|asura\s*scans|\b[a-z0-9-]+\.(?:com|net|org|gg|io|me|to|xyz|club|online|site)\b)/i;
+  /(?:https?:\/\/|www\.|discord|patreon|paypal|ko-?fi|recruiting|join\s+(?:our|us)|supporting\s+us|payment\s*methods?|other\s*series\s*we\s*do|w?nmega\s*scans?|omegascans(?:org)?|asurascans|asura\s*scans|manga18fx|read\s+manga\s+online|thanks\s+for|최초\s*배포|1주일\s*먼저|뉴토끼|뉴도끼|\b[a-z0-9-]+\.(?:com|net|org|gg|io|me|to|xyz|club|online|site|c0m)\b)/i;
 
 /** Satırın jenerik / reklam / filigran içeriği olup olmadığını döndürür. */
 export const isCreditOrPromoText = (text: string): boolean => {
@@ -3210,8 +3484,29 @@ export const isCreditsOrPromoPage = (
     return true;
   }
 
-  // 3. AsuraScans vb. gerçek jenerik / ekip künyesi sayfası:
-  // Sayfa güçlü bir grup adı/linki (STRONG_PROMO_REGEX) içermeli VE en az 2 farklı çevirmen/editör/dizgi künye satırı (TL, PR, Editor, Cleaner vb.) bulunmalı
+  // 3. AsuraScans / Newtoki / Manga18fx vb. jenerik veya giriş/çıkış reklam sayfası:
+  // Kapalı konuşma balonu yoksa ve güçlü site reklamı/dağıtım uyarısı (MANGA18FX, 뉴토끼, 최초 배포)
+  // veya Korece ekip künyesi (작화/채색/스토리/제작) varsa tüm sayfayı atla
+  if (!hasEnclosedComicSpeechBubble(ocrImg, bubbles)) {
+    if (
+      bubbles.some((b) =>
+        /(?:manga18fx|read\s+manga\s+online|thanks\s+for|최초\s*배포|1주일\s*먼저|빠르게\s*감[상삼])/i.test(
+          b.text,
+        ),
+      )
+    ) {
+      return true;
+    }
+    if (rawLines && rawLines.length > 0) {
+      const koCreditRoleLines = rawLines.filter((l) =>
+        /^(?:작화|채색|재색|스토리|원작|제작|글|그림)(?:\s|$)/.test(l.text.trim()),
+      ).length;
+      if (koCreditRoleLines >= 2) {
+        return true;
+      }
+    }
+  }
+
   const creditRolesCount = bubbles.filter((b) => CREDIT_LINE_REGEX.test(b.text)).length;
   if (
     creditRolesCount >= 2 &&

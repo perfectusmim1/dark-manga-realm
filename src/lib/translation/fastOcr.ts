@@ -11,6 +11,7 @@ import {
   isDuplicateOrNestedSubBox,
   type OcrBubble,
   type OcrLine,
+  type OcrScriptId,
 } from './ocrCore';
 import type { OcrWorkerResponse } from './ocrWorker';
 
@@ -64,6 +65,7 @@ interface WorkerSlot {
 const workerSlots: WorkerSlot[] = [];
 let paddleBroken = false;
 let jobSeq = 0;
+let sharedActiveScript: OcrScriptId = 'en';
 
 const createWorkerSlot = (): WorkerSlot => {
   const worker = new Worker(new URL('./ocrWorker.ts', import.meta.url), { type: 'module' });
@@ -78,9 +80,14 @@ const createWorkerSlot = (): WorkerSlot => {
     if (!job) return;
     slot.pending.delete(msg.id);
     slot.busy = Math.max(0, slot.busy - 1);
-    if (msg.ok) job.resolve({ lines: msg.lines || [], buffer: msg.buffer });
-    else if (msg.aborted) job.reject(new DOMException('İptal edildi', 'AbortError'));
-    else job.reject(new Error(msg.error || 'OCR başarısız'));
+    if (msg.ok) {
+      if (msg.detectedScript) sharedActiveScript = msg.detectedScript;
+      job.resolve({ lines: msg.lines || [], buffer: msg.buffer });
+    } else if (msg.aborted) {
+      job.reject(new DOMException('İptal edildi', 'AbortError'));
+    } else {
+      job.reject(new Error(msg.error || 'OCR başarısız'));
+    }
   };
   worker.onerror = (event) => {
     const err = new Error(`OCR worker hatası: ${event.message || 'bilinmiyor'}`);
@@ -147,7 +154,14 @@ const runPaddleInWorker = (
     });
     const buffer = imageData.data.buffer;
     worker.postMessage(
-      { type: 'ocr', id, width: imageData.width, height: imageData.height, buffer },
+      {
+        type: 'ocr',
+        id,
+        width: imageData.width,
+        height: imageData.height,
+        buffer,
+        preferredScript: sharedActiveScript,
+      },
       [buffer],
     );
   });

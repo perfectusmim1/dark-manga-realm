@@ -6,6 +6,8 @@ const TRANSLATION_DB_NAME = 'toonparrot-translations';
 const TRANSLATION_DB_VERSION = 1;
 const TRANSLATION_CACHE_EVENT = 'toonparrot:translation-cache-updated';
 const CLEARED_MARKERS_STORAGE_KEY = 'toonparrot_translation_cleared_v1';
+// Önceki bozuk OCR / boş [] kayıtlarının Supabase'den geri yüklenmesini kesin olarak engeller
+const MIN_REMOTE_TRANSLATION_UPDATED_AT = '2026-11-20T19:36:30.000Z';
 
 export interface StoredPageTranslationRecord {
   key: string;
@@ -134,14 +136,17 @@ export const shouldAcceptRemoteTranslation = (
   const markers = readClearedMarkers();
   const chapterClearedAt = markers[makeChapterLangKey(chapterId, lang)];
   const globalClearedAt = markers['*'];
-  const effectiveClearedIso =
+  const userClearedIso =
     chapterClearedAt && globalClearedAt
       ? chapterClearedAt > globalClearedAt
         ? chapterClearedAt
         : globalClearedAt
       : chapterClearedAt || globalClearedAt;
+  const effectiveClearedIso =
+    userClearedIso && userClearedIso > MIN_REMOTE_TRANSLATION_UPDATED_AT
+      ? userClearedIso
+      : MIN_REMOTE_TRANSLATION_UPDATED_AT;
 
-  if (!effectiveClearedIso) return true;
   if (!remoteUpdatedAt) return false;
 
   const clearedMs = Date.parse(effectiveClearedIso);
