@@ -1483,6 +1483,10 @@ interface SeamBubbleInfo {
   xminPx: number;
   ymaxPx: number;
   xmaxPx: number;
+  aboveMinXPx: number;
+  aboveMaxXPx: number;
+  belowMinXPx: number;
+  belowMaxXPx: number;
   text: string;
 }
 
@@ -1608,13 +1612,31 @@ const getOrComputeSeamOcr = (
       const ocr = await runFastWebtoonOcr(stripCanvas, signal);
       const seamY = topSliceH;
       const crossing = ocr.bubbles
-        .map((b) => ({
-          yminPx: (b.box[0] / 1000) * stripH,
-          xminPx: (b.box[1] / 1000) * stripW,
-          ymaxPx: (b.box[2] / 1000) * stripH,
-          xmaxPx: (b.box[3] / 1000) * stripW,
-          text: b.text,
-        }))
+        .map((b) => {
+          const yminPx = (b.box[0] / 1000) * stripH;
+          const xminPx = (b.box[1] / 1000) * stripW;
+          const ymaxPx = (b.box[2] / 1000) * stripH;
+          const xmaxPx = (b.box[3] / 1000) * stripW;
+          const lineBoxes = (b.lines ?? []).map((l) => ({
+            y0: (l.box[0] / 1000) * stripH,
+            x0: (l.box[1] / 1000) * stripW,
+            y1: (l.box[2] / 1000) * stripH,
+            x1: (l.box[3] / 1000) * stripW,
+          }));
+          const aboveLines = lineBoxes.filter((l) => l.y0 < seamY - 1);
+          const belowLines = lineBoxes.filter((l) => l.y1 > seamY + 1);
+          return {
+            yminPx,
+            xminPx,
+            ymaxPx,
+            xmaxPx,
+            aboveMinXPx: aboveLines.length > 0 ? Math.min(...aboveLines.map((l) => l.x0)) : xminPx,
+            aboveMaxXPx: aboveLines.length > 0 ? Math.max(...aboveLines.map((l) => l.x1)) : xmaxPx,
+            belowMinXPx: belowLines.length > 0 ? Math.min(...belowLines.map((l) => l.x0)) : xminPx,
+            belowMaxXPx: belowLines.length > 0 ? Math.max(...belowLines.map((l) => l.x1)) : xmaxPx,
+            text: b.text,
+          };
+        })
         .filter((sb) => sb.yminPx < seamY - 2 && sb.ymaxPx > seamY + 2 && sb.text.trim().length > 0);
 
       return {
@@ -1885,8 +1907,10 @@ export const extractPageOcr = async ({
           const hBelow = Math.max(0, sb.ymaxPx - seam.seamY);
           if (hAbove < 2 || hBelow < 2) continue;
           const thisPageOwnsText = edgeSide === 'bottom' ? hAbove >= hBelow : hBelow > hAbove;
-          const sbMinXNorm = Math.max(0, ((sb.xminPx / scaleX - 6) / fullWidth) * 1000);
-          const sbMaxXNorm = Math.min(1000, ((sb.xmaxPx / scaleX + 6) / fullWidth) * 1000);
+          const sideMinXPx = edgeSide === 'bottom' ? sb.aboveMinXPx : sb.belowMinXPx;
+          const sideMaxXPx = edgeSide === 'bottom' ? sb.aboveMaxXPx : sb.belowMaxXPx;
+          const sbMinXNorm = Math.max(0, ((sideMinXPx / scaleX - 8) / fullWidth) * 1000);
+          const sbMaxXNorm = Math.min(1000, ((sideMaxXPx / scaleX + 8) / fullWidth) * 1000);
 
           const matchedIndices = matchesBySeamIdx.get(sIdx);
           if (matchedIndices && matchedIndices.length > 0) {
