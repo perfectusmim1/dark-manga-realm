@@ -1,5 +1,5 @@
 /**
- * Saf yerel PaddleOCR (PP-OCRv3_det + PP-OCRv5_mobile_rec) çıkarım çekirdeği ve balon gruplama mantığı.
+ * Saf yerel PaddleOCR (PP-OCRv3_det + PP-OCRv3_rec + Korece/CJK fallback) çıkarım çekirdeği ve balon gruplama mantığı.
  * Tarayıcı Web Worker'ı ve Node/vitest testleri tarafından ortak kullanılır; DOM bağımlılığı yoktur.
  */
 import type { OcrBubbleLineBox } from './types';

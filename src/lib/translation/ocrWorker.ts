@@ -1,7 +1,8 @@
 /// <reference lib="webworker" />
 /**
- * Yerel OCR Web Worker'ı: PaddleOCR (PP-OCRv3_det + en_PP-OCRv5_mobile_rec) ONNX modellerini
- * onnxruntime-web (WASM) ile ana iş parçacığını bloklamadan çalıştırır. Görseller hiçbir uzak sunucuya gönderilmez.
+ * Yerel OCR Web Worker'ı: PaddleOCR (en_PP-OCRv3_det + en_PP-OCRv3_rec, + Korece/CJK fallback)
+ * ONNX modellerini onnxruntime-web (WASM) ile ana iş parçacığını bloklamadan çalıştırır.
+ * Görseller hiçbir uzak sunucuya gönderilmez.
  */
 import * as ort from 'onnxruntime-web/wasm';
 import {
@@ -44,7 +45,7 @@ export interface OcrWorkerResponse {
 
 const MODEL_BASE = '/ocr';
 const DET_MODEL = `${MODEL_BASE}/en_PP-OCRv3_det_infer.onnx`;
-const OCR_CACHE_NAME = 'toonparrot-ocr-models-v3';
+const OCR_CACHE_NAME = 'toonparrot-ocr-models-v4';
 
 const SCRIPT_SOURCES: Record<
   OcrScriptId,
@@ -55,8 +56,8 @@ const SCRIPT_SOURCES: Record<
   }
 > = {
   en: {
-    recUrl: (origin) => `${origin}${MODEL_BASE}/en_ppocrv5_mobile_rec.onnx`,
-    dictUrl: (origin) => `${origin}${MODEL_BASE}/en_v5_dict.txt`,
+    recUrl: (origin) => `${origin}${MODEL_BASE}/en_PP-OCRv3_rec_infer.onnx`,
+    dictUrl: (origin) => `${origin}${MODEL_BASE}/en_dict.txt`,
   },
   korean: {
     recUrl: () =>
