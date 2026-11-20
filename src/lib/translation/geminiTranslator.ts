@@ -357,7 +357,7 @@ const CREDITS_START_REGEX =
 const CREDITS_INLINE_REGEX =
   /(?:^|[\/|•<\[])\s*(?:(?:hikaye|öykü|senaryo|yazar|çizer|çizim|sanat|editör|editor|çeviri|çevirmen|dizgi|temizleme|story|art|artist|author|coloring|traducción|traduccion|edición|edicion|limpieza|typeset)(?![\p{L}\p{N}_])(?:\s*[:\-]|[\]|/>])|(?:background\s*art|script\s*editing|written\s+by|art\s+by|story\s+by|original\s+work|scanlation|fansub|lee\s+antes\s+en|read\s+(?:first\s+)?(?:at|on))(?![\p{L}\p{N}_])\s*[:\-]?)/iu;
 const WATERMARK_DOMAIN_REGEX =
-  /(?:https?:\/\/|discord\.gg\/|\b[a-z0-9-]+\.(?:com|net|org|club|me|online|io|gg|xyz|to|site|con|cor|comm)\b|omegascansorg|뉴토주소|뉴토끼|^\.?comm?$)/i;
+  /(?:https?:\/\/|discord\.gg\/|\b[a-z0-9-]+\.(?:com|net|org|club|me|online|io|gg|xyz|to|site)\b|omegascansorg)/i;
 
 const isPlaceholderMaskText = (t: string): boolean => {
   const alpha = t.replace(/[^\p{L}]/gu, '');
@@ -373,7 +373,6 @@ export const shouldSkipBlock = (
   targetLang = 'tr',
   box?: [number, number, number, number],
   lines?: OcrBubble['lines'],
-  isPostTranslation = false,
 ): boolean => {
   const t = text.trim();
   if (t.length <= 1) return true;
@@ -391,12 +390,10 @@ export const shouldSkipBlock = (
   if (SFX_WRAP_REGEX.test(t)) return true;
   if (WATERMARK_DOMAIN_REGEX.test(t) || isCreditOrPromoText(t)) return true;
 
-  // Çeviri SONRASINDA hedef dil Korece/Japonca/Çince değilse çevrilmeden kalan Hangul/Kana/CJK blokları atla
-  if (isPostTranslation) {
-    if (targetLang !== 'ko' && /[\uAC00-\uD7AF\u3131-\u318E]/.test(t)) return true;
-    if (targetLang !== 'ja' && /[\u3040-\u30FF]/.test(t)) return true;
-    if (targetLang !== 'zh' && targetLang !== 'ja' && /[\u4E00-\u9FFF]/.test(t)) return true;
-  }
+  // Hedef dil Korece/Japonca/Çince değilse çevrilmeden kalan Hangul/Kana/CJK blokları atla
+  if (targetLang !== 'ko' && /[\uAC00-\uD7AF\u3131-\u318E]/.test(t)) return true;
+  if (targetLang !== 'ja' && /[\u3040-\u30FF]/.test(t)) return true;
+  if (targetLang !== 'zh' && targetLang !== 'ja' && /[\u4E00-\u9FFF]/.test(t)) return true;
 
   const stripped = t.replace(/^[<\[({◁▷◀▶★☆•\-~\s]+|[>\])}◁▷◀▶★☆•\-~\s]+$/g, '').trim();
   if (!stripped || stripped.length <= 1) return true;
@@ -706,9 +703,6 @@ const SAFE_Z_WORD_REGEX =
   /^(?:jazz|buzz|fuzz|fizz|quiz|whiz|frizz|blitz|ritz|waltz|quartz|topaz|klutz|chintz|pizzazz|ersatz|spritz|fez|wiz|biz|ad[sz]|plz|cuz|ghz|mhz|khz|hz)$/i;
 
 const normalizeEnglishForGoogleTranslate = (raw: string, targetLang = 'tr'): string => {
-  if (/[\uAC00-\uD7AF\u3131-\u318E\u3040-\u30FF\u4E00-\u9FFF]/.test(raw)) {
-    return raw.trim().replace(/\s+/g, ' ');
-  }
   let s = raw
     .trim()
     .replace(/\s+/g, ' ')
@@ -1120,71 +1114,38 @@ export const translateBatchWithGoogleFree = async (
   if (payloadTexts.length === 0) return trimmedList;
 
   const endpoint = getTranslateProxyEndpoint();
-  const maxChunkItems = 20;
-  const maxChunkChars = 1400;
-  const chunks: Array<{ payload: string[]; origIndices: number[] }> = [];
-  let curPayload: string[] = [];
-  let curOrigIndices: number[] = [];
-  let curChars = 0;
-
-  for (let i = 0; i < payloadTexts.length; i += 1) {
-    const text = payloadTexts[i];
-    const origIdx = nonEmptyIndices[i];
-    if (
-      curPayload.length > 0 &&
-      (curPayload.length >= maxChunkItems || curChars + text.length > maxChunkChars)
-    ) {
-      chunks.push({ payload: curPayload, origIndices: curOrigIndices });
-      curPayload = [];
-      curOrigIndices = [];
-      curChars = 0;
-    }
-    curPayload.push(text);
-    curOrigIndices.push(origIdx);
-    curChars += text.length;
-  }
-  if (curPayload.length > 0) {
-    chunks.push({ payload: curPayload, origIndices: curOrigIndices });
-  }
-
-  const out = [...trimmedList];
-  const translateChunk = async (chunk: { payload: string[]; origIndices: number[] }) => {
-    try {
-      const reqSignal = signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(8000)])
-        : AbortSignal.timeout(8000);
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sl: 'auto',
-          tl: targetLang,
-          texts: chunk.payload,
-        }),
-        signal: reqSignal,
-      });
-      if (res.ok) {
-        const json = (await res.json()) as { translations?: unknown };
-        if (Array.isArray(json?.translations) && json.translations.length === chunk.payload.length) {
-          chunk.origIndices.forEach((origIdx, i) => {
-            const origSrc = trimmedList[origIdx] || '';
-            const rawCand = typeof json.translations![i] === 'string' ? json.translations![i].trim() : '';
-            const cand = postProcessTranslatedBubbleText(origSrc, rawCand, targetLang);
-            if (cand) out[origIdx] = cand;
-          });
-        }
+  try {
+    const reqSignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(8000)])
+      : AbortSignal.timeout(8000);
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sl: 'auto',
+        tl: targetLang,
+        texts: payloadTexts,
+      }),
+      signal: reqSignal,
+    });
+    if (res.ok) {
+      const json = (await res.json()) as { translations?: unknown };
+      if (Array.isArray(json?.translations) && json.translations.length === payloadTexts.length) {
+        const out = [...trimmedList];
+        nonEmptyIndices.forEach((origIdx, i) => {
+          const origSrc = trimmedList[origIdx] || '';
+          const rawCand = typeof json.translations![i] === 'string' ? json.translations![i].trim() : '';
+          const cand = postProcessTranslatedBubbleText(origSrc, rawCand, targetLang);
+          if (cand) out[origIdx] = cand;
+        });
+        return cleanupTurkishAcabaDuplicates(out, targetLang);
       }
-    } catch {
-      // Proxy ulaşılamazsa bu parça için orijinal metni koru
     }
-  };
-
-  for (let idx = 0; idx < chunks.length; idx += 2) {
-    if (signal?.aborted) break;
-    await Promise.all(chunks.slice(idx, idx + 2).map(translateChunk));
+  } catch {
+    // Proxy ulaşılamazsa orijinal listeyi koru
   }
 
-  return cleanupTurkishAcabaDuplicates(out, targetLang);
+  return trimmedList;
 };
 
 const deeplKeyPoolSlots = new Map<string, { invalidUntil: number; cooldownUntil: number }>();
@@ -1960,9 +1921,7 @@ export const translateAndInpaintPage = async ({
     const hasTranslatableSentence = translatableIndices.some(
       (idx) =>
         FOREIGN_STOPWORD_REGEX.test(rawBubbles[idx].text) ||
-        rawBubbles[idx].text.trim().split(/\s+/).length >= 3 ||
-        (rawBubbles[idx].text.trim().length >= 3 &&
-          /[\uAC00-\uD7AF\u3131-\u318E\u3040-\u30FF\u4E00-\u9FFF]/.test(rawBubbles[idx].text)),
+        rawBubbles[idx].text.trim().split(/\s+/).length >= 3,
     );
     if (
       targetLang !== 'en' &&
@@ -2026,7 +1985,7 @@ export const translateAndInpaintPage = async ({
       if (
         translated === '[SFX]' ||
         translated.toUpperCase() === '[SFX]' ||
-        shouldSkipBlock(translated, targetLang, undefined, undefined, true)
+        shouldSkipBlock(translated, targetLang)
       ) {
         continue;
       }
