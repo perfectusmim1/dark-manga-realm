@@ -1644,11 +1644,62 @@ const getOrComputeSeamOcr = (
   return job;
 };
 
+const hasTextInkOnCanvasEdge = (
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  side: 'top' | 'bottom',
+): boolean => {
+  const bandH = Math.min(20, height);
+  if (bandH < 4 || width < 40) return false;
+  const x0 = Math.floor(width * 0.14);
+  const x1 = Math.ceil(width * 0.92);
+  const scanW = x1 - x0;
+  if (scanW < 24) return false;
+  const y0 = side === 'top' ? 0 : height - bandH;
+  const imgData = ctx.getImageData(x0, y0, scanW, bandH).data;
+
+  let lightPx = 0;
+  let darkInkPx = 0;
+  let totalPx = 0;
+  let minDarkX = scanW;
+  let maxDarkX = -1;
+
+  for (let y = 0; y < bandH; y += 2) {
+    const rowOff = y * scanW * 4;
+    for (let x = 0; x < scanW; x += 2) {
+      const p = rowOff + x * 4;
+      const r = imgData[p];
+      const g = imgData[p + 1];
+      const b = imgData[p + 2];
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      const maxC = Math.max(r, g, b);
+      const minC = Math.min(r, g, b);
+      const sat = (maxC - minC) / Math.max(1, maxC);
+      totalPx += 1;
+      if (lum >= 205 && sat < 0.2) {
+        lightPx += 1;
+      } else if (lum <= 115 && sat < 0.35) {
+        darkInkPx += 1;
+        if (x < minDarkX) minDarkX = x;
+        if (x > maxDarkX) maxDarkX = x;
+      }
+    }
+  }
+
+  if (totalPx === 0) return false;
+  const lightRatio = lightPx / totalPx;
+  const darkSpanX = maxDarkX >= minDarkX ? maxDarkX - minDarkX : 0;
+  // Beyaz/temiz zemin üzerinde kenardan taşan koyu metin mürekkebi (ör. kesilmiş satır ucu)
+  return lightRatio >= 0.45 && darkInkPx >= 10 && darkSpanX >= 18;
+};
+
 const mergeSamePageSeamFragments = (
   bubbles: OcrBubble[],
   indices: number[],
   seamText: string,
   seamEraseOnly: boolean,
+  extendEdge?: { side: 'top' | 'bottom'; minXNorm: number; maxXNorm: number },
 ): OcrBubble => {
   let ymin = 1000;
   let xmin = 1000;
@@ -1666,6 +1717,12 @@ const mergeSamePageSeamFragments = (
     if (b.emphasisLastLineScale) {
       maxEmphasis = Math.max(maxEmphasis ?? 1, b.emphasisLastLineScale);
     }
+  }
+  if (extendEdge) {
+    if (extendEdge.side === 'top') ymin = 0;
+    else ymax = 1000;
+    xmin = Math.min(xmin, extendEdge.minXNorm);
+    xmax = Math.max(xmax, extendEdge.maxXNorm);
   }
   return {
     box: [ymin, xmin, ymax, xmax],
@@ -1732,12 +1789,17 @@ export const extractPageOcr = async ({
     }
 
     let workingBubbles = ocr.isPromoPage ? [] : [...ocr.bubbles];
+    const isFullPromoBannerPage = ocr.isPromoPage && ocr.bubbles.length >= 3;
 
-    if (!ocr.isPromoPage && workingBubbles.length > 0) {
+    if (!isFullPromoBannerPage) {
       const hasTopEdgeBubble =
-        Boolean(prevImageSrc) && workingBubbles.some((b) => b.box[0] <= SEAM_EDGE_THRESHOLD_NORM);
+        Boolean(prevImageSrc) &&
+        (workingBubbles.some((b) => b.box[0] <= SEAM_EDGE_THRESHOLD_NORM) ||
+          hasTextInkOnCanvasEdge(fullCtx, fullWidth, fullHeight, 'top'));
       const hasBottomEdgeBubble =
-        Boolean(nextImageSrc) && workingBubbles.some((b) => b.box[2] >= 1000 - SEAM_EDGE_THRESHOLD_NORM);
+        Boolean(nextImageSrc) &&
+        (workingBubbles.some((b) => b.box[2] >= 1000 - SEAM_EDGE_THRESHOLD_NORM) ||
+          hasTextInkOnCanvasEdge(fullCtx, fullWidth, fullHeight, 'bottom'));
 
       const [topSeam, bottomSeam] = await Promise.all([
         hasTopEdgeBubble && prevImageSrc
@@ -1756,13 +1818,13 @@ export const extractPageOcr = async ({
         edgeSide: 'top' | 'bottom',
       ) => {
         if (!seam || seam.bubbles.length === 0) return;
+        const scaleX = seam.stripW / fullWidth;
         const matchesBySeamIdx = new Map<number, number[]>();
         for (let i = 0; i < workingBubbles.length; i += 1) {
           const b = workingBubbles[i];
           if (edgeSide === 'top' && b.box[0] > SEAM_EDGE_THRESHOLD_NORM) continue;
           if (edgeSide === 'bottom' && b.box[2] < 1000 - SEAM_EDGE_THRESHOLD_NORM) continue;
 
-          const scaleX = seam.stripW / fullWidth;
           const bx0 = (b.box[1] / 1000) * fullWidth * scaleX;
           const bx1 = (b.box[3] / 1000) * fullWidth * scaleX;
           const bwPx = Math.max(1, bx1 - bx0);
@@ -1813,25 +1875,57 @@ export const extractPageOcr = async ({
           }
         }
 
-        if (matchesBySeamIdx.size === 0) return;
-
         const consumed = new Set<number>();
         const additions: OcrBubble[] = [];
-        for (const [sIdx, matchedIndices] of matchesBySeamIdx.entries()) {
+
+        for (let sIdx = 0; sIdx < seam.bubbles.length; sIdx += 1) {
           const sb = seam.bubbles[sIdx];
+          if (shouldSkipBlock(sb.text, targetLang)) continue;
           const hAbove = Math.max(0, seam.seamY - sb.yminPx);
           const hBelow = Math.max(0, sb.ymaxPx - seam.seamY);
+          if (hAbove < 2 || hBelow < 2) continue;
           const thisPageOwnsText = edgeSide === 'bottom' ? hAbove >= hBelow : hBelow > hAbove;
-          matchedIndices.forEach((idx) => consumed.add(idx));
-          additions.push(
-            mergeSamePageSeamFragments(
-              workingBubbles,
-              matchedIndices,
-              sb.text,
-              !thisPageOwnsText,
-            ),
-          );
+          const sbMinXNorm = Math.max(0, ((sb.xminPx / scaleX - 6) / fullWidth) * 1000);
+          const sbMaxXNorm = Math.min(1000, ((sb.xmaxPx / scaleX + 6) / fullWidth) * 1000);
+
+          const matchedIndices = matchesBySeamIdx.get(sIdx);
+          if (matchedIndices && matchedIndices.length > 0) {
+            matchedIndices.forEach((idx) => consumed.add(idx));
+            additions.push(
+              mergeSamePageSeamFragments(
+                workingBubbles,
+                matchedIndices,
+                sb.text,
+                !thisPageOwnsText,
+                { side: edgeSide, minXNorm: sbMinXNorm, maxXNorm: sbMaxXNorm },
+              ),
+            );
+          } else {
+            // Bu sayfanın kenarındaki kesik satır parçası tek-sayfa OCR'da okunamayacak kadar inceyse
+            // (ör. üst/alt kenardan 8-20px taşan harf ucu), mutlaka inpaint ile silinecek seam bloğu ekle!
+            const sliverPadPx = 8;
+            const y0Px =
+              edgeSide === 'bottom'
+                ? Math.max(0, fullHeight - Math.max(10, Math.ceil(hAbove)) - sliverPadPx)
+                : 0;
+            const y1Px =
+              edgeSide === 'bottom'
+                ? fullHeight
+                : Math.min(fullHeight, Math.max(10, Math.ceil(hBelow)) + sliverPadPx);
+            additions.push({
+              box: [
+                (y0Px / fullHeight) * 1000,
+                sbMinXNorm,
+                (y1Px / fullHeight) * 1000,
+                sbMaxXNorm,
+              ],
+              text: thisPageOwnsText ? sb.text : '',
+              seamEraseOnly: !thisPageOwnsText,
+            });
+          }
         }
+
+        if (consumed.size === 0 && additions.length === 0) return;
 
         workingBubbles = workingBubbles
           .filter((_, idx) => !consumed.has(idx))
@@ -1846,7 +1940,8 @@ export const extractPageOcr = async ({
     ocrMs = Math.round(performance.now() - tOcrStart);
 
     // Jenerik / ekip listesi / reklam / duyuru sayfaları ve zaten hedef dilde olan sayfalar hiç çevrilmez
-    const filteredBubbles = ocr.isPromoPage
+    // Ancak komşu sayfayla ek yerinden taşan harf ucu temizleme (seamEraseOnly) blokları daima korunur!
+    const filteredBubbles = isFullPromoBannerPage
       ? []
       : workingBubbles.filter(
           (bubble) => bubble.seamEraseOnly || !shouldSkipBlock(bubble.text, targetLang, bubble.box, bubble.lines),

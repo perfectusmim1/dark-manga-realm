@@ -7,7 +7,7 @@ const TRANSLATION_DB_VERSION = 1;
 const TRANSLATION_CACHE_EVENT = 'toonparrot:translation-cache-updated';
 const CLEARED_MARKERS_STORAGE_KEY = 'toonparrot_translation_cleared_v1';
 // Önceki bozuk OCR / boş [] kayıtlarının Supabase'den geri yüklenmesini kesin olarak engeller
-const MIN_REMOTE_TRANSLATION_UPDATED_AT = '2026-11-20T19:36:30.000Z';
+const MIN_REMOTE_TRANSLATION_UPDATED_AT = '2026-11-20T19:48:00.000Z';
 
 export interface StoredPageTranslationRecord {
   key: string;

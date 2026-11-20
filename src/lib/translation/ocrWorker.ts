@@ -141,6 +141,7 @@ const loadDetRunner = (): Promise<OcrModelRunner> => {
       const origin = self.location.origin;
       const sessionOptions = getSessionOptions();
       const det = await ort.InferenceSession.create(`${origin}${DET_MODEL}`, sessionOptions);
+      console.info(`[ToonParrot OCR] Det modeli yüklendi: ${DET_MODEL}`);
       return createRunner(det);
     })().catch((err) => {
       detRunnerPromise = null;
@@ -176,6 +177,7 @@ const loadRecognizerPack = (script: OcrScriptId): Promise<OcrRecognizerPack> => 
           }),
         ]);
 
+    console.info(`[ToonParrot OCR] Rec modeli yüklendi (${script}): ${recUrl}`);
     return {
       rec: createRunner(recSession),
       dictionary: parseDictText(dictText),
