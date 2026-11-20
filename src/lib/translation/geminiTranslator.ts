@@ -373,6 +373,7 @@ export const shouldSkipBlock = (
   targetLang = 'tr',
   box?: [number, number, number, number],
   lines?: OcrBubble['lines'],
+  isPostTranslation = false,
 ): boolean => {
   const t = text.trim();
   if (t.length <= 1) return true;
@@ -390,10 +391,12 @@ export const shouldSkipBlock = (
   if (SFX_WRAP_REGEX.test(t)) return true;
   if (WATERMARK_DOMAIN_REGEX.test(t) || isCreditOrPromoText(t)) return true;
 
-  // Hedef dil Korece/Japonca/Çince değilse çevrilmeden kalan Hangul/Kana/CJK blokları atla
-  if (targetLang !== 'ko' && /[\uAC00-\uD7AF\u3131-\u318E]/.test(t)) return true;
-  if (targetLang !== 'ja' && /[\u3040-\u30FF]/.test(t)) return true;
-  if (targetLang !== 'zh' && targetLang !== 'ja' && /[\u4E00-\u9FFF]/.test(t)) return true;
+  // Çeviri SONRASINDA hedef dil Korece/Japonca/Çince değilse çevrilmeden kalan Hangul/Kana/CJK blokları atla
+  if (isPostTranslation) {
+    if (targetLang !== 'ko' && /[\uAC00-\uD7AF\u3131-\u318E]/.test(t)) return true;
+    if (targetLang !== 'ja' && /[\u3040-\u30FF]/.test(t)) return true;
+    if (targetLang !== 'zh' && targetLang !== 'ja' && /[\u4E00-\u9FFF]/.test(t)) return true;
+  }
 
   const stripped = t.replace(/^[<\[({◁▷◀▶★☆•\-~\s]+|[>\])}◁▷◀▶★☆•\-~\s]+$/g, '').trim();
   if (!stripped || stripped.length <= 1) return true;
@@ -703,6 +706,9 @@ const SAFE_Z_WORD_REGEX =
   /^(?:jazz|buzz|fuzz|fizz|quiz|whiz|frizz|blitz|ritz|waltz|quartz|topaz|klutz|chintz|pizzazz|ersatz|spritz|fez|wiz|biz|ad[sz]|plz|cuz|ghz|mhz|khz|hz)$/i;
 
 const normalizeEnglishForGoogleTranslate = (raw: string, targetLang = 'tr'): string => {
+  if (/[\uAC00-\uD7AF\u3131-\u318E\u3040-\u30FF\u4E00-\u9FFF]/.test(raw)) {
+    return raw.trim().replace(/\s+/g, ' ');
+  }
   let s = raw
     .trim()
     .replace(/\s+/g, ' ')
@@ -1954,7 +1960,9 @@ export const translateAndInpaintPage = async ({
     const hasTranslatableSentence = translatableIndices.some(
       (idx) =>
         FOREIGN_STOPWORD_REGEX.test(rawBubbles[idx].text) ||
-        rawBubbles[idx].text.trim().split(/\s+/).length >= 3,
+        rawBubbles[idx].text.trim().split(/\s+/).length >= 3 ||
+        (rawBubbles[idx].text.trim().length >= 3 &&
+          /[\uAC00-\uD7AF\u3131-\u318E\u3040-\u30FF\u4E00-\u9FFF]/.test(rawBubbles[idx].text)),
     );
     if (
       targetLang !== 'en' &&
@@ -2018,7 +2026,7 @@ export const translateAndInpaintPage = async ({
       if (
         translated === '[SFX]' ||
         translated.toUpperCase() === '[SFX]' ||
-        shouldSkipBlock(translated, targetLang)
+        shouldSkipBlock(translated, targetLang, undefined, undefined, true)
       ) {
         continue;
       }

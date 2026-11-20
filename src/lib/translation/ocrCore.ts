@@ -42,10 +42,20 @@ export type OcrModelRunner = (
   dims: [number, number, number, number],
 ) => Promise<{ data: Float32Array; dims: readonly number[] }>;
 
+export type OcrScriptId = 'en' | 'korean' | 'cjk';
+
+export interface OcrRecognizerPack {
+  rec: OcrModelRunner;
+  dictionary: string[];
+}
+
 export interface OcrRunners {
   det: OcrModelRunner;
   rec: OcrModelRunner;
   dictionary: string[];
+  activeScript?: OcrScriptId;
+  loadRecognizer?: (script: OcrScriptId) => Promise<OcrRecognizerPack | null>;
+  onScriptSelected?: (script: OcrScriptId) => void;
 }
 
 const DET_MEAN = [0.485, 0.456, 0.406];
@@ -727,6 +737,8 @@ export const runPaddleOcr = async (
   const stepSrc = Math.round((DET_SLICE_H - DET_SLICE_OVERLAP) / scale);
   const lines: OcrLine[] = [];
 
+  const detectedBoxes: DetBox[] = [];
+
   for (let sy = 0; sy < height; sy += stepSrc) {
     checkAbort(signal);
     const srcH = Math.min(sliceSrcH, height - sy);
@@ -825,25 +837,174 @@ export const runPaddleOcr = async (
       const bw = box.x1 - box.x0;
       const bh = box.y1 - box.y0;
       if (bw < 10 || bh < 8 || bh > bw * 5) continue;
-
-      checkAbort(signal);
-      const rec = await recognizeBox(img, box, runners);
-      const text = rec.text.trim();
-      // 34+ güvenli parçaları da tut; aynı satırdaki veya aynı balon içindeki yüksek güvenli satırların devamıysa kurtarılacak
-      if (!text || rec.confidence < 34) continue;
-      lines.push({
-        text,
-        confidence: rec.confidence,
-        bbox: {
-          x0: Math.round(box.x0),
-          y0: Math.round(box.y0),
-          x1: Math.round(box.x1),
-          y1: Math.round(box.y1),
-        },
-        ...(b.angleDeg !== undefined ? { angleDeg: b.angleDeg } : {}),
-      });
+      detectedBoxes.push(box);
     }
     if (isLast) break;
+  }
+
+  if (detectedBoxes.length === 0) return [];
+
+  // Çok dilli otomatik alfabe algılama (İngilizce/Latin -> Korece -> Japonca/Çince)
+  // İngilizce/Türkçe sayfalarda ilk prob anında yüksek güvenle geçer (0 ek indirme, 0 ek gecikme).
+  let activeRunners: OcrRunners = runners;
+  let activeScript: OcrScriptId = runners.activeScript ?? 'en';
+  const precomputedRec = new Map<number, { text: string; confidence: number }>();
+
+  if (runners.loadRecognizer) {
+    const probeIndices = detectedBoxes
+      .map((box, idx) => {
+        const bw = box.x1 - box.x0;
+        const bh = box.y1 - box.y0;
+        const horizBonus = bw >= bh * 0.75 ? 1.5 : 0.7;
+        return { idx, score: bw * bh * horizBonus };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, Math.min(6, detectedBoxes.length))
+      .map((item) => item.idx);
+
+    const countNativeChars = (text: string, script: OcrScriptId): number => {
+      if (script === 'korean') {
+        return text.match(/[\uAC00-\uD7AF\u3131-\u318E]/g)?.length ?? 0;
+      }
+      if (script === 'cjk') {
+        return text.match(/[\u3040-\u30FF\u4E00-\u9FFF]/g)?.length ?? 0;
+      }
+      return text.match(/[A-Za-zÀ-ÖØ-öø-ÿĞğİıŞşÇçÖöÜü]/g)?.length ?? 0;
+    };
+
+    const probeScript = async (
+      script: OcrScriptId,
+      pack: OcrRecognizerPack,
+    ): Promise<{
+      script: OcrScriptId;
+      pack: OcrRecognizerPack;
+      results: Map<number, { text: string; confidence: number }>;
+      usableCount: number;
+      avgUsableConf: number;
+      nativeRatio: number;
+      totalScore: number;
+    }> => {
+      const candidateRunners: OcrRunners = { ...runners, rec: pack.rec, dictionary: pack.dictionary };
+      const results = new Map<number, { text: string; confidence: number }>();
+      let usableCount = 0;
+      let usableConfSum = 0;
+      let nativeChars = 0;
+      let totalLetters = 0;
+      let totalScore = 0;
+
+      for (const idx of probeIndices) {
+        checkAbort(signal);
+        const box = detectedBoxes[idx];
+        const rec = await recognizeBox(img, box, candidateRunners);
+        results.set(idx, rec);
+        const text = rec.text.trim();
+        if (!text || rec.confidence < 34) continue;
+        const line: OcrLine = {
+          text,
+          confidence: rec.confidence,
+          bbox: {
+            x0: Math.round(box.x0),
+            y0: Math.round(box.y0),
+            x1: Math.round(box.x1),
+            y1: Math.round(box.y1),
+          },
+          ...(box.angleDeg !== undefined ? { angleDeg: box.angleDeg } : {}),
+        };
+        if (isUsableOcrLine(line)) {
+          usableCount += 1;
+          usableConfSum += rec.confidence;
+          const letters = text.match(/\p{L}/gu)?.length ?? 0;
+          const native = countNativeChars(text, script);
+          totalLetters += letters;
+          nativeChars += native;
+          const nativeWeight = script === 'en' ? 1.0 : native >= 2 ? 1.35 : 0.65;
+          totalScore += rec.confidence * Math.min(18, Math.max(2, letters)) * nativeWeight;
+        }
+      }
+
+      const avgUsableConf = usableCount > 0 ? usableConfSum / usableCount : 0;
+      const nativeRatio = totalLetters > 0 ? nativeChars / totalLetters : 0;
+      return { script, pack, results, usableCount, avgUsableConf, nativeRatio, totalScore };
+    };
+
+    const isStrongAccept = (p: {
+      usableCount: number;
+      avgUsableConf: number;
+      nativeRatio: number;
+    }): boolean => {
+      if (p.usableCount === 0) return false;
+      const usableRatio = p.usableCount / Math.max(1, probeIndices.length);
+      return (
+        p.avgUsableConf >= 78 &&
+        p.nativeRatio >= 0.5 &&
+        (usableRatio >= 0.5 || p.usableCount >= 3)
+      );
+    };
+
+    const primaryProbe = await probeScript(activeScript, {
+      rec: runners.rec,
+      dictionary: runners.dictionary,
+    });
+    let bestProbe = primaryProbe;
+
+    if (!isStrongAccept(primaryProbe)) {
+      const fallbackOrder: OcrScriptId[] =
+        activeScript === 'en'
+          ? ['korean', 'cjk']
+          : activeScript === 'korean'
+            ? ['en', 'cjk']
+            : ['en', 'korean'];
+
+      for (const candidate of fallbackOrder) {
+        checkAbort(signal);
+        let pack: OcrRecognizerPack | null = null;
+        try {
+          pack = await runners.loadRecognizer(candidate);
+        } catch {
+          pack = null;
+        }
+        if (!pack) continue;
+        const probe = await probeScript(candidate, pack);
+        if (
+          probe.totalScore > bestProbe.totalScore * 1.12 ||
+          (bestProbe.usableCount === 0 && probe.usableCount > 0)
+        ) {
+          bestProbe = probe;
+        }
+        if (isStrongAccept(probe) && bestProbe.script === probe.script) {
+          break;
+        }
+      }
+    }
+
+    if (bestProbe.script !== activeScript) {
+      activeScript = bestProbe.script;
+      activeRunners = { ...runners, rec: bestProbe.pack.rec, dictionary: bestProbe.pack.dictionary };
+      runners.onScriptSelected?.(activeScript);
+    }
+    for (const [idx, rec] of bestProbe.results.entries()) {
+      precomputedRec.set(idx, rec);
+    }
+  }
+
+  for (let i = 0; i < detectedBoxes.length; i += 1) {
+    const box = detectedBoxes[i];
+    checkAbort(signal);
+    const rec = precomputedRec.get(i) ?? (await recognizeBox(img, box, activeRunners));
+    const text = rec.text.trim();
+    // 34+ güvenli parçaları da tut; aynı satırdaki veya aynı balon içindeki yüksek güvenli satırların devamıysa kurtarılacak
+    if (!text || rec.confidence < 34) continue;
+    lines.push({
+      text,
+      confidence: rec.confidence,
+      bbox: {
+        x0: Math.round(box.x0),
+        y0: Math.round(box.y0),
+        x1: Math.round(box.x1),
+        y1: Math.round(box.y1),
+      },
+      ...(box.angleDeg !== undefined ? { angleDeg: box.angleDeg } : {}),
+    });
   }
 
   // Dilim örtüşmelerinden gelen çift ve iç içe geçmiş alt-kutu tekrarlarını IoU + kapsama ile tekilleştir
@@ -969,7 +1130,7 @@ export const runPaddleOcr = async (
       const roiCy = meanY + uMidShift * sinA + vMidShift * cosA;
 
       const upBuf = rotateSubRegionToBuffer(img, roiCx, roiCy, upW, upH, domDeg, upScale);
-      const rawUpLines = await runDetOnSubBuffer(upBuf, runners, 0.43, signal);
+      const rawUpLines = await runDetOnSubBuffer(upBuf, activeRunners, 0.43, signal);
       const validUpLines = rawUpLines.filter(
         (ul) =>
           (ul.angleDeg === undefined || Math.abs(ul.angleDeg) <= 4.8) &&
@@ -1080,6 +1241,9 @@ export const isUsableOcrLine = (line: OcrLine, minConfidence = MIN_LINE_CONFIDEN
     /^[a-zA-Z0-9]+(?:[\s.,!?'"“”‘’…:;()\-–—~]+[a-zA-Z0-9]+)*[\s.,!?'"“”‘’…:;()\-–—~]*$/.test(
       stripped || text,
     );
+  const hasNonLatinScript = /[\uAC00-\uD7AF\u3131-\u318E\u3040-\u30FF\u4E00-\u9FFF\u0400-\u04FF\u0600-\u06FF]/u.test(
+    text,
+  );
   const hasLatinVowel = /[aeiouy]/i.test(stripped);
   const wordParts = text.split(/\s+/).filter((w) => /\p{L}/u.test(w));
   const hasHeavyConsonantGarble = wordParts.some((w) =>
@@ -1088,16 +1252,20 @@ export const isUsableOcrLine = (line: OcrLine, minConfidence = MIN_LINE_CONFIDEN
 
   const effectiveMinConf = isShortMeaningful
     ? Math.min(minConfidence, Math.abs(line.angleDeg ?? 0) >= 8 ? 68 : 58)
-    : isCleanText && wordParts.length >= 2 && letters >= 6 && hasLatinVowel && !hasHeavyConsonantGarble
-      ? Math.min(minConfidence, 68)
-      : isCleanText && hasLatinVowel && !hasHeavyConsonantGarble
-        ? Math.min(minConfidence, letters >= 6 ? 72 : 76)
-        : minConfidence;
+    : hasNonLatinScript && junk === 0
+      ? Math.min(minConfidence, letters >= 2 ? 62 : 74)
+      : isCleanText && wordParts.length >= 2 && letters >= 6 && hasLatinVowel && !hasHeavyConsonantGarble
+        ? Math.min(minConfidence, 68)
+        : isCleanText && hasLatinVowel && !hasHeavyConsonantGarble
+          ? Math.min(minConfidence, letters >= 6 ? 72 : 76)
+          : minConfidence;
 
   if (line.confidence < effectiveMinConf) return false;
   if (hasHeavyConsonantGarble && line.confidence < 76) return false;
   if (letters === 0) return false;
-  if (letters < 2 && !/^(?:I|A|O)[!?.…,]*$/i.test(text)) return false;
+  if (letters < 2 && !(hasNonLatinScript && line.confidence >= 74) && !/^(?:I|A|O)[!?.…,]*$/i.test(text)) {
+    return false;
+  }
   // Sembol oranı yüksek satırlar (ör. "| 7 A - _ =", "| 2 7 27") çizim gürültüsüdür
   if (junk / Math.max(1, letters + digits + junk) > 0.25) return false;
   // Sansürlü/gizlenmiş tablo dolgu metinleri ("XXXXXX", "XXXX-XXXI", "XXXX-XX", "XX:XXXX")

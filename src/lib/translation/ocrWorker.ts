@@ -4,7 +4,14 @@
  * onnxruntime-web (WASM) ile ana iş parçacığını bloklamadan çalıştırır. Görseller hiçbir uzak sunucuya gönderilmez.
  */
 import * as ort from 'onnxruntime-web/wasm';
-import { runPaddleOcr, type OcrLine, type OcrModelRunner, type OcrRunners } from './ocrCore';
+import {
+  runPaddleOcr,
+  type OcrLine,
+  type OcrModelRunner,
+  type OcrRecognizerPack,
+  type OcrRunners,
+  type OcrScriptId,
+} from './ocrCore';
 
 interface OcrJobMessage {
   type: 'ocr';
@@ -37,10 +44,40 @@ export interface OcrWorkerResponse {
 
 const MODEL_BASE = '/ocr';
 const DET_MODEL = `${MODEL_BASE}/en_PP-OCRv3_det_infer.onnx`;
-const REC_MODEL = `${MODEL_BASE}/en_ppocrv5_mobile_rec.onnx`;
-const DICT_PATH = `${MODEL_BASE}/en_v5_dict.txt`;
+const OCR_CACHE_NAME = 'toonparrot-ocr-models-v3';
 
-let runnersPromise: Promise<OcrRunners> | null = null;
+const SCRIPT_SOURCES: Record<
+  OcrScriptId,
+  {
+    recUrl: (origin: string) => string;
+    dictUrl: (origin: string) => string;
+    remote?: boolean;
+  }
+> = {
+  en: {
+    recUrl: (origin) => `${origin}${MODEL_BASE}/en_ppocrv5_mobile_rec.onnx`,
+    dictUrl: (origin) => `${origin}${MODEL_BASE}/en_v5_dict.txt`,
+  },
+  korean: {
+    recUrl: () =>
+      'https://huggingface.co/monkt/paddleocr-onnx/resolve/main/languages/korean/rec.onnx',
+    dictUrl: () =>
+      'https://huggingface.co/monkt/paddleocr-onnx/resolve/main/languages/korean/dict.txt',
+    remote: true,
+  },
+  cjk: {
+    recUrl: () =>
+      'https://huggingface.co/bluecopa/rapidocr-onnx/resolve/main/ch_PP-OCRv5_rec_mobile_infer.onnx',
+    dictUrl: () =>
+      'https://huggingface.co/bluecopa/rapidocr-onnx/resolve/main/ppocrv5_dict.txt',
+    remote: true,
+  },
+};
+
+let detRunnerPromise: Promise<OcrModelRunner> | null = null;
+const recPackCache = new Map<OcrScriptId, Promise<OcrRecognizerPack>>();
+let activeScript: OcrScriptId = 'en';
+let ortConfigured = false;
 const cancelled = new Set<number>();
 let queue: Promise<void> = Promise.resolve();
 
@@ -53,39 +90,125 @@ const createRunner = (session: ort.InferenceSession): OcrModelRunner => async (i
   return { data, dims: out.dims };
 };
 
-const loadRunners = (): Promise<OcrRunners> => {
-  if (!runnersPromise) {
-    runnersPromise = (async () => {
-      const origin = self.location.origin;
-      ort.env.wasm.wasmPaths = `${origin}/ort/`;
-      ort.env.wasm.simd = true;
-      ort.env.wasm.numThreads = self.crossOriginIsolated
-        ? Math.max(1, Math.min(4, (self.navigator.hardwareConcurrency || 2) - 1))
-        : 1;
-      ort.env.logLevel = 'error';
+const getSessionOptions = (): ort.InferenceSession.SessionOptions => {
+  if (!ortConfigured) {
+    const origin = self.location.origin;
+    ort.env.wasm.wasmPaths = `${origin}/ort/`;
+    ort.env.wasm.simd = true;
+    ort.env.wasm.numThreads = self.crossOriginIsolated
+      ? Math.max(1, Math.min(4, (self.navigator.hardwareConcurrency || 2) - 1))
+      : 1;
+    ort.env.logLevel = 'error';
+    ortConfigured = true;
+  }
+  return {
+    executionProviders: ['wasm'],
+    graphOptimizationLevel: 'all',
+    enableMemPattern: false,
+  };
+};
 
-      const sessionOptions: ort.InferenceSession.SessionOptions = {
-        executionProviders: ['wasm'],
-        graphOptimizationLevel: 'all',
-        enableMemPattern: false,
-      };
-      const [det, rec, dictText] = await Promise.all([
-        ort.InferenceSession.create(`${origin}${DET_MODEL}`, sessionOptions),
-        ort.InferenceSession.create(`${origin}${REC_MODEL}`, sessionOptions),
-        fetch(`${origin}${DICT_PATH}`).then((r) => {
-          if (!r.ok) throw new Error(`OCR sözlüğü yüklenemedi (${r.status})`);
-          return r.text();
-        }),
-      ]);
-      const dictLines = dictText.replace(/\r/g, '').split('\n');
-      if (dictLines[dictLines.length - 1] === '') dictLines.pop();
-      return { det: createRunner(det), rec: createRunner(rec), dictionary: [...dictLines, ' '] };
+const fetchCachedResponse = async (url: string): Promise<Response> => {
+  if (typeof caches !== 'undefined') {
+    try {
+      const cache = await caches.open(OCR_CACHE_NAME);
+      const hit = await cache.match(url);
+      if (hit && hit.ok) return hit;
+      const res = await fetch(url, { mode: 'cors' });
+      if (!res.ok) throw new Error(`OCR kaynağı yüklenemedi (${res.status}): ${url}`);
+      void cache.put(url, res.clone()).catch(() => {});
+      return res;
+    } catch {
+      // Cache API kullanılamıyorsa doğrudan ağdan indir
+    }
+  }
+  const res = await fetch(url, { mode: 'cors' });
+  if (!res.ok) throw new Error(`OCR kaynağı yüklenemedi (${res.status}): ${url}`);
+  return res;
+};
+
+const parseDictText = (dictText: string): string[] => {
+  const dictLines = dictText.replace(/\r/g, '').split('\n');
+  if (dictLines[dictLines.length - 1] === '') dictLines.pop();
+  return [...dictLines, ' '];
+};
+
+const loadDetRunner = (): Promise<OcrModelRunner> => {
+  if (!detRunnerPromise) {
+    detRunnerPromise = (async () => {
+      const origin = self.location.origin;
+      const sessionOptions = getSessionOptions();
+      const det = await ort.InferenceSession.create(`${origin}${DET_MODEL}`, sessionOptions);
+      return createRunner(det);
     })().catch((err) => {
-      runnersPromise = null;
+      detRunnerPromise = null;
       throw err;
     });
   }
-  return runnersPromise;
+  return detRunnerPromise;
+};
+
+const loadRecognizerPack = (script: OcrScriptId): Promise<OcrRecognizerPack> => {
+  const existing = recPackCache.get(script);
+  if (existing) return existing;
+
+  const job = (async () => {
+    const origin = self.location.origin;
+    const sessionOptions = getSessionOptions();
+    const src = SCRIPT_SOURCES[script];
+    const recUrl = src.recUrl(origin);
+    const dictUrl = src.dictUrl(origin);
+
+    const [recSession, dictText] = src.remote
+      ? await Promise.all([
+          fetchCachedResponse(recUrl)
+            .then((r) => r.arrayBuffer())
+            .then((buf) => ort.InferenceSession.create(new Uint8Array(buf), sessionOptions)),
+          fetchCachedResponse(dictUrl).then((r) => r.text()),
+        ])
+      : await Promise.all([
+          ort.InferenceSession.create(recUrl, sessionOptions),
+          fetch(dictUrl).then((r) => {
+            if (!r.ok) throw new Error(`OCR sözlüğü yüklenemedi (${r.status})`);
+            return r.text();
+          }),
+        ]);
+
+    return {
+      rec: createRunner(recSession),
+      dictionary: parseDictText(dictText),
+    };
+  })().catch((err) => {
+    recPackCache.delete(script);
+    throw err;
+  });
+
+  recPackCache.set(script, job);
+  return job;
+};
+
+const loadRunners = async (): Promise<OcrRunners> => {
+  const [det, primaryPack] = await Promise.all([
+    loadDetRunner(),
+    loadRecognizerPack(activeScript),
+  ]);
+  return {
+    det,
+    rec: primaryPack.rec,
+    dictionary: primaryPack.dictionary,
+    activeScript,
+    loadRecognizer: async (script: OcrScriptId) => {
+      try {
+        return await loadRecognizerPack(script);
+      } catch (err) {
+        console.warn(`[OCR] ${script} tanıma modeli yüklenemedi:`, err);
+        return null;
+      }
+    },
+    onScriptSelected: (script: OcrScriptId) => {
+      activeScript = script;
+    },
+  };
 };
 
 const post = (msg: OcrWorkerResponse, transfer?: Transferable[]) => {
