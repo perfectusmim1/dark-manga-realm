@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 /**
- * Yerel OCR Web Worker'ı: PaddleOCR (PP-OCRv6_tiny_det + en_PP-OCRv5_mobile_rec) ONNX modellerini
+ * Yerel OCR Web Worker'ı: PaddleOCR (PP-OCRv3_det + en_PP-OCRv5_mobile_rec) ONNX modellerini
  * onnxruntime-web (WASM) ile ana iş parçacığını bloklamadan çalıştırır. Görseller hiçbir uzak sunucuya gönderilmez.
  */
 import * as ort from 'onnxruntime-web/wasm';
@@ -36,7 +36,7 @@ export interface OcrWorkerResponse {
 }
 
 const MODEL_BASE = '/ocr';
-const DET_MODEL = `${MODEL_BASE}/ppocrv6_tiny_det.onnx`;
+const DET_MODEL = `${MODEL_BASE}/en_PP-OCRv3_det_infer.onnx`;
 const REC_MODEL = `${MODEL_BASE}/en_ppocrv5_mobile_rec.onnx`;
 const DICT_PATH = `${MODEL_BASE}/en_v5_dict.txt`;
 

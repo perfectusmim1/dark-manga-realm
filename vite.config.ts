@@ -85,7 +85,7 @@ export default defineConfig(({ mode }) => ({
               sameOrigin && /^\/(?:ocr|ort)\//.test(url.pathname),
             handler: "CacheFirst",
             options: {
-              cacheName: "toonparrot-ocr-models-v2",
+              cacheName: "toonparrot-ocr-models-v3",
               cacheableResponse: {
                 statuses: [200],
               },

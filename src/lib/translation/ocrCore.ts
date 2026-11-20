@@ -1,5 +1,5 @@
 /**
- * Saf yerel PaddleOCR (PP-OCRv6_tiny_det + PP-OCRv5_mobile_rec) çıkarım çekirdeği ve balon gruplama mantığı.
+ * Saf yerel PaddleOCR (PP-OCRv3_det + PP-OCRv5_mobile_rec) çıkarım çekirdeği ve balon gruplama mantığı.
  * Tarayıcı Web Worker'ı ve Node/vitest testleri tarafından ortak kullanılır; DOM bağımlılığı yoktur.
  */
 import type { OcrBubbleLineBox } from './types';
@@ -53,9 +53,9 @@ const DET_STD = [0.229, 0.224, 0.225];
 const DET_MAX_WIDTH = 800;
 const DET_SLICE_H = 1920;
 const DET_SLICE_OVERLAP = 192;
-const DET_BIN_THRESH = 0.28;
-const DET_BOX_THRESH = 0.48;
-const DET_UNCLIP_RATIO = 1.45;
+const DET_BIN_THRESH = 0.30;
+const DET_BOX_THRESH = 0.50;
+const DET_UNCLIP_RATIO = 1.78;
 const REC_H = 48;
 const REC_MAX_W = 1600;
 const MIN_LINE_CONFIDENCE = 78;

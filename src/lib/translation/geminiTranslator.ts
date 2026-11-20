@@ -1114,38 +1114,71 @@ export const translateBatchWithGoogleFree = async (
   if (payloadTexts.length === 0) return trimmedList;
 
   const endpoint = getTranslateProxyEndpoint();
-  try {
-    const reqSignal = signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(8000)])
-      : AbortSignal.timeout(8000);
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sl: 'auto',
-        tl: targetLang,
-        texts: payloadTexts,
-      }),
-      signal: reqSignal,
-    });
-    if (res.ok) {
-      const json = (await res.json()) as { translations?: unknown };
-      if (Array.isArray(json?.translations) && json.translations.length === payloadTexts.length) {
-        const out = [...trimmedList];
-        nonEmptyIndices.forEach((origIdx, i) => {
-          const origSrc = trimmedList[origIdx] || '';
-          const rawCand = typeof json.translations![i] === 'string' ? json.translations![i].trim() : '';
-          const cand = postProcessTranslatedBubbleText(origSrc, rawCand, targetLang);
-          if (cand) out[origIdx] = cand;
-        });
-        return cleanupTurkishAcabaDuplicates(out, targetLang);
-      }
+  const maxChunkItems = 20;
+  const maxChunkChars = 1400;
+  const chunks: Array<{ payload: string[]; origIndices: number[] }> = [];
+  let curPayload: string[] = [];
+  let curOrigIndices: number[] = [];
+  let curChars = 0;
+
+  for (let i = 0; i < payloadTexts.length; i += 1) {
+    const text = payloadTexts[i];
+    const origIdx = nonEmptyIndices[i];
+    if (
+      curPayload.length > 0 &&
+      (curPayload.length >= maxChunkItems || curChars + text.length > maxChunkChars)
+    ) {
+      chunks.push({ payload: curPayload, origIndices: curOrigIndices });
+      curPayload = [];
+      curOrigIndices = [];
+      curChars = 0;
     }
-  } catch {
-    // Proxy ulaşılamazsa orijinal listeyi koru
+    curPayload.push(text);
+    curOrigIndices.push(origIdx);
+    curChars += text.length;
+  }
+  if (curPayload.length > 0) {
+    chunks.push({ payload: curPayload, origIndices: curOrigIndices });
   }
 
-  return trimmedList;
+  const out = [...trimmedList];
+  const translateChunk = async (chunk: { payload: string[]; origIndices: number[] }) => {
+    try {
+      const reqSignal = signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(8000)])
+        : AbortSignal.timeout(8000);
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sl: 'auto',
+          tl: targetLang,
+          texts: chunk.payload,
+        }),
+        signal: reqSignal,
+      });
+      if (res.ok) {
+        const json = (await res.json()) as { translations?: unknown };
+        if (Array.isArray(json?.translations) && json.translations.length === chunk.payload.length) {
+          chunk.origIndices.forEach((origIdx, i) => {
+            const origSrc = trimmedList[origIdx] || '';
+            const rawCand = typeof json.translations![i] === 'string' ? json.translations![i].trim() : '';
+            const cand = postProcessTranslatedBubbleText(origSrc, rawCand, targetLang);
+            if (cand) out[origIdx] = cand;
+          });
+        }
+      }
+    } catch {
+      // Proxy ulaşılamazsa bu parça için orijinal metni koru
+    }
+  };
+
+  for (let idx = 0; idx < chunks.length; idx += 2) {
+    if (signal?.aborted) break;
+    await Promise.all(chunks.slice(idx, idx + 2).map(translateChunk));
+  }
+
+  return cleanupTurkishAcabaDuplicates(out, targetLang);
 };
 
 const deeplKeyPoolSlots = new Map<string, { invalidUntil: number; cooldownUntil: number }>();
