@@ -357,7 +357,7 @@ const CREDITS_START_REGEX =
 const CREDITS_INLINE_REGEX =
   /(?:^|[\/|•<\[])\s*(?:(?:hikaye|öykü|senaryo|yazar|çizer|çizim|sanat|editör|editor|çeviri|çevirmen|dizgi|temizleme|story|art|artist|author|coloring|traducción|traduccion|edición|edicion|limpieza|typeset)(?![\p{L}\p{N}_])(?:\s*[:\-]|[\]|/>])|(?:background\s*art|script\s*editing|written\s+by|art\s+by|story\s+by|original\s+work|scanlation|fansub|lee\s+antes\s+en|read\s+(?:first\s+)?(?:at|on))(?![\p{L}\p{N}_])\s*[:\-]?)/iu;
 const WATERMARK_DOMAIN_REGEX =
-  /(?:https?:\/\/|discord\.gg\/|\b[a-z0-9-]+\.(?:com|net|org|club|me|online|io|gg|xyz|to|site)\b|omegascansorg)/i;
+  /(?:https?:\/\/|discord\.gg\/|\b[a-z0-9-]+\.(?:com|net|org|club|me|online|io|gg|xyz|to|site|con|cor|comm)\b|omegascansorg|뉴토주소|뉴토끼|^\.?comm?$)/i;
 
 const isPlaceholderMaskText = (t: string): boolean => {
   const alpha = t.replace(/[^\p{L}]/gu, '');
