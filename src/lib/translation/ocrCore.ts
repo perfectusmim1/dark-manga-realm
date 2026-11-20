@@ -1,5 +1,5 @@
 /**
- * Saf yerel PaddleOCR (PP-OCRv3/v4) çıkarım çekirdeği ve balon gruplama mantığı.
+ * Saf yerel PaddleOCR (PP-OCRv6_tiny_det + PP-OCRv5_mobile_rec) çıkarım çekirdeği ve balon gruplama mantığı.
  * Tarayıcı Web Worker'ı ve Node/vitest testleri tarafından ortak kullanılır; DOM bağımlılığı yoktur.
  */
 import type { OcrBubbleLineBox } from './types';
@@ -53,9 +53,9 @@ const DET_STD = [0.229, 0.224, 0.225];
 const DET_MAX_WIDTH = 800;
 const DET_SLICE_H = 1920;
 const DET_SLICE_OVERLAP = 192;
-const DET_BIN_THRESH = 0.3;
-const DET_BOX_THRESH = 0.50;
-const DET_UNCLIP_RATIO = 1.78;
+const DET_BIN_THRESH = 0.28;
+const DET_BOX_THRESH = 0.48;
+const DET_UNCLIP_RATIO = 1.45;
 const REC_H = 48;
 const REC_MAX_W = 1600;
 const MIN_LINE_CONFIDENCE = 78;
@@ -286,8 +286,10 @@ const ctcDecode = (
     const off = t * classes;
     let maxIdx = 0;
     let maxVal = -Infinity;
+    let hasOutOfUnitRange = false;
     for (let k = 0; k < classes; k += 1) {
       const v = data[off + k];
+      if (v < -0.001 || v > 1.001) hasOutOfUnitRange = true;
       if (v > maxVal) {
         maxVal = v;
         maxIdx = k;
@@ -297,7 +299,17 @@ const ctcDecode = (
       const ch = dict[maxIdx - 1] ?? '';
       if (ch) {
         text += ch;
-        probSum += maxVal;
+        let prob = maxVal;
+        if (hasOutOfUnitRange) {
+          let expSum = 0;
+          for (let k = 0; k < classes; k += 1) {
+            expSum += Math.exp(data[off + k] - maxVal);
+          }
+          prob = expSum > 0 ? 1 / expSum : 0;
+        } else {
+          prob = clamp(maxVal, 0, 1);
+        }
+        probSum += prob;
         probCount += 1;
       }
     }

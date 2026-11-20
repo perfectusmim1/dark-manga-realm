@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 /**
- * Yerel OCR Web Worker'ı: PaddleOCR (PP-OCRv3) ONNX modellerini onnxruntime-web (WASM) ile
- * ana iş parçacığını bloklamadan çalıştırır. Görseller hiçbir uzak sunucuya gönderilmez.
+ * Yerel OCR Web Worker'ı: PaddleOCR (PP-OCRv6_tiny_det + en_PP-OCRv5_mobile_rec) ONNX modellerini
+ * onnxruntime-web (WASM) ile ana iş parçacığını bloklamadan çalıştırır. Görseller hiçbir uzak sunucuya gönderilmez.
  */
 import * as ort from 'onnxruntime-web/wasm';
 import { runPaddleOcr, type OcrLine, type OcrModelRunner, type OcrRunners } from './ocrCore';
@@ -36,9 +36,9 @@ export interface OcrWorkerResponse {
 }
 
 const MODEL_BASE = '/ocr';
-const DET_MODEL = `${MODEL_BASE}/en_PP-OCRv3_det_infer.onnx`;
-const REC_MODEL = `${MODEL_BASE}/en_PP-OCRv3_rec_infer.onnx`;
-const DICT_PATH = `${MODEL_BASE}/en_dict.txt`;
+const DET_MODEL = `${MODEL_BASE}/ppocrv6_tiny_det.onnx`;
+const REC_MODEL = `${MODEL_BASE}/en_ppocrv5_mobile_rec.onnx`;
+const DICT_PATH = `${MODEL_BASE}/en_v5_dict.txt`;
 
 let runnersPromise: Promise<OcrRunners> | null = null;
 const cancelled = new Set<number>();
@@ -67,6 +67,7 @@ const loadRunners = (): Promise<OcrRunners> => {
       const sessionOptions: ort.InferenceSession.SessionOptions = {
         executionProviders: ['wasm'],
         graphOptimizationLevel: 'all',
+        enableMemPattern: false,
       };
       const [det, rec, dictText] = await Promise.all([
         ort.InferenceSession.create(`${origin}${DET_MODEL}`, sessionOptions),
