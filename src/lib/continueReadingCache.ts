@@ -11,8 +11,6 @@ export interface ContinueReadingMangaSnapshot {
     alternativeTitles?: string[];
     cover: string;
     banner?: string;
-    author: string;
-    artist?: string;
     status: Manga['status'];
     genres: string[];
     description: string;
@@ -98,8 +96,6 @@ export const areContinueReadingMangaSnapshotsEquivalent = (
         && left.description === right.description
         && left.type === right.type
         && left.isAdult === right.isAdult
-        && left.author === right.author
-        && left.artist === right.artist
         && left.status === right.status
         && left.lastUpdated === right.lastUpdated
         && left.createdAt === right.createdAt
@@ -114,8 +110,6 @@ export const extractContinueReadingMangaSnapshot = (manga: Manga): ContinueReadi
     alternativeTitles: manga.alternativeTitles || [],
     cover: manga.cover,
     banner: manga.banner,
-    author: manga.author,
-    artist: manga.artist,
     status: manga.status,
     genres: manga.genres || [],
     description: manga.description || '',
@@ -133,8 +127,6 @@ export const buildContinueReadingMangaFromSnapshot = (
     alternativeTitles: snapshot.alternativeTitles || [],
     cover: snapshot.cover,
     banner: snapshot.banner,
-    author: snapshot.author,
-    artist: snapshot.artist,
     status: snapshot.status,
     genres: snapshot.genres || [],
     description: snapshot.description || '',

@@ -19,6 +19,7 @@ interface UserAccessSnapshotResponse {
 
 interface UserAccessSnapshotRequestOptions {
   preferredAccessToken?: string | null;
+  userId?: string | null;
   maxAttempts?: number;
   bypassBackoff?: boolean;
 }
@@ -26,12 +27,146 @@ interface UserAccessSnapshotRequestOptions {
 const USER_ACCESS_SNAPSHOT_RETRY_BACKOFF_MS = 3 * 60 * 1000;
 const USER_ACCESS_AUTH_RETRY_BACKOFF_MS = 45 * 1000;
 const USER_ACCESS_SNAPSHOT_CACHE_TTL_MS = 60_000;
+const USER_ACCESS_SNAPSHOT_SESSION_PREFIX = 'toonparrot:user-access-snap:v1:';
 let nextUserAccessSnapshotRetryAt = 0;
 const userAccessSnapshotCache = new Map<string, {
   fetchedAt: number;
   value: CurrentUserAccessSnapshot;
 }>();
 const userAccessSnapshotInflightRequests = new Map<string, Promise<CurrentUserAccessSnapshot>>();
+
+const decodeUserIdFromJwt = (token?: string | null): string | null => {
+  const cleanToken = token?.trim();
+  if (!cleanToken) {
+    return null;
+  }
+
+  try {
+    const [, payload] = cleanToken.split('.');
+    if (!payload) {
+      return null;
+    }
+
+    const normalized = payload
+      .replace(/-/g, '+')
+      .replace(/_/g, '/')
+      .padEnd(Math.ceil(payload.length / 4) * 4, '=');
+    const parsed = JSON.parse(atob(normalized)) as { sub?: unknown };
+    return typeof parsed?.sub === 'string' && parsed.sub.trim() ? parsed.sub.trim() : null;
+  } catch {
+    return null;
+  }
+};
+
+const resolveSnapshotUserId = (options?: UserAccessSnapshotRequestOptions): string => {
+  if (options?.userId?.trim()) {
+    return options.userId.trim();
+  }
+
+  const jwtUserId = decodeUserIdFromJwt(options?.preferredAccessToken);
+  if (jwtUserId) {
+    return jwtUserId;
+  }
+
+  if (typeof window !== 'undefined') {
+    try {
+      const persistedUserId = window.sessionStorage.getItem('toonparrot_auth_user_id_v1');
+      if (persistedUserId && persistedUserId !== '__anon__') {
+        return persistedUserId;
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }
+
+  return 'current';
+};
+
+const isRestrictedSnapshot = (snapshot: CurrentUserAccessSnapshot): boolean => (
+  Boolean(snapshot.ban?.active) || Boolean(snapshot.warning)
+);
+
+const readPersistedSnapshotCache = (userKey: string): CurrentUserAccessSnapshot | null => {
+  if (typeof window === 'undefined' || !userKey || userKey === 'current') {
+    return null;
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(`${USER_ACCESS_SNAPSHOT_SESSION_PREFIX}${userKey}`);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as {
+      userId?: unknown;
+      fetchedAt?: unknown;
+      value?: CurrentUserAccessSnapshot;
+    };
+
+    if (
+      !parsed
+      || parsed.userId !== userKey
+      || typeof parsed.fetchedAt !== 'number'
+      || !parsed.value
+      || Date.now() - parsed.fetchedAt > USER_ACCESS_SNAPSHOT_CACHE_TTL_MS
+      || isRestrictedSnapshot(parsed.value)
+    ) {
+      window.sessionStorage.removeItem(`${USER_ACCESS_SNAPSHOT_SESSION_PREFIX}${userKey}`);
+      return null;
+    }
+
+    return cloneSnapshot(parsed.value);
+  } catch {
+    return null;
+  }
+};
+
+const writePersistedSnapshotCache = (userKey: string, snapshot: CurrentUserAccessSnapshot) => {
+  if (typeof window === 'undefined' || !userKey || userKey === 'current') {
+    return;
+  }
+
+  const storageKey = `${USER_ACCESS_SNAPSHOT_SESSION_PREFIX}${userKey}`;
+  try {
+    if (isRestrictedSnapshot(snapshot)) {
+      window.sessionStorage.removeItem(storageKey);
+      return;
+    }
+
+    window.sessionStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        userId: userKey,
+        fetchedAt: Date.now(),
+        value: cloneSnapshot(snapshot),
+      }),
+    );
+  } catch {
+    // ignore quota errors
+  }
+};
+
+export const clearUserAccessSnapshotCache = () => {
+  userAccessSnapshotCache.clear();
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < window.sessionStorage.length; i += 1) {
+      const key = window.sessionStorage.key(i);
+      if (key && key.startsWith(USER_ACCESS_SNAPSHOT_SESSION_PREFIX)) {
+        keysToRemove.push(key);
+      }
+    }
+    for (const key of keysToRemove) {
+      window.sessionStorage.removeItem(key);
+    }
+  } catch {
+    // ignore storage errors
+  }
+};
 
 const invokeUserAccessState = (
   body: Record<string, unknown>,
@@ -79,30 +214,43 @@ const cloneSnapshot = (snapshot: CurrentUserAccessSnapshot): CurrentUserAccessSn
 });
 
 const getSnapshotCacheKey = (options?: UserAccessSnapshotRequestOptions) => (
-  options?.preferredAccessToken?.trim()
-    ? options.preferredAccessToken.trim().slice(-24)
-    : 'current'
+  resolveSnapshotUserId(options)
 );
 
 const readSnapshotCache = (cacheKey: string): CurrentUserAccessSnapshot | null => {
   const cached = userAccessSnapshotCache.get(cacheKey);
-  if (!cached) {
-    return null;
+  if (cached) {
+    if (Date.now() - cached.fetchedAt > USER_ACCESS_SNAPSHOT_CACHE_TTL_MS || isRestrictedSnapshot(cached.value)) {
+      userAccessSnapshotCache.delete(cacheKey);
+    } else {
+      return cloneSnapshot(cached.value);
+    }
   }
 
-  if (Date.now() - cached.fetchedAt > USER_ACCESS_SNAPSHOT_CACHE_TTL_MS) {
-    userAccessSnapshotCache.delete(cacheKey);
-    return null;
+  const persisted = readPersistedSnapshotCache(cacheKey);
+  if (persisted) {
+    userAccessSnapshotCache.set(cacheKey, {
+      fetchedAt: Date.now(),
+      value: cloneSnapshot(persisted),
+    });
+    return persisted;
   }
 
-  return cloneSnapshot(cached.value);
+  return null;
 };
 
 const writeSnapshotCache = (cacheKey: string, snapshot: CurrentUserAccessSnapshot) => {
+  if (isRestrictedSnapshot(snapshot)) {
+    userAccessSnapshotCache.delete(cacheKey);
+    writePersistedSnapshotCache(cacheKey, snapshot);
+    return;
+  }
+
   userAccessSnapshotCache.set(cacheKey, {
     fetchedAt: Date.now(),
     value: cloneSnapshot(snapshot),
   });
+  writePersistedSnapshotCache(cacheKey, snapshot);
 };
 
 export const getCurrentUserAccessSnapshot = async (
@@ -175,6 +323,6 @@ export const acknowledgeCurrentUserWarning = async (
     throw new Error(data?.message || 'WARNING_ACK_FAILED');
   }
 
-  userAccessSnapshotCache.clear();
+  clearUserAccessSnapshotCache();
   return normalizeSnapshot(data);
 };

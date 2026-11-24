@@ -250,9 +250,6 @@ export const areSeriesTitlesMatching = (
   return false;
 };
 
-const extractPrimaryScrapedPersonName = (value?: string | null) =>
-  normalizeScrapedText(value);
-
 const SCRAPED_PLACEHOLDER_PATTERNS = [
   /^[-–—\s]*$/i,
   /^(?:n\/a|na|null|undefined|\?)$/i,
@@ -748,7 +745,7 @@ const getSummaryField = (doc: Document, labels: string[]) => {
   });
 
   return normalizeScrapedText(
-    matchedItem?.querySelector('.summary-content, .author-content a, .artist-content a, .genres-content a, a')?.textContent ||
+    matchedItem?.querySelector('.summary-content, .genres-content a, a')?.textContent ||
     matchedItem?.querySelector('.summary-content, .value')?.textContent,
   );
 };
@@ -1257,22 +1254,6 @@ export const getScrapedStatusLabel = (status?: string | null) => {
   }
 };
 
-const extractDetailAuthors = (doc: Document, labels: string[], fallback: string) => {
-  const field = Array.from(doc.querySelectorAll('.post-content_item, .meta-item, .info-item, .comic-info div'))
-    .find((element) => labels.some((label) => element.textContent?.toLocaleLowerCase('tr-TR').includes(label.toLocaleLowerCase('tr-TR'))));
-
-  const linkedNames = Array.from(field?.querySelectorAll('.author-content a, .artist-content a, .summary-content a, a[href*="/yazar/"], a') || [])
-    .map((item) => extractPrimaryScrapedPersonName(item.textContent))
-    .filter(Boolean);
-  const extractedName = linkedNames.length > 0
-    ? linkedNames.join(', ')
-    : extractPrimaryScrapedPersonName(
-      normalizeScrapedText(field?.querySelector('.author-content, .artist-content, .summary-content, .value')?.textContent) || fallback,
-    );
-
-  return isScrapedPlaceholderValue(extractedName) ? '' : extractedName;
-};
-
 const extractGenres = (doc: Document, fallbackGenres: string[], _source?: ScrapeSource) => {
   const genreElements = doc.querySelectorAll([
     '.genres-content a',
@@ -1544,8 +1525,6 @@ export const extractScrapedMangaDetail = (
     description: extractDescription(doc, source),
     cover: detailCover || fallbackCard.cover || '',
     banner: detailCover || fallbackCard.cover || '',
-    author: extractDetailAuthors(doc, ['yazar', 'author', 'yazarlar', 'yazar(lar)'], ''),
-    artist: extractDetailAuthors(doc, ['çizer', 'artist', 'çizerler', 'çizer(ler)'], '') || undefined,
     status: extractDetailStatus(doc),
     type,
     genres: syncAdultContentGenres(genres, { isAdult, type }),

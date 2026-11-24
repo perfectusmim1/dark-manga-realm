@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import ProxyImage from '@/components/media/ProxyImage';
-import { getAllTags, getArtists, getAuthors, getCharacters, getMangaById, getMangaCharacters, getMangaSummaries, getTagsForEntity } from '@/lib/database';
+import { getAllTags, getCharacters, getMangaById, getMangaCharacters, getMangaSummaries, getTagsForEntity } from '@/lib/database';
 import {
   createDefaultImportOptions,
   filterImportedPreviewByOptions,
@@ -47,11 +47,10 @@ import {
   SourceSearchCandidate,
   type ImportedCharacterDraft,
   type ImportedMangaPayload,
-  type ImportedPersonDraft,
   type ImportedRelatedSeriesDraft,
   type TagMatchResult,
 } from '@/lib/metadataImport';
-import type { Artist, Author, Character, EntityGalleryImage, Manga, Tag } from '@/lib/types';
+import type { Character, EntityGalleryImage, Manga, Tag } from '@/lib/types';
 import { getCharacterListingRoleLabel } from '@/lib/characterRoles';
 import { getMangaRelationTypeLabel } from '@/lib/mangaRelations';
 import { normalizeComparableText } from '@/lib/textMatching';
@@ -84,21 +83,13 @@ const OPTION_LABELS: Record<ImportOptionKey, { title: string; description: strin
     title: 'İlgili Seriler',
     description: 'Sitede eşleşen devam, öncül ve uyarlama ilişkilerini bağlar',
   },
-  authors: {
-    title: 'Yazarlar',
-    description: 'Yazar kayıtlarını detaylı meta verileriyle günceller veya oluşturur',
-  },
-  artists: {
-    title: 'Çizerler',
-    description: 'Çizer kayıtlarını detaylı meta verileriyle günceller veya oluşturur',
-  },
   characters: {
     title: 'Karakterler',
     description: 'Karakter yaş, cinsiyet, ilişki, sınıf ve benzeri detayları içe aktarır',
   },
   gallery: {
     title: 'Görsel Havuzu',
-    description: 'Seri, karakter, yazar ve çizer galerilerini çeker',
+    description: 'Seri ve karakter galerilerini çeker',
   },
 };
 
@@ -107,8 +98,6 @@ const DISPLAYED_IMPORT_OPTIONS: ImportOptionKey[] = [
   'alternative_titles',
   'tags',
   'related_series',
-  'authors',
-  'artists',
   'characters',
   'gallery',
 ];
@@ -116,7 +105,6 @@ const DISPLAYED_IMPORT_OPTIONS: ImportOptionKey[] = [
 type PreviewDetailKey =
   | 'alternative_titles'
   | 'tags'
-  | 'authors_artists'
   | 'characters'
   | 'related_series'
   | 'gallery';
@@ -124,7 +112,6 @@ type PreviewDetailKey =
 const DETAIL_LABELS: Record<PreviewDetailKey, string> = {
   alternative_titles: 'Alternatif İsimler',
   tags: 'Etiket / Tür',
-  authors_artists: 'Yazar / Çizer',
   characters: 'Karakterler',
   related_series: 'İlgili Seriler',
   gallery: 'Galeri',
@@ -133,8 +120,6 @@ const DETAIL_LABELS: Record<PreviewDetailKey, string> = {
 type PreviewSelectionCategory =
   | 'alternative_title'
   | 'tag'
-  | 'author'
-  | 'artist'
   | 'character'
   | 'related_series'
   | 'series_gallery'
@@ -163,15 +148,13 @@ interface CharacterGalleryToggleItem extends PreviewToggleItem<EntityGalleryImag
 interface PreviewCollections {
   alternativeTitles: PreviewToggleItem<string>[];
   tags: PreviewToggleItem<TagMatchResult | string>[];
-  authors: PreviewToggleItem<ImportedPersonDraft>[];
-  artists: PreviewToggleItem<ImportedPersonDraft>[];
   characters: PreviewToggleItem<ImportedCharacterDraft>[];
   relatedSeries: PreviewToggleItem<ImportedRelatedSeriesDraft>[];
   seriesGallery: PreviewToggleItem<EntityGalleryImage>[];
   characterGallery: CharacterGalleryToggleItem[];
 }
 
-type MatchableEntityType = 'author' | 'artist' | 'character' | 'tag';
+type MatchableEntityType = 'character' | 'tag';
 
 interface ManualEntityMatchSelection {
   id: string;
@@ -181,8 +164,8 @@ interface ManualEntityMatchSelection {
 
 const toImportedMatchedEntityType = (
   value?: MatchableEntityType,
-): ImportedPersonDraft['matchedEntityType'] => (
-  value === 'author' || value === 'artist' || value === 'character'
+): ImportedCharacterDraft['matchedEntityType'] => (
+  value === 'character'
     ? value
     : undefined
 );
@@ -613,55 +596,6 @@ const PreviewDetailDialog: React.FC<PreviewDetailDialogProps> = ({
         );
       }
 
-      case 'authors_artists':
-        {
-          const visibleAuthors = getFilteredItems(collections.authors);
-          const visibleArtists = getFilteredItems(collections.artists);
-        return (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Yazarlar</p>
-                <PreviewSelectionToolbar items={collections.authors} visibleItems={visibleAuthors} onToggleItems={onToggleItems} filter={filter} onFilterChange={setFilter} />
-              </div>
-              {visibleAuthors.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Yazar verisi bulunamadı.</p>
-              ) : (
-                visibleAuthors.map((item) => (
-                  <PreviewSelectionRow
-                    key={item.key}
-                    item={item}
-                    onToggle={onToggleItem}
-                    onOpenMatch={onOpenMatchDialog}
-                    onClearMatch={onClearMatch}
-                  />
-                ))
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Çizerler</p>
-                <PreviewSelectionToolbar items={collections.artists} visibleItems={visibleArtists} onToggleItems={onToggleItems} filter={filter} onFilterChange={setFilter} />
-              </div>
-              {visibleArtists.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Çizer verisi bulunamadı.</p>
-              ) : (
-                visibleArtists.map((item) => (
-                  <PreviewSelectionRow
-                    key={item.key}
-                    item={item}
-                    onToggle={onToggleItem}
-                    onOpenMatch={onOpenMatchDialog}
-                    onClearMatch={onClearMatch}
-                  />
-                ))
-              )}
-            </div>
-          </div>
-        );
-        }
-
       case 'characters':
         {
           const visibleItems = getFilteredItems(collections.characters);
@@ -782,8 +716,6 @@ const PreviewDetailDialog: React.FC<PreviewDetailDialogProps> = ({
 const AdminMetadataImport: React.FC = () => {
   const { isAllowed, isLoading: accessLoading } = useAdminPageGuard({ requiredRole: 'admin' });
   const [mangas, setMangas] = useState<Manga[]>([]);
-  const [allLocalAuthors, setAllLocalAuthors] = useState<Author[]>([]);
-  const [allLocalArtists, setAllLocalArtists] = useState<Artist[]>([]);
   const [allLocalCharacters, setAllLocalCharacters] = useState<Character[]>([]);
   const [allLocalTags, setAllLocalTags] = useState<Tag[]>([]);
   const [mangaFilter, setMangaFilter] = useState('');
@@ -814,16 +746,12 @@ const AdminMetadataImport: React.FC = () => {
     }
 
     void (async () => {
-      const [mangaData, authorData, artistData, characterData, tagData] = await Promise.all([
+      const [mangaData, characterData, tagData] = await Promise.all([
         getMangaSummaries({ includePrivate: true }),
-        getAuthors({ includePrivate: true }),
-        getArtists({ includePrivate: true }),
         getCharacters({ includePrivate: true }),
         getAllTags({ includePending: true }),
       ]);
       setMangas(mangaData);
-      setAllLocalAuthors(authorData);
-      setAllLocalArtists(artistData);
       setAllLocalCharacters(characterData);
       setAllLocalTags(tagData);
       if (mangaData[0]) {
@@ -909,28 +837,10 @@ const AdminMetadataImport: React.FC = () => {
     );
     const existingGenreKeys = new Set((selectedLocalManga?.genres || []).map((value) => normalizePreviewKey(value)).filter(Boolean));
     const existingTagKeys = new Set(selectedLocalTags.map((value) => normalizePreviewKey(value)).filter(Boolean));
-    const existingAuthorKeys = new Set(
-      [
-        ...(selectedLocalManga?.authorsDetails || []).map((author) => author.name),
-        ...(selectedLocalManga?.author?.split(',') || []),
-      ].map((value) => normalizePreviewKey(value)).filter(Boolean),
-    );
-    const existingAuthorIds = new Set((selectedLocalManga?.authorsDetails || []).map((author) => author.id).filter(Boolean));
-    const existingArtistKeys = new Set(
-      [
-        ...(selectedLocalManga?.artistsDetails || []).map((artist) => artist.name),
-        ...(selectedLocalManga?.artist?.split(',') || []),
-      ].map((value) => normalizePreviewKey(value)).filter(Boolean),
-    );
-    const existingArtistIds = new Set((selectedLocalManga?.artistsDetails || []).map((artist) => artist.id).filter(Boolean));
     const existingCharacterKeys = new Set(selectedLocalCharacters.map((character) => normalizePreviewKey(character.name)).filter(Boolean));
     const existingCharacterIds = new Set(selectedLocalCharacters.map((character) => character.id).filter(Boolean));
     const existingTagIds = new Set(selectedLocalTagIds.filter(Boolean));
-    const allLocalAuthorMap = new Map(allLocalAuthors.map((author) => [author.id, author] as const));
-    const allLocalArtistMap = new Map(allLocalArtists.map((artist) => [artist.id, artist] as const));
     const allLocalTagMap = new Map(allLocalTags.map((tag) => [tag.id, tag] as const));
-    const existingGlobalAuthorMap = buildEntityMatchLookup(allLocalAuthors);
-    const existingGlobalArtistMap = buildEntityMatchLookup(allLocalArtists);
     const selectedLocalCharacterMap = buildEntityMatchLookup(selectedLocalCharacters);
     const existingGlobalCharacterMap = buildEntityMatchLookup(allLocalCharacters);
     const allLocalCharacterMap = new Map(allLocalCharacters.map((character) => [character.id, character] as const));
@@ -1034,68 +944,6 @@ const AdminMetadataImport: React.FC = () => {
         matchedEntity,
         item: tagEntry,
       } satisfies PreviewToggleItem<TagMatchResult | string>;
-    });
-
-    const authors = effectivePreview.authors.map((author, index) => {
-      const key = buildPreviewItemKey('author', author.name, author.sourceUrl || author.imageUrl || index);
-      const matchedEntity = manualEntityMatches[key];
-      const matchedAuthor = matchedEntity?.type === 'author' ? allLocalAuthorMap.get(matchedEntity.id) : undefined;
-      const existingGlobalAuthor = matchedAuthor || existingGlobalAuthorMap.get(normalizePreviewKey(author.name));
-      const alreadyLinked = existingGlobalAuthor
-        ? existingAuthorIds.has(existingGlobalAuthor.id)
-        : existingAuthorKeys.has(normalizePreviewKey(author.name));
-      const manualMatchSummary = matchedAuthor
-        ? `Elle eşleşti: ${matchedAuthor.name}${alreadyLinked ? ' • zaten bağlı' : ''}`
-        : undefined;
-      return {
-        key,
-        label: author.name,
-        subtitle: manualMatchSummary || (alreadyLinked
-          ? 'Zaten bağlı, seçili kalırsa meta veri güncellenecek'
-          : existingGlobalAuthor
-            ? 'Sistemde mevcut, seçili kalırsa bu yazar güncellenecek'
-            : (author.description || author.details?.nativeName)),
-        badgeLabel: 'Yazar',
-        imageUrl: author.imageUrl,
-        checked: getPreviewItemChecked(previewOverrides, key, true),
-        skipped: false,
-        skipReason: undefined,
-        matchState: existingGlobalAuthor ? 'matched' : 'new',
-        matchableType: 'author' as const,
-        matchedEntity,
-        item: author,
-      } satisfies PreviewToggleItem<ImportedPersonDraft>;
-    });
-
-    const artists = effectivePreview.artists.map((artist, index) => {
-      const key = buildPreviewItemKey('artist', artist.name, artist.sourceUrl || artist.imageUrl || index);
-      const matchedEntity = manualEntityMatches[key];
-      const matchedArtist = matchedEntity?.type === 'artist' ? allLocalArtistMap.get(matchedEntity.id) : undefined;
-      const existingGlobalArtist = matchedArtist || existingGlobalArtistMap.get(normalizePreviewKey(artist.name));
-      const alreadyLinked = existingGlobalArtist
-        ? existingArtistIds.has(existingGlobalArtist.id)
-        : existingArtistKeys.has(normalizePreviewKey(artist.name));
-      const manualMatchSummary = matchedArtist
-        ? `Elle eşleşti: ${matchedArtist.name}${alreadyLinked ? ' • zaten bağlı' : ''}`
-        : undefined;
-      return {
-        key,
-        label: artist.name,
-        subtitle: manualMatchSummary || (alreadyLinked
-          ? 'Zaten bağlı, seçili kalırsa meta veri güncellenecek'
-          : existingGlobalArtist
-            ? 'Sistemde mevcut, seçili kalırsa bu çizer güncellenecek'
-            : (artist.description || artist.details?.nativeName)),
-        badgeLabel: 'Çizer',
-        imageUrl: artist.imageUrl,
-        checked: getPreviewItemChecked(previewOverrides, key, true),
-        skipped: false,
-        skipReason: undefined,
-        matchState: existingGlobalArtist ? 'matched' : 'new',
-        matchableType: 'artist' as const,
-        matchedEntity,
-        item: artist,
-      } satisfies PreviewToggleItem<ImportedPersonDraft>;
     });
 
     const characterExistingMatchMap = new Map<string, Character | undefined>();
@@ -1225,16 +1073,12 @@ const AdminMetadataImport: React.FC = () => {
     return {
       alternativeTitles,
       tags,
-      authors,
-      artists,
       characters,
       relatedSeries,
       seriesGallery,
       characterGallery,
     };
   }, [
-    allLocalArtists,
-    allLocalAuthors,
     allLocalCharacters,
     allLocalTags,
     effectivePreview,
@@ -1286,18 +1130,6 @@ const AdminMetadataImport: React.FC = () => {
             isMatched: Boolean(matchedTag || item.item.matchedTag),
           } satisfies TagMatchResult;
         }),
-      authors: previewCollections.authors.filter((item) => item.checked).map((item) => ({
-        ...item.item,
-        matchedEntityId: item.matchedEntity?.id,
-        matchedEntityName: item.matchedEntity?.name,
-        matchedEntityType: toImportedMatchedEntityType(item.matchedEntity?.type),
-      })),
-      artists: previewCollections.artists.filter((item) => item.checked).map((item) => ({
-        ...item.item,
-        matchedEntityId: item.matchedEntity?.id,
-        matchedEntityName: item.matchedEntity?.name,
-        matchedEntityType: toImportedMatchedEntityType(item.matchedEntity?.type),
-      })),
       characters: previewCollections.characters
         .filter((item) => item.checked)
         .map((item) => ({
@@ -1326,14 +1158,6 @@ const AdminMetadataImport: React.FC = () => {
         selected: previewCollections.tags.filter((item) => item.checked).length,
         total: previewCollections.tags.length,
       },
-      authors: {
-        selected: previewCollections.authors.filter((item) => item.checked).length,
-        total: previewCollections.authors.length,
-      },
-      artists: {
-        selected: previewCollections.artists.filter((item) => item.checked).length,
-        total: previewCollections.artists.length,
-      },
       characters: {
         selected: previewCollections.characters.filter((item) => item.checked).length,
         total: previewCollections.characters.length,
@@ -1358,10 +1182,6 @@ const AdminMetadataImport: React.FC = () => {
     }
 
     switch (matchDialogState.entityType) {
-      case 'author':
-        return allLocalAuthors;
-      case 'artist':
-        return allLocalArtists;
       case 'character':
         return allLocalCharacters;
       case 'tag':
@@ -1369,14 +1189,10 @@ const AdminMetadataImport: React.FC = () => {
       default:
         return [];
     }
-  }, [allLocalArtists, allLocalAuthors, allLocalCharacters, allLocalTags, matchDialogState]);
+  }, [allLocalCharacters, allLocalTags, matchDialogState]);
 
   const matchDialogLinkedIds = useMemo(() => {
     switch (matchDialogState?.entityType) {
-      case 'author':
-        return new Set((selectedLocalManga?.authorsDetails || []).map((author) => author.id).filter(Boolean));
-      case 'artist':
-        return new Set((selectedLocalManga?.artistsDetails || []).map((artist) => artist.id).filter(Boolean));
       case 'character':
         return new Set(selectedLocalCharacters.map((character) => character.id).filter(Boolean));
       case 'tag':
@@ -1384,7 +1200,7 @@ const AdminMetadataImport: React.FC = () => {
       default:
         return new Set<string>();
     }
-  }, [matchDialogState?.entityType, selectedLocalCharacters, selectedLocalManga, selectedLocalTagIds]);
+  }, [matchDialogState?.entityType, selectedLocalCharacters, selectedLocalTagIds]);
 
   const currentMatchId = matchDialogState ? manualEntityMatches[matchDialogState.itemKey]?.id : undefined;
 
@@ -1612,7 +1428,7 @@ const AdminMetadataImport: React.FC = () => {
                   <div className="min-w-0">
                     <p className="text-sm font-medium">Görünürlük</p>
                     <p className="text-xs text-muted-foreground">
-                      İçe aktarılan karakter, yazar ve çizer kayıtları herkese açık olsun mu?
+                      İçe aktarılan karakter kayıtları herkese açık olsun mu?
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-3 self-end sm:self-auto">
@@ -1838,21 +1654,6 @@ const AdminMetadataImport: React.FC = () => {
                       <div className="mt-1 flex items-center justify-between">
                         <p className="text-lg font-semibold">
                           {previewCounts ? `${previewCounts.tags.selected} / ${previewCounts.tags.total}` : effectivePreview.tags.length}
-                        </p>
-                        <Eye className="h-4 w-4 text-muted-foreground opacity-70 transition-opacity sm:opacity-0 sm:group-hover:opacity-100" />
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      className="group rounded-xl border border-border px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5"
-                      onClick={() => setDetailDialogKey('authors_artists')}
-                    >
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Yazar / Çizer</p>
-                      <div className="mt-1 flex items-center justify-between">
-                        <p className="text-lg font-semibold">
-                          {previewCounts
-                            ? `${previewCounts.authors.selected}/${previewCounts.authors.total} • ${previewCounts.artists.selected}/${previewCounts.artists.total}`
-                            : `${effectivePreview.authors.length} / ${effectivePreview.artists.length}`}
                         </p>
                         <Eye className="h-4 w-4 text-muted-foreground opacity-70 transition-opacity sm:opacity-0 sm:group-hover:opacity-100" />
                       </div>

@@ -16,7 +16,7 @@ import { clearHeaderShellSnapshot, writeHeaderShellUser } from '@/lib/headerShel
 import { PASSWORD_MIN_LENGTH, translatePasswordPolicyError } from '@/lib/auth/passwordPolicy';
 import { dispatchAdultModeChanged } from '@/lib/adultModeEvents';
 import { isDocumentVisible } from '@/lib/documentVisibility';
-import { acknowledgeCurrentUserWarning, getCurrentUserAccessSnapshot, type CurrentUserAccessSnapshot } from '@/lib/userAccess';
+import { acknowledgeCurrentUserWarning, clearUserAccessSnapshotCache, getCurrentUserAccessSnapshot, type CurrentUserAccessSnapshot } from '@/lib/userAccess';
 import { toast } from 'sonner';
 
 interface AuthContextType {
@@ -810,6 +810,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     let lastQueuedAuthSyncKey = '';
     let lastQueuedAuthSyncAt = 0;
     let lastSyncedUserId: string | null = null;
+    const deferredBackgroundTimers = new Set<number>();
+
+    const scheduleDeferredBackgroundTask = (task: () => void, delayMs = 600) => {
+      const timerId = window.setTimeout(() => {
+        deferredBackgroundTimers.delete(timerId);
+        if (mounted) {
+          task();
+        }
+      }, delayMs);
+      deferredBackgroundTimers.add(timerId);
+    };
 
     const getAuthSyncKey = (currentSession: Session | null) => {
       if (!currentSession?.user) {
@@ -926,7 +937,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const newUser = mapSupabaseUserToUser(activeSession.user, profile);
             setUser(prev => JSON.stringify(prev) === JSON.stringify(newUser) ? prev : newUser);
             if (!shouldBypassProfileFetch) {
-              void syncLocalChapterReadFallbackToRemote(activeSession.user.id);
+              scheduleDeferredBackgroundTask(() => {
+                void syncLocalChapterReadFallbackToRemote(activeSession.user.id);
+              }, 600);
             }
           } else {
             if (!shouldBypassProfileFetch) {
@@ -935,7 +948,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             const fallbackUser = mapSupabaseUserToUser(activeSession.user, null);
             setUser(prev => JSON.stringify(prev) === JSON.stringify(fallbackUser) ? prev : fallbackUser);
             if (!shouldBypassProfileFetch) {
-              void syncLocalChapterReadFallbackToRemote(activeSession.user.id);
+              scheduleDeferredBackgroundTask(() => {
+                void syncLocalChapterReadFallbackToRemote(activeSession.user.id);
+              }, 600);
             }
           }
 
@@ -1019,7 +1034,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       latestSessionSnapshot = s;
       void enqueueAuthStateSync(s);
-      void pushPresenceHeartbeat();
+      scheduleDeferredBackgroundTask(() => {
+        void pushPresenceHeartbeat();
+      }, 600);
     }).catch(err => {
       if (!isExpectedAccessControlError(err)) {
         console.error('Initial session check failed:', err);
@@ -1087,6 +1104,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           } else if (event === 'SIGNED_OUT') {
             persistAuthScopeKey('__anon__');
             clearAccessCheckCache();
+            clearUserAccessSnapshotCache();
             void import('@/lib/database').then(({ invalidateMangaVisibilityCaches }) => {
               invalidateMangaVisibilityCaches();
             }).catch(() => undefined);
@@ -1095,6 +1113,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               persistAuthScopeKey(nextUserId);
             }
             clearAccessCheckCache();
+            clearUserAccessSnapshotCache();
             void import('@/lib/database').then(({ invalidateMangaVisibilityCaches }) => {
               invalidateMangaVisibilityCaches();
             }).catch(() => undefined);
@@ -1110,6 +1129,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       mounted = false;
       subscription.unsubscribe();
       window.clearInterval(presenceInterval);
+      for (const timerId of deferredBackgroundTimers) {
+        window.clearTimeout(timerId);
+      }
+      deferredBackgroundTimers.clear();
     };
   }, [ensureProfile, resolveMfaState, updateLocalTwoFactorState]);
 
@@ -1400,6 +1423,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setAccessState(DEFAULT_ACCESS_STATE);
       clearHeaderShellSnapshot();
       clearAccessCheckCache();
+      clearUserAccessSnapshotCache();
       void import('@/lib/database').then(({ invalidateMangaVisibilityCaches }) => {
         invalidateMangaVisibilityCaches();
       }).catch(() => undefined);

@@ -88,8 +88,6 @@ const statusOrder: ReportStatus[] = ['open', 'reviewed', 'resolved', 'dismissed'
 const commentEntityTypeLabels: Record<string, string> = {
     manga: 'Seri',
     character: 'Karakter',
-    author: 'Yazar',
-    artist: 'Çizer',
 };
 
 const buildStatusCounts = <T extends { status: ReportStatus }>(items: T[]) => (

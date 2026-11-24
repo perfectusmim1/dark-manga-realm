@@ -1035,8 +1035,6 @@ const Reader: React.FC = () => {
               slug: mangaId,
               cover: '',
               banner: '',
-              author: '',
-              artist: '',
               status: 'ongoing',
               genres: [],
               views: 0,

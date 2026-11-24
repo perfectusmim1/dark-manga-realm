@@ -60,10 +60,6 @@ const translateMetadataRole = (value?: string | null) => {
   const normalized = (value || '').trim().toLocaleLowerCase('tr-TR');
 
   switch (normalized) {
-    case 'author':
-      return 'Yazar';
-    case 'artist':
-      return 'Çizer';
     case 'voice actor':
       return 'Seslendiren';
     default: {

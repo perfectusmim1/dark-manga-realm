@@ -45,8 +45,6 @@ const buildMangaFromOffline = (entry: OfflineMangaGroup): Manga => ({
   alternativeTitles: [],
   cover: entry.manga.cover,
   banner: entry.manga.banner,
-  author: entry.manga.author,
-  artist: entry.manga.artist,
   status: entry.manga.status,
   genres: entry.manga.genres,
   description: entry.manga.description,
@@ -412,9 +410,6 @@ const Downloads: React.FC = () => {
                               {entry.manga.title}
                             </Link>
                           </h2>
-                          {entry.manga.author && (
-                            <p className="mt-0.5 line-clamp-1 text-xs sm:text-sm text-muted-foreground">{entry.manga.author}</p>
-                          )}
 
                           <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs text-muted-foreground sm:flex sm:flex-wrap sm:items-center sm:gap-x-4 sm:text-sm">
                             <span>{entry.downloadedChapters}/{entry.manga.chapterCount} bölüm indirildi</span>

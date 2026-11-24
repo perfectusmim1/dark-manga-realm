@@ -72,7 +72,7 @@ const getTagModerationState = (
 };
 
 interface TagSectionProps {
-  entityType: 'manga' | 'character' | 'author' | 'artist';
+  entityType: 'manga' | 'character';
   entityId: string;
   editable?: boolean;
 }

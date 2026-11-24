@@ -1,27 +1,17 @@
 import {
   addTagToEntity,
   createTag,
-  findArtistByName,
-  findAuthorByName,
   findCharacterByName,
   getAllTags,
-  getArtistById,
-  getAuthorById,
   getCharacterById,
   getMangaById,
   getMangaCharacters,
   getMangaSummaries,
   getTagsForEntity,
-  linkMangaToArtist,
-  linkMangaToAuthor,
   linkMangaToCharacter,
   replaceMangaRelatedSeries,
-  saveArtist,
-  saveAuthor,
   saveCharacter,
   saveManga,
-  updateArtistMedia,
-  updateAuthorMedia,
   updateCharacterMedia,
 } from '@/lib/database';
 import { OFFICIAL_TAG_CATALOG } from '@/lib/officialTagCatalog';
@@ -36,8 +26,6 @@ import {
   materializeRemoteImages,
 } from '@/lib/mediaStorage';
 import {
-  Artist,
-  Author,
   Character,
   EntityGalleryImage,
   EntityMetadata,
@@ -71,8 +59,6 @@ export type ImportOptionKey =
   | 'alternative_titles'
   | 'tags'
   | 'related_series'
-  | 'authors'
-  | 'artists'
   | 'characters'
   | 'gallery';
 
@@ -96,7 +82,7 @@ export interface ImportedPersonDraft {
   sourceUrl?: string;
   matchedEntityId?: string;
   matchedEntityName?: string;
-  matchedEntityType?: 'author' | 'artist' | 'character';
+  matchedEntityType?: 'character';
 }
 
 export interface ImportedCharacterDraft extends ImportedPersonDraft {
@@ -133,8 +119,6 @@ export interface ImportedMangaPayload {
   gallery: EntityGalleryImage[];
   details: EntityMetadata;
   relatedSeries: ImportedRelatedSeriesDraft[];
-  authors: ImportedPersonDraft[];
-  artists: ImportedPersonDraft[];
   characters: ImportedCharacterDraft[];
   warnings: string[];
   tagMatches?: TagMatchResult[];
@@ -148,13 +132,6 @@ export interface ImportSelectionOptions {
 
 type SupportMatrix = Record<ImportOptionKey, boolean>;
 
-interface MangaUpdatesAuthorReference {
-  type?: string;
-  name?: string;
-  author_id?: number | string;
-  url?: string;
-}
-
 interface MangaUpdatesSeriesParsedDetails {
   sourceId?: string;
   title: string;
@@ -165,8 +142,6 @@ interface MangaUpdatesSeriesParsedDetails {
   genres: string[];
   categories: string[];
   relatedSeries: ImportedRelatedSeriesDraft[];
-  authors: MangaUpdatesAuthorReference[];
-  artists: MangaUpdatesAuthorReference[];
   originalPublishers: string[];
   englishPublishers: string[];
   serializations: string[];
@@ -218,8 +193,6 @@ export const SOURCE_OPTION_SUPPORT: Record<MetadataImportSource, SupportMatrix> 
     alternative_titles: true,
     tags: true,
     related_series: true,
-    authors: true,
-    artists: true,
     characters: true,
     gallery: false,
   },
@@ -228,8 +201,6 @@ export const SOURCE_OPTION_SUPPORT: Record<MetadataImportSource, SupportMatrix> 
     alternative_titles: true,
     tags: true,
     related_series: false,
-    authors: true,
-    artists: true,
     characters: false,
     gallery: false,
   },
@@ -238,8 +209,6 @@ export const SOURCE_OPTION_SUPPORT: Record<MetadataImportSource, SupportMatrix> 
     alternative_titles: true,
     tags: true,
     related_series: true,
-    authors: true,
-    artists: true,
     characters: true,
     gallery: false,
   },
@@ -248,8 +217,6 @@ export const SOURCE_OPTION_SUPPORT: Record<MetadataImportSource, SupportMatrix> 
     alternative_titles: true,
     tags: true,
     related_series: true,
-    authors: true,
-    artists: true,
     characters: true,
     gallery: true,
   },
@@ -258,8 +225,6 @@ export const SOURCE_OPTION_SUPPORT: Record<MetadataImportSource, SupportMatrix> 
     alternative_titles: true,
     tags: true,
     related_series: true,
-    authors: true,
-    artists: true,
     characters: false,
     gallery: false,
   },
@@ -268,8 +233,6 @@ export const SOURCE_OPTION_SUPPORT: Record<MetadataImportSource, SupportMatrix> 
     alternative_titles: true,
     tags: true,
     related_series: true,
-    authors: true,
-    artists: true,
     characters: true,
     gallery: false,
   },
@@ -278,8 +241,6 @@ export const SOURCE_OPTION_SUPPORT: Record<MetadataImportSource, SupportMatrix> 
     alternative_titles: true,
     tags: true,
     related_series: false,
-    authors: true,
-    artists: true,
     characters: true,
     gallery: true,
   },
@@ -1010,8 +971,8 @@ export const matchGenresWithSiteTags = async (
 
 const TRANSLATE_BATCH_SIZE = 5;
 const TRANSLATE_DELAY_MS = 300;
-type TranslatablePreviewCollectionKey = 'authors' | 'artists' | 'characters';
-type TranslatablePersonDraft = ImportedPersonDraft | ImportedCharacterDraft;
+type TranslatablePreviewCollectionKey = 'characters';
+type TranslatablePersonDraft = ImportedCharacterDraft;
 
 export const translateText = async (text: string, targetLang = 'tr'): Promise<string> => {
   if (!text.trim()) return text;
@@ -1040,18 +1001,6 @@ const translatePreviewDescriptions = async (preview: ImportedMangaPayload): Prom
     textsToTranslate.push({ path: 'description', text: preview.description });
   }
 
-  for (let i = 0; i < preview.authors.length; i++) {
-    if (preview.authors[i].description) {
-      textsToTranslate.push({ path: `authors.${i}.description`, text: preview.authors[i].description! });
-    }
-  }
-
-  for (let i = 0; i < preview.artists.length; i++) {
-    if (preview.artists[i].description) {
-      textsToTranslate.push({ path: `artists.${i}.description`, text: preview.artists[i].description! });
-    }
-  }
-
   for (let i = 0; i < preview.characters.length; i++) {
     if (preview.characters[i].description) {
       textsToTranslate.push({ path: `characters.${i}.description`, text: preview.characters[i].description! });
@@ -1059,8 +1008,6 @@ const translatePreviewDescriptions = async (preview: ImportedMangaPayload): Prom
   }
 
   const translated = { ...preview };
-  translated.authors = [...preview.authors];
-  translated.artists = [...preview.artists];
   translated.characters = [...preview.characters];
 
   const addIfPresent = (
@@ -1282,15 +1229,12 @@ const parseUrlId = (pattern: RegExp, input: string) => {
 
 const parseMyAnimeListId = (input: string) => parseUrlId(/\/manga\/(\d+)/i, input);
 const parseMyAnimeListCharacterId = (input: string) => parseUrlId(/\/character\/(\d+)/i, input);
-const parseMyAnimeListPeopleId = (input: string) => parseUrlId(/\/people\/(\d+)/i, input);
 const parseMangaUpdatesSeriesPath = (input: string) => input.match(/\/series\/([^/?#]+)/i)?.[1];
 const parseAniSearchMangaId = (input: string) => normalizeText(input).match(/^\d+$/)?.[0] || parseUrlId(/\/manga\/(\d+)/i, input);
 const parseAniSearchMangaSlug = (input: string) => input.match(/\/manga\/\d+,([^/?#]+)/i)?.[1];
 const parseAniSearchCharacterId = (input: string) => parseUrlId(/\/character\/(\d+)/i, input);
-const parseAniSearchPeopleId = (input: string) => parseUrlId(/\/person\/(\d+)/i, input);
 const parseAnimePlanetMangaSlug = (input: string) => input.match(/\/manga\/([^/?#]+)/i)?.[1];
 const parseAnimePlanetCharacterSlug = (input: string) => input.match(/\/characters\/([^/?#]+)/i)?.[1];
-const parseAnimePlanetPeopleSlug = (input: string) => input.match(/\/people\/([^/?#]+)/i)?.[1];
 
 const isFandomWikiUrl = (input: string) => FANDOM_HOST_PATTERN.test(normalizeText(input));
 
@@ -1558,8 +1502,6 @@ const createEmptyPreview = (
   gallery: [],
   details: {},
   relatedSeries: [],
-  authors: [],
-  artists: [],
   characters: [],
   warnings: SOURCE_RUNTIME_WARNINGS[source] ? [SOURCE_RUNTIME_WARNINGS[source] as string] : [],
 });
@@ -1601,69 +1543,6 @@ const getJikan = async <T>(path: string) => {
   const data = await getJson<{ data: T }>(`https://api.jikan.moe/v4${path}`);
   await sleep(MAL_REQUEST_DELAY_MS);
   return data.data;
-};
-
-const parseMalAuthorRoles = (html: string) => {
-  const doc = parseHtml(html);
-  const authorsRow = Array.from(doc.querySelectorAll('.spaceit_pad')).find((element) =>
-    normalizeText(element.querySelector('.dark_text')?.textContent) === 'Authors:',
-  );
-
-  const roleMap = new Map<string, 'author' | 'artist' | 'both'>();
-  if (!authorsRow) {
-    return roleMap;
-  }
-
-  const rowText = normalizeText(authorsRow.textContent);
-  const anchorNames = Array.from(authorsRow.querySelectorAll('a')).map((anchor) => normalizeText(anchor.textContent));
-
-  const extractRoleText = (name: string) => {
-    const normalizedName = normalizeText(name);
-    const startIndex = normalizeComparableText(rowText).indexOf(normalizeComparableText(normalizedName));
-
-    if (startIndex === -1) {
-      return '';
-    }
-
-    let cursor = startIndex + normalizedName.length;
-    while (cursor < rowText.length && /\s/u.test(rowText[cursor])) {
-      cursor += 1;
-    }
-
-    if (rowText[cursor] !== '(') {
-      return '';
-    }
-
-    const endIndex = rowText.indexOf(')', cursor + 1);
-    if (endIndex === -1) {
-      return '';
-    }
-
-    return rowText.slice(cursor + 1, endIndex);
-  };
-
-  for (const anchorName of anchorNames) {
-    const roleText = normalizeKey(extractRoleText(anchorName));
-
-    if (roleText.includes('story') && roleText.includes('art')) {
-      roleMap.set(normalizeKey(anchorName), 'both');
-      continue;
-    }
-
-    if (roleText.includes('story')) {
-      roleMap.set(normalizeKey(anchorName), 'author');
-      continue;
-    }
-
-    if (roleText.includes('art')) {
-      roleMap.set(normalizeKey(anchorName), 'artist');
-      continue;
-    }
-
-    roleMap.set(normalizeKey(anchorName), 'author');
-  }
-
-  return roleMap;
 };
 
 const toAbsoluteUrl = (value: string, baseUrl: string) => {
@@ -1750,53 +1629,6 @@ const buildMalGallery = async (sourceUrl: string): Promise<EntityGalleryImage[]>
   }
 };
 
-const buildMalPersonDraft = async (
-  personId: string,
-  personUrl: string,
-  role: 'author' | 'artist',
-  includeGallery: boolean,
-): Promise<ImportedPersonDraft> => {
-  const person = await getJikan<any>(`/people/${personId}/full`);
-  const { metadata, description } = parseAboutLines(person.about);
-
-  const details: EntityMetadata = {
-    nativeName: mergeStringLists([person.given_name, person.family_name]).join(' ').trim() || undefined,
-    birthDate: normalizeText(person.birthday) ? person.birthday.slice(0, 10) : undefined,
-    birthday: normalizeText(person.birthday) ? person.birthday.slice(5, 10).replace('-', ' ') : undefined,
-    birthPlace: metadata.birthplace,
-    website: normalizeText(person.website_url) || undefined,
-    comments: metadata.profile,
-    favorites: typeof person.favorites === 'number' ? person.favorites : undefined,
-    role: role === 'artist' ? 'Çizer' : 'Yazar',
-  };
-
-  return createImportedPersonDraft('myanimelist', person.name, personUrl, {
-    imageUrl: person.images?.jpg?.image_url || person.images?.webp?.image_url,
-    description,
-    alternativeNames: person.alternate_names || [],
-    details,
-    gallery: includeGallery ? await buildMalGallery(`${personUrl}/pics`) : [],
-    sourceLinks: [createSourceLink('myanimelist', person.url || personUrl, 'person', person.name)],
-  });
-};
-
-const getCachedMalPersonDraft = async (
-  cache: Map<string, ImportedPersonDraft>,
-  personId: string,
-  personUrl: string,
-  role: 'author' | 'artist',
-  includeGallery: boolean,
-) => {
-  const cached = cache.get(personId);
-  if (cached) {
-    return cached;
-  }
-
-  const loaded = await buildMalPersonDraft(personId, personUrl, role, includeGallery);
-  cache.set(personId, loaded);
-  return loaded;
-};
-
 const buildMalCharacterDraft = async (
   characterId: string,
   characterUrl: string,
@@ -1866,7 +1698,6 @@ const loadMyAnimeListPreview = async (
   const malId = parseMyAnimeListId(candidate.url) || candidate.id;
   const manga = await getJikan<any>(`/manga/${malId}/full`);
   const preview = createEmptyPreview('myanimelist', manga.url || candidate.url, normalizeText(manga.title_english || manga.title));
-  const personCache = new Map<string, ImportedPersonDraft>();
 
   preview.cover = normalizeText(
     manga.images?.jpg?.large_image_url || manga.images?.jpg?.image_url || manga.images?.webp?.large_image_url,
@@ -1920,32 +1751,6 @@ const loadMyAnimeListPreview = async (
     preview.gallery = await buildMalGallery(`${manga.url || candidate.url}/pics`);
   }
 
-  if (enabledOptions.authors || enabledOptions.artists) {
-    const malHtml = await fetchScraperContent(manga.url || candidate.url);
-    const roleMap = parseMalAuthorRoles(malHtml);
-
-    for (const person of manga.authors || []) {
-      const personId = parseMyAnimeListPeopleId(person.url) || `${person.mal_id}`;
-      const resolvedRole = roleMap.get(normalizeKey(person.name)) || 'author';
-      const draft = await getCachedMalPersonDraft(
-        personCache,
-        personId,
-        person.url,
-        resolvedRole === 'artist' ? 'artist' : 'author',
-        !!enabledOptions.gallery,
-      );
-
-      if (resolvedRole === 'artist') {
-        preview.artists.push(draft);
-      } else if (resolvedRole === 'both') {
-        preview.authors.push(draft);
-        preview.artists.push({ ...draft, details: { ...draft.details, role: 'Çizer' } });
-      } else {
-        preview.authors.push(draft);
-      }
-    }
-  }
-
   if (enabledOptions.characters) {
     const characterRows = await getJikan<any[]>(`/manga/${malId}/characters`);
     const limitedRows = characterRows.slice(0, MAX_IMPORT_ENTITY_COUNT);
@@ -1996,12 +1801,6 @@ const getInfoBoxContentByLabel = (doc: Document, label: string) => {
 const getInfoBoxTextByLabel = (doc: Document, label: string) => {
   const content = getInfoBoxContentByLabel(doc, label);
   return normalizeText(content?.textContent);
-};
-
-const getInfoBoxHrefByLabel = (doc: Document, label: string) => {
-  const content = getInfoBoxContentByLabel(doc, label);
-  const href = normalizeText(content?.querySelector('a[href]')?.getAttribute('href'));
-  return href.startsWith('http') ? href : '';
 };
 
 const parseMangaUpdatesDescriptionBlock = (value?: string | null) => {
@@ -2106,7 +1905,6 @@ const getMangaUpdatesStructuredData = (doc: Document) => {
         && (
           typeof item.description === 'string'
           || Array.isArray(item.genre)
-          || !!item.author
           || !!item.publisher
         )
       ));
@@ -2173,48 +1971,6 @@ const getMangaUpdatesInfoBoxLinks = (doc: Document, label: string, baseUrl: stri
     })
     .filter((item): item is { title: string; url: string } => item !== null),
 );
-
-const getMangaUpdatesPersonReferences = (
-  doc: Document,
-  label: string,
-  baseUrl: string,
-): MangaUpdatesAuthorReference[] => {
-  const content = getInfoBoxContentByLabel(doc, label);
-  if (!content) {
-    return [];
-  }
-
-  const entries = Array.from(content.children);
-  const references = entries
-    .map((entry) => {
-      const authorLink = Array.from(entry.querySelectorAll<HTMLAnchorElement>('a[href]')).find((anchor) => {
-        const href = normalizeText(anchor.getAttribute('href'));
-        return /\/author\//i.test(href);
-      });
-      const title = normalizeText(
-        authorLink?.textContent
-        || entry.querySelector('span')?.textContent
-        || extractTextWithBreaks(entry).replace(/\[\s*add\s*\]/gi, ''),
-      );
-
-      if (!title || isMangaUpdatesEmptyValue(title)) {
-        return null;
-      }
-
-      const href = normalizeText(authorLink?.getAttribute('href'));
-      return {
-        name: title,
-        url: href ? toAbsoluteUrl(href, baseUrl) : undefined,
-      } satisfies MangaUpdatesAuthorReference;
-    })
-    .filter((item): item is NonNullable<typeof item> => item !== null);
-
-  if (references.length > 0) {
-    return references;
-  }
-
-  return getMangaUpdatesInfoBoxLines(doc, label).map((name) => ({ name }));
-};
 
 const getMangaUpdatesAverageScore = (doc: Document) => {
   const ratingText = getInfoBoxTextByLabel(doc, 'User Rating');
@@ -2362,8 +2118,6 @@ const resolveMangaUpdatesSeriesDetails = async (
         })
         .filter((item): item is NonNullable<typeof item> => item !== null),
     ),
-    authors: getMangaUpdatesPersonReferences(doc, 'Author(s)', canonicalUrl),
-    artists: getMangaUpdatesPersonReferences(doc, 'Artist(s)', canonicalUrl),
     originalPublishers,
     englishPublishers,
     serializations,
@@ -2375,73 +2129,6 @@ const resolveMangaUpdatesSeriesDetails = async (
     year: toYear(getInfoBoxTextByLabel(doc, 'Year')),
     averageScore: getMangaUpdatesAverageScore(doc),
   };
-};
-
-const buildMangaUpdatesPersonDraft = async (
-  reference: MangaUpdatesAuthorReference,
-  role: 'author' | 'artist',
-): Promise<ImportedPersonDraft> => {
-  const title = normalizeText(reference.name) || 'MangaUpdates person';
-  const sourceUrl = normalizeText(reference.url) || undefined;
-
-  if (!sourceUrl) {
-    return createImportedPersonDraft('mangaupdates', title, sourceUrl, {
-      details: {
-        role: role === 'artist' ? 'Çizer' : 'Yazar',
-      },
-    });
-  }
-
-  const html = await fetchMangaUpdatesHtml(sourceUrl);
-  const doc = parseHtml(html);
-  const canonicalUrl = getMetaContent(doc, 'property', 'og:url') || sourceUrl;
-  const resolvedTitle = getMetaContent(doc, 'property', 'og:title')
-    || normalizeText(doc.querySelector('.tabletitle, h1')?.textContent)
-    || title;
-  const website = getInfoBoxHrefByLabel(doc, 'Official Website') || undefined;
-  const twitter = getInfoBoxHrefByLabel(doc, 'Twitter') || undefined;
-
-  return createImportedPersonDraft('mangaupdates', resolvedTitle, canonicalUrl, {
-    imageUrl: sanitizeEntityImageUrl(
-      getMetaContent(doc, 'property', 'og:image')
-      || getImageUrlFromElement(getInfoBoxContentByLabel(doc, 'Image')?.querySelector('img')),
-    ) || undefined,
-    description: normalizeText(extractTextWithBreaks(getInfoBoxContentByLabel(doc, 'Comments'))) || undefined,
-    alternativeNames: getMangaUpdatesInfoBoxLines(doc, 'Associated Names'),
-    details: {
-      nativeName: getInfoBoxTextByLabel(doc, 'Name (in native language)') || undefined,
-      status: getInfoBoxTextByLabel(doc, 'Status') || undefined,
-      birthday: getInfoBoxTextByLabel(doc, 'Birth Date') || undefined,
-      birthPlace: getInfoBoxTextByLabel(doc, 'Birth Place') || undefined,
-      bloodType: getInfoBoxTextByLabel(doc, 'Blood Type') || undefined,
-      gender: getInfoBoxTextByLabel(doc, 'Gender') || undefined,
-      website,
-      twitter,
-      genres: getMangaUpdatesInfoBoxLinks(doc, 'Genres', canonicalUrl).map((item) => item.title),
-      role: role === 'artist' ? 'Çizer' : 'Yazar',
-    },
-    sourceLinks: mergeSourceLinks(
-      canonicalUrl ? [createSourceLink('mangaupdates', canonicalUrl, 'person', resolvedTitle)] : undefined,
-      website
-        ? [{ source: 'mangaupdates', url: website, kind: 'external', label: 'Official Website' }]
-        : undefined,
-      twitter
-        ? [{ source: 'mangaupdates', url: twitter, kind: 'external', label: 'Twitter' }]
-        : undefined,
-    ),
-  });
-};
-
-const tryBuildMangaUpdatesPersonDraft = async (
-  reference: MangaUpdatesAuthorReference,
-  role: 'author' | 'artist',
-): Promise<ImportedPersonDraft | null> => {
-  try {
-    return await buildMangaUpdatesPersonDraft(reference, role);
-  } catch (error) {
-    console.warn(`MangaUpdates ${role} import skipped`, { reference, error });
-    return null;
-  }
 };
 
 const searchMangaUpdatesCandidates = async (input: string): Promise<SourceSearchCandidate[]> => {
@@ -2488,20 +2175,6 @@ const loadMangaUpdatesPreview = async (
       originalNovel: series.originalNovel,
     },
   };
-
-  if (enabledOptions.authors) {
-    const authors = await mapWithConcurrency(series.authors, 3, async (reference) => (
-      await tryBuildMangaUpdatesPersonDraft(reference, 'author')
-    ));
-    preview.authors = authors.filter((item): item is ImportedPersonDraft => item !== null);
-  }
-
-  if (enabledOptions.artists) {
-    const artists = await mapWithConcurrency(series.artists, 3, async (reference) => (
-      await tryBuildMangaUpdatesPersonDraft(reference, 'artist')
-    ));
-    preview.artists = artists.filter((item): item is ImportedPersonDraft => item !== null);
-  }
 
   return preview;
 };
@@ -2729,10 +2402,6 @@ const getFandomField = (page: FandomParsedPage, ...keys: string[]) => {
 
 const getFandomFieldText = (page: FandomParsedPage, ...keys: string[]) => (
   getFandomField(page, ...keys)?.text || ''
-);
-
-const getFandomFieldLinks = (page: FandomParsedPage, ...keys: string[]) => (
-  getFandomField(page, ...keys)?.links || []
 );
 
 const splitFandomValues = (value?: string | null) => uniqueStrings(
@@ -2992,7 +2661,7 @@ const isLikelyFandomSeriesPage = (page: FandomParsedPage) => {
   }
 
   return Boolean(
-    getFandomField(page, 'author', 'artist', 'genre', 'publisher', 'status', 'chapters', 'volumes', 'seasons', 'ogrun', 'original run'),
+    getFandomField(page, 'genre', 'publisher', 'status', 'chapters', 'volumes', 'seasons', 'ogrun', 'original run'),
   );
 };
 
@@ -3320,53 +2989,6 @@ const isLikelyFandomCharacterPage = (page: FandomParsedPage) => (
   )
 );
 
-const buildFandomStaffDraft = async (
-  link: FandomInternalLink,
-  role: 'author' | 'artist',
-  includeGallery: boolean,
-): Promise<ImportedPersonDraft> => {
-  const target = parseFandomWikiInput(link.url);
-  if (!target) {
-    return createImportedPersonDraft('fandom', link.title, link.url, {
-      details: {
-        role: role === 'artist' ? 'Çizer' : 'Yazar',
-      },
-    });
-  }
-
-  const page = await fetchFandomParsedPage(target.origin, target.pageTitle);
-  const leadParagraphs = getFandomLeadParagraphs(page);
-  const backgroundParagraphs = getFandomSectionParagraphs(page, ['background', 'biography', 'history'], 2);
-  const actualNameMatch = leadParagraphs
-    .join(' ')
-    .match(/^([^,]+),\s*(?:better known as|best known as|pen name)\s+([^.,]+)(?:[.,]|$)/i);
-
-  return createImportedPersonDraft('fandom', page.displayTitle || link.title, page.pageUrl, {
-    description: uniqueStrings([...leadParagraphs, ...backgroundParagraphs]).join('\n\n') || undefined,
-    alternativeNames: uniqueStrings([
-      actualNameMatch
-        ? (
-            normalizeKey(actualNameMatch[1]) === normalizeKey(page.displayTitle)
-              ? actualNameMatch[2]
-              : actualNameMatch[1]
-          )
-        : undefined,
-      ...getFandomFieldValues(page, 'alias', 'aliases'),
-    ]),
-    imageUrl: buildFandomGallery(page, `${page.displayTitle} Image`)[0]?.url,
-    details: {
-      age: normalizeText(getFandomFieldJoinedText(page, 'age')) || undefined,
-      birthday: normalizeText(getFandomFieldJoinedText(page, 'birthday')) || undefined,
-      birthPlace: normalizeText(getFandomFieldJoinedText(page, 'birthplace')) || undefined,
-      occupation: normalizeText(getFandomFieldJoinedText(page, 'occupation')) || undefined,
-      status: normalizeText(getFandomFieldJoinedText(page, 'status')) || undefined,
-      role: role === 'artist' ? 'Çizer' : 'Yazar',
-      comments: backgroundParagraphs[0] || undefined,
-    },
-    gallery: includeGallery ? buildFandomGallery(page, `${page.displayTitle} Gallery`) : [],
-  });
-};
-
 const buildFandomCharacterDraft = async (
   link: { title: string; url: string; roleLabel?: string; roleType?: CharacterListingRole },
   includeGallery: boolean,
@@ -3517,32 +3139,6 @@ const loadFandomPreview = async (
     },
   };
 
-  if (enabledOptions.authors) {
-    const authorLinks = getFandomFieldLinks(seriesPage, 'author', 'authors');
-    const authorNames = splitFandomValues(getFandomFieldText(seriesPage, 'author', 'authors'));
-
-    preview.authors = authorLinks.length > 0
-      ? await mapWithConcurrency(authorLinks, 3, async (link) => (
-        buildFandomStaffDraft(link, 'author', !!enabledOptions.gallery)
-      ))
-      : authorNames.map((name) => createImportedPersonDraft('fandom', name, undefined, {
-        details: { role: 'Yazar' },
-      }));
-  }
-
-  if (enabledOptions.artists) {
-    const artistLinks = getFandomFieldLinks(seriesPage, 'artist', 'artists');
-    const artistNames = splitFandomValues(getFandomFieldText(seriesPage, 'artist', 'artists'));
-
-    preview.artists = artistLinks.length > 0
-      ? await mapWithConcurrency(artistLinks, 3, async (link) => (
-        buildFandomStaffDraft(link, 'artist', !!enabledOptions.gallery)
-      ))
-      : artistNames.map((name) => createImportedPersonDraft('fandom', name, undefined, {
-        details: { role: 'Çizer' },
-      }));
-  }
-
   if (enabledOptions.characters) {
     const charactersPage = await resolveFandomCharactersPage(entryPage, seriesPage);
     const characterEntries = dedupeFandomCharacterEntries(uniqueByUrl([
@@ -3594,97 +3190,6 @@ const getAnimePlanetTooltipAltTitles = (value?: string | null) => {
 
   const doc = parseHtmlFragment(tooltipHtml);
   return normalizeText(doc.querySelector('.tooltip-alt')?.textContent).replace(/^(alt titles?|aka):\s*/i, '') || undefined;
-};
-
-const classifyAnimePlanetStaffRole = (value?: string | null): 'author' | 'artist' | undefined => {
-  const normalized = normalizeKey(value);
-
-  if (!normalized) {
-    return undefined;
-  }
-
-  if (normalized.includes('artist')) {
-    return 'artist';
-  }
-
-  if (
-    normalized.includes('creator')
-    || normalized.includes('author')
-    || normalized.includes('writer')
-    || normalized.includes('story')
-  ) {
-    return 'author';
-  }
-
-  return undefined;
-};
-
-const parseAnimePlanetStaffCards = (doc: Document) => {
-  const seen = new Set<string>();
-
-  return Array.from(doc.querySelectorAll<HTMLAnchorElement>('a.CharacterCard[data-character-type="people"][href]'))
-    .map((anchor) => {
-      const url = toAnimePlanetAbsoluteUrl(anchor.getAttribute('href'));
-      const name = normalizeText(anchor.querySelector('.CharacterCard__title')?.textContent);
-      const roleLabel = normalizeText(anchor.querySelector('.CharacterCard__body')?.textContent);
-      const kind = classifyAnimePlanetStaffRole(roleLabel);
-
-      if (!url || !name || seen.has(url)) {
-        return null;
-      }
-
-      seen.add(url);
-      return { name, url, roleLabel, kind };
-    })
-    .filter((item): item is NonNullable<typeof item> => item !== null);
-};
-
-const buildAnimePlanetPersonDraft = async (
-  sourceUrl: string,
-  role: 'author' | 'artist',
-): Promise<ImportedPersonDraft> => {
-  const html = await fetchAnimePlanetHtml(sourceUrl);
-  const doc = parseHtml(html);
-  const title = getAnimePlanetTitle(doc) || normalizeText(doc.title.replace(/\s*\|\s*Anime-Planet\s*$/i, ''));
-  const descriptionHost = doc.querySelector('div[itemprop="description"]')?.parentElement;
-  let description = '';
-
-  if (descriptionHost) {
-    const clone = descriptionHost.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll('.EntryMetadata, .staffLinks, .myFeelings, .cta, table, h3, h4, h5, .commentSection, .tab').forEach((element) => element.remove());
-    description = normalizeText(clone.textContent);
-  }
-
-  const externalLinks = Array.from(doc.querySelectorAll<HTMLAnchorElement>('.staffLinks a[href]'))
-    .map((anchor) => ({
-      url: normalizeText(anchor.getAttribute('href')),
-      label: normalizeText(anchor.textContent) || undefined,
-    }))
-    .filter((item) => item.url.startsWith('http'));
-
-  return createImportedPersonDraft('animeplanet', title, sourceUrl, {
-    imageUrl: sanitizeEntityImageUrl(
-      doc.querySelector('img[itemprop="image"], img.screenshots')?.getAttribute('src'),
-    ),
-    description: description || undefined,
-    alternativeNames: getAnimePlanetAltTitles(doc),
-    details: {
-      website: externalLinks[0]?.url || undefined,
-      role: role === 'artist' ? 'Çizer' : 'Yazar',
-      extra: parseAnimePlanetPeopleSlug(sourceUrl)
-        ? { animePlanetSlug: parseAnimePlanetPeopleSlug(sourceUrl) }
-        : undefined,
-    },
-    sourceLinks: [
-      createSourceLink('animeplanet', sourceUrl, 'person', title),
-      ...externalLinks.map((item) => ({
-        source: 'animeplanet' as const,
-        url: item.url,
-        kind: 'external',
-        label: item.label,
-      })),
-    ],
-  });
 };
 
 const buildAnimePlanetCharacterDraft = async (
@@ -3906,48 +3411,6 @@ const loadAnimePlanetPreview = async (
       ...(parseAnimePlanetMangaSlug(mangaUrl) ? { animePlanetSlug: parseAnimePlanetMangaSlug(mangaUrl) } : {}),
     },
   };
-
-  if (enabledOptions.authors || enabledOptions.artists) {
-    const staffHtml = await fetchAnimePlanetHtml(`${mangaUrl}/staff`);
-    const staffDoc = parseHtml(staffHtml);
-    const staffCards = parseAnimePlanetStaffCards(staffDoc);
-    const unsupportedRoles = uniqueStrings(
-      staffCards
-        .filter((item) => !item.kind)
-        .map((item) => item.roleLabel),
-    );
-
-    if (unsupportedRoles.length > 0) {
-      preview.warnings.push(
-        `Anime-Planet staff sayfasındaki şu roller şu an içe aktarılmıyor: ${unsupportedRoles.join(', ')}.`,
-      );
-    }
-
-    const personCache = new Map<string, ImportedPersonDraft>();
-    const supportedCards = staffCards.filter((item) => item.kind && (
-      (item.kind === 'author' && enabledOptions.authors)
-      || (item.kind === 'artist' && enabledOptions.artists)
-    ));
-
-    const drafts = await mapWithConcurrency(supportedCards, 4, async (item) => {
-      const cached = personCache.get(item.url);
-      if (cached) {
-        return { kind: item.kind!, draft: cached };
-      }
-
-      const draft = await buildAnimePlanetPersonDraft(item.url, item.kind!);
-      personCache.set(item.url, draft);
-      return { kind: item.kind!, draft };
-    });
-
-    for (const entry of drafts) {
-      if (entry.kind === 'artist') {
-        preview.artists.push(entry.draft);
-      } else {
-        preview.authors.push(entry.draft);
-      }
-    }
-  }
 
   if (enabledOptions.characters) {
     const characterHtml = await fetchAnimePlanetHtml(`${mangaUrl}/characters`);
@@ -4184,64 +3647,6 @@ const getAniSearchSidebarStat = (doc: Document, label: string) => {
   return undefined;
 };
 
-const classifyAniSearchStaffRole = (value?: string | null): 'author' | 'artist' => {
-  const normalized = normalizeKey(value);
-
-  if (
-    normalized.includes('illustrator')
-    || normalized.includes('artist')
-    || normalized.includes('art')
-  ) {
-    return 'artist';
-  }
-
-  return 'author';
-};
-
-const parseAniSearchStaffEntries = (doc: Document) => {
-  const block = doc.querySelector('#information .mangaka');
-  if (!(block instanceof HTMLElement)) {
-    return [] as Array<{ name: string; url: string; roleLabel: string; kind: 'author' | 'artist' }>;
-  }
-
-  const entries: Array<{ name: string; url: string; roleLabel: string; kind: 'author' | 'artist' }> = [];
-  let pending: Array<{ name: string; url: string }> = [];
-
-  const flushPending = (roleLabel?: string | null) => {
-    const normalizedRoleLabel = normalizeText(roleLabel) || 'Author';
-
-    for (const item of pending) {
-      entries.push({
-        ...item,
-        roleLabel: normalizedRoleLabel,
-        kind: classifyAniSearchStaffRole(normalizedRoleLabel),
-      });
-    }
-
-    pending = [];
-  };
-
-  for (const node of Array.from(block.childNodes)) {
-    if (node instanceof HTMLAnchorElement && /\/person\//i.test(node.getAttribute('href') || '')) {
-      const name = normalizeText(node.textContent);
-      const url = toAniSearchAbsoluteUrl(node.getAttribute('href'));
-
-      if (name && url) {
-        pending.push({ name, url });
-      }
-
-      continue;
-    }
-
-    if (node instanceof HTMLElement && node.matches('span.f10g')) {
-      flushPending(node.textContent);
-    }
-  }
-
-  flushPending();
-  return entries;
-};
-
 const parseAniSearchCharacterSection = (doc: Document) => {
   const results: Array<{
     name: string;
@@ -4322,45 +3727,6 @@ const sanitizeAniSearchCharacterDescription = (value?: string | null) => {
   }
 
   return sanitizeCharacterDescription(normalized) || undefined;
-};
-
-const buildAniSearchPersonDraft = async (
-  sourceUrl: string,
-  role: 'author' | 'artist',
-): Promise<ImportedPersonDraft> => {
-  const html = await fetchAniSearchHtml(sourceUrl);
-  const doc = parseHtml(html);
-  const nameBlock = doc.querySelector('#information .name-type-1');
-  const title = getAniSearchTitle(doc) || normalizeText(nameBlock?.querySelector('strong')?.textContent);
-  const aliases = uniqueStrings(
-    normalizeText(nameBlock?.querySelector('i')?.textContent)
-      .split(/\s*,\s*/)
-      .filter(Boolean),
-  );
-  const originalScript = normalizeText(
-    Array.from(nameBlock?.querySelectorAll('span') || [])
-      .map((element) => normalizeText(element.textContent))
-      .find((value) => value && !value.endsWith(':') && !normalizeComparableText(value).includes('screen name')),
-  );
-
-  return createImportedPersonDraft('anisearch', title || 'AniSearch person', sourceUrl, {
-    imageUrl: sanitizeEntityImageUrl(
-      doc.querySelector<HTMLImageElement>('#details-cover')?.getAttribute('src')
-      || getMetaContent(doc, 'property', 'og:image'),
-    ),
-    description: stripAniSearchSourceFooter(doc.querySelector('#description .details-text[lang="en"], #description .details-text')?.textContent) || undefined,
-    alternativeNames: mergeStringLists(aliases, originalScript ? [originalScript] : []),
-    details: {
-      nativeName: originalScript || undefined,
-      gender: getAniSearchInfoValue(doc, 'gender') || undefined,
-      occupation: getAniSearchInfoValue(doc, 'occupations') || undefined,
-      role: role === 'artist' ? 'Çizer' : 'Yazar',
-      extra: parseAniSearchPeopleId(sourceUrl)
-        ? { aniSearchPersonId: parseAniSearchPeopleId(sourceUrl) }
-        : undefined,
-    },
-    sourceLinks: [createSourceLink('anisearch', sourceUrl, 'person', title || 'AniSearch person')],
-  });
 };
 
 const buildAniSearchCharacterDraft = async (
@@ -4631,35 +3997,6 @@ const loadAniSearchPreview = async (
     preview.details.website = websiteLinks[0]?.url || undefined;
   }
 
-  if (enabledOptions.authors || enabledOptions.artists) {
-    const personCache = new Map<string, ImportedPersonDraft>();
-    const staffEntries = parseAniSearchStaffEntries(doc)
-      .filter((item) => (
-        (item.kind === 'author' && enabledOptions.authors)
-        || (item.kind === 'artist' && enabledOptions.artists)
-      ))
-      .slice(0, MAX_IMPORT_ENTITY_COUNT);
-
-    const drafts = await mapWithConcurrency(staffEntries, 4, async (item) => {
-      const cached = personCache.get(item.url);
-      if (cached) {
-        return { kind: item.kind, draft: cached };
-      }
-
-      const draft = await buildAniSearchPersonDraft(item.url, item.kind);
-      personCache.set(item.url, draft);
-      return { kind: item.kind, draft };
-    });
-
-    for (const entry of drafts) {
-      if (entry.kind === 'artist') {
-        preview.artists.push(entry.draft);
-      } else {
-        preview.authors.push(entry.draft);
-      }
-    }
-  }
-
   if (enabledOptions.characters) {
     const characterHtml = await fetchAniSearchHtml(`${canonicalUrl}/characters`);
     const characterDoc = parseHtml(characterHtml);
@@ -4679,7 +4016,7 @@ const loadAniSearchPreview = async (
   return preview;
 };
 
-const mergeImportedPerson = <TEntity extends Character | Author | Artist>(
+const mergeImportedPerson = <TEntity extends Character>(
   existing: TEntity | null,
   draft: ImportedPersonDraft,
   importAsPublic: boolean,
@@ -4697,7 +4034,7 @@ const mergeImportedPerson = <TEntity extends Character | Author | Artist>(
 
 const applyMatchedEntitySelectionToDraft = <TDraft extends ImportedPersonDraft>(
   draft: TDraft,
-  existing: Character | Author | Artist | null,
+  existing: Character | null,
 ): TDraft => {
   if (!existing?.name || normalizeKey(existing.name) === normalizeKey(draft.name)) {
     return draft;
@@ -4755,7 +4092,7 @@ const materializeImportedImage = async ({
 }: {
   id: string;
   sourceUrl?: string | null;
-  entityType: 'manga' | 'character' | 'author' | 'artist';
+  entityType: 'manga' | 'character';
   entityId: string;
   variant: 'cover' | 'banner' | 'profile' | 'gallery';
   sourceName?: ExternalSourceName | string;
@@ -4787,7 +4124,7 @@ const materializeImportedGallery = async ({
   sourceName,
 }: {
   images?: EntityGalleryImage[];
-  entityType: 'manga' | 'character' | 'author' | 'artist';
+  entityType: 'manga' | 'character';
   entityId: string;
   sourceName?: ExternalSourceName | string;
 }) => {
@@ -4833,122 +4170,6 @@ const materializeImportedGallery = async ({
       sourceUrl: normalizeText(image.sourceUrl) || normalizeText(image.url),
     }));
   }
-};
-
-const resolveAuthor = async (draft: ImportedPersonDraft, importAsPublic: boolean) => {
-  const matchedExisting = draft.matchedEntityId && draft.matchedEntityType === 'author'
-    ? await getAuthorById(draft.matchedEntityId, { includePrivate: true }).then((item) => item || null)
-    : null;
-  const existing = matchedExisting || await findAuthorByName(draft.name);
-  const resolvedDraft = applyMatchedEntitySelectionToDraft(draft, existing);
-  const payload = mergeImportedPerson(existing, resolvedDraft, importAsPublic) as Partial<Author>;
-
-  if (existing?.id) {
-    const imageUrl = await materializeImportedImage({
-      id: `author:${existing.id}`,
-      sourceUrl: payload.imageUrl,
-      entityType: 'author',
-      entityId: existing.id,
-      variant: 'profile',
-      sourceName: resolvedDraft.sourceLinks?.[0]?.source,
-    });
-    const gallery = await materializeImportedGallery({
-      images: payload.gallery,
-      entityType: 'author',
-      entityId: existing.id,
-      sourceName: resolvedDraft.sourceLinks?.[0]?.source,
-    });
-
-    const id = await saveAuthor({
-      ...payload,
-      id: existing.id,
-      imageUrl,
-      gallery,
-    });
-    return existing.id || id;
-  }
-
-  const id = await saveAuthor(payload);
-  const imageUrl = await materializeImportedImage({
-    id: `author:${id}`,
-    sourceUrl: payload.imageUrl,
-    entityType: 'author',
-    entityId: id,
-    variant: 'profile',
-    sourceName: resolvedDraft.sourceLinks?.[0]?.source,
-  });
-  const gallery = await materializeImportedGallery({
-    images: payload.gallery,
-    entityType: 'author',
-    entityId: id,
-    sourceName: resolvedDraft.sourceLinks?.[0]?.source,
-  });
-
-  if (imageUrl && imageUrl !== payload.imageUrl) {
-    await updateAuthorMedia(id, { imageUrl, gallery });
-  } else if (gallery.length > 0) {
-    await updateAuthorMedia(id, { gallery });
-  }
-
-  return id;
-};
-
-const resolveArtist = async (draft: ImportedPersonDraft, importAsPublic: boolean) => {
-  const matchedExisting = draft.matchedEntityId && draft.matchedEntityType === 'artist'
-    ? await getArtistById(draft.matchedEntityId, { includePrivate: true }).then((item) => item || null)
-    : null;
-  const existing = matchedExisting || await findArtistByName(draft.name);
-  const resolvedDraft = applyMatchedEntitySelectionToDraft(draft, existing);
-  const payload = mergeImportedPerson(existing, resolvedDraft, importAsPublic) as Partial<Artist>;
-
-  if (existing?.id) {
-    const imageUrl = await materializeImportedImage({
-      id: `artist:${existing.id}`,
-      sourceUrl: payload.imageUrl,
-      entityType: 'artist',
-      entityId: existing.id,
-      variant: 'profile',
-      sourceName: resolvedDraft.sourceLinks?.[0]?.source,
-    });
-    const gallery = await materializeImportedGallery({
-      images: payload.gallery,
-      entityType: 'artist',
-      entityId: existing.id,
-      sourceName: resolvedDraft.sourceLinks?.[0]?.source,
-    });
-
-    const id = await saveArtist({
-      ...payload,
-      id: existing.id,
-      imageUrl,
-      gallery,
-    });
-    return existing.id || id;
-  }
-
-  const id = await saveArtist(payload);
-  const imageUrl = await materializeImportedImage({
-    id: `artist:${id}`,
-    sourceUrl: payload.imageUrl,
-    entityType: 'artist',
-    entityId: id,
-    variant: 'profile',
-    sourceName: resolvedDraft.sourceLinks?.[0]?.source,
-  });
-  const gallery = await materializeImportedGallery({
-    images: payload.gallery,
-    entityType: 'artist',
-    entityId: id,
-    sourceName: resolvedDraft.sourceLinks?.[0]?.source,
-  });
-
-  if (imageUrl && imageUrl !== payload.imageUrl) {
-    await updateArtistMedia(id, { imageUrl, gallery });
-  } else if (gallery.length > 0) {
-    await updateArtistMedia(id, { gallery });
-  }
-
-  return id;
 };
 
 const resolveCharacter = async (draft: ImportedCharacterDraft, importAsPublic: boolean, mangaId?: string) => {
@@ -5116,8 +4337,6 @@ export const filterImportedPreviewByOptions = (
   gallery: enabledOptions.gallery ? preview.gallery : [],
   details: enabledOptions.manga_core ? preview.details : {},
   relatedSeries: enabledOptions.related_series ? preview.relatedSeries : [],
-  authors: enabledOptions.authors ? preview.authors : [],
-  artists: enabledOptions.artists ? preview.artists : [],
   characters: enabledOptions.characters
     ? preview.characters.map((character) => ({
       ...character,
@@ -5159,21 +4378,6 @@ interface AniListMedia {
     isAdult?: boolean;
     rank?: number;
   }> | null;
-  staff?: {
-    edges?: Array<{
-      role?: string | null;
-      node?: {
-        id: number;
-        name?: {
-          full?: string | null;
-          native?: string | null;
-          alternative?: string[] | null;
-        } | null;
-        image?: { large?: string | null } | null;
-        description?: string | null;
-      } | null;
-    }> | null;
-  } | null;
   characters?: {
     edges?: Array<{
       role?: string | null;
@@ -5340,17 +4544,6 @@ const loadAniListPreview = async (
         bannerImage
         genres
         tags { name isAdult rank }
-        staff(perPage: 25) {
-          edges {
-            role
-            node {
-              id
-              name { full native alternative }
-              image { large }
-              description
-            }
-          }
-        }
         characters(perPage: 25, sort: [ROLE, RELEVANCE, ID]) {
           edges {
             role
@@ -5427,38 +4620,6 @@ const loadAniListPreview = async (
       countryOfOrigin: media.countryOfOrigin || undefined,
     },
   };
-
-  const authors: ImportedPersonDraft[] = [];
-  const artists: ImportedPersonDraft[] = [];
-  const staffEdges = media.staff?.edges || [];
-
-  for (const edge of staffEdges) {
-    const node = edge?.node;
-    if (!node || !node.name?.full) continue;
-    const role = (edge.role || '').toLowerCase();
-    const isAuthor = role.includes('story') || role.includes('author') || role.includes('original creator') || role.includes('writer');
-    const isArtist = role.includes('art') || role.includes('illustrator') || role.includes('drawing');
-
-    const personDraft: ImportedPersonDraft = {
-      name: node.name.full,
-      imageUrl: node.image?.large || undefined,
-      description: node.description ? node.description.replace(/<[^>]+>/g, ' ').trim() : undefined,
-      alternativeNames: uniqueStrings([node.name.native, ...(node.name.alternative || [])]),
-      details: { extra: { anilistStaffId: node.id, role: edge.role } },
-      gallery: [],
-      sourceLinks: [{ sourceName: 'anilist', url: `https://anilist.co/staff/${node.id}` }],
-      sourceUrl: `https://anilist.co/staff/${node.id}`,
-    };
-
-    if (isAuthor) authors.push(personDraft);
-    if (isArtist) artists.push(personDraft);
-    if (!isAuthor && !isArtist) {
-      authors.push(personDraft);
-    }
-  }
-
-  preview.authors = uniqueByName(authors);
-  preview.artists = uniqueByName(artists);
 
   const characters: ImportedCharacterDraft[] = [];
   const charEdges = media.characters?.edges || [];
@@ -5602,7 +4763,7 @@ const searchMangaDexCandidates = async (input: string): Promise<SourceSearchCand
     }
   }
 
-  const queryUrl = `https://api.mangadex.org/manga?title=${encodeURIComponent(input.trim())}&limit=12&contentRating[]=safe&contentRating[]=suggestive&contentRating[]=erotica&contentRating[]=pornographic&includes[]=cover_art&includes[]=author&includes[]=artist`;
+  const queryUrl = `https://api.mangadex.org/manga?title=${encodeURIComponent(input.trim())}&limit=12&contentRating[]=safe&contentRating[]=suggestive&contentRating[]=erotica&contentRating[]=pornographic&includes[]=cover_art`;
   const json = await fetchMangaDexJson<{ data: MangaDexMangaItem[] }>(queryUrl);
   const mangaList: MangaDexMangaItem[] = json?.data || [];
 
@@ -5632,7 +4793,7 @@ const loadMangaDexPreview = async (
     throw new Error('Geçersiz MangaDex ID');
   }
 
-  const detailUrl = `https://api.mangadex.org/manga/${mangaId}?includes[]=cover_art&includes[]=author&includes[]=artist&includes[]=tag`;
+  const detailUrl = `https://api.mangadex.org/manga/${mangaId}?includes[]=cover_art&includes[]=tag`;
   const json = await fetchMangaDexJson<{ data: MangaDexMangaItem }>(detailUrl);
   const manga: MangaDexMangaItem = json?.data;
   if (!manga) {
@@ -5695,29 +4856,6 @@ const loadMangaDexPreview = async (
     },
   };
 
-  const authors: ImportedPersonDraft[] = [];
-  const artists: ImportedPersonDraft[] = [];
-
-  for (const rel of manga.relationships || []) {
-    const name = rel.attributes?.name;
-    if (!name) continue;
-
-    const personDraft: ImportedPersonDraft = {
-      name,
-      description: rel.attributes?.biography?.en || Object.values(rel.attributes?.biography || {})[0] || undefined,
-      alternativeNames: [],
-      details: { extra: { mangadexRelId: rel.id, type: rel.type } },
-      gallery: [],
-      sourceLinks: [{ sourceName: 'mangadex' as unknown as ExternalSourceName, url: `https://mangadex.org/author/${rel.id}` }],
-      sourceUrl: `https://mangadex.org/author/${rel.id}`,
-    };
-
-    if (rel.type === 'author') authors.push(personDraft);
-    if (rel.type === 'artist') artists.push(personDraft);
-  }
-
-  preview.authors = uniqueByName(authors);
-  preview.artists = uniqueByName(artists);
   preview.characters = [];
   preview.relatedSeries = [];
 
@@ -5827,18 +4965,6 @@ export const importPreviewIntoManga = async (
     selection.enabledOptions.tags ? getTagsForEntity('manga', mangaId) : Promise.resolve([]),
   ]);
 
-  const existingAuthorKeys = new Set(
-    [
-      ...(manga.authorsDetails || []).map((author) => author.name),
-      ...(manga.author?.split(',') || []),
-    ].map((value) => normalizeKey(value)).filter(Boolean),
-  );
-  const existingArtistKeys = new Set(
-    [
-      ...(manga.artistsDetails || []).map((artist) => artist.name),
-      ...(manga.artist?.split(',') || []),
-    ].map((value) => normalizeKey(value)).filter(Boolean),
-  );
   const existingCharacterKeys = new Set(existingCharacters.map((character) => normalizeKey(character.name)).filter(Boolean));
   const existingTagKeys = new Set(
     [
@@ -5930,28 +5056,6 @@ export const importPreviewIntoManga = async (
       if (tag) {
         await addTagToEntity('manga', mangaId, tag.id);
         existingTagKeys.add(normalizeKey(tag.name));
-      }
-    }
-  }
-
-  if (selection.enabledOptions.authors) {
-    for (const author of preview.authors) {
-      const authorKey = normalizeKey(author.name);
-      const authorId = await resolveAuthor(author, selection.importAsPublic);
-      if (!existingAuthorKeys.has(authorKey)) {
-        await linkMangaToAuthor(mangaId, authorId);
-        existingAuthorKeys.add(authorKey);
-      }
-    }
-  }
-
-  if (selection.enabledOptions.artists) {
-    for (const artist of preview.artists) {
-      const artistKey = normalizeKey(artist.name);
-      const artistId = await resolveArtist(artist, selection.importAsPublic);
-      if (!existingArtistKeys.has(artistKey)) {
-        await linkMangaToArtist(mangaId, artistId);
-        existingArtistKeys.add(artistKey);
       }
     }
   }

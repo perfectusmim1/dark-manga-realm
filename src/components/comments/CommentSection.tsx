@@ -55,8 +55,6 @@ import {
     toggleCommentDislike,
     getMangaById,
     getCharacterById,
-    getAuthorById,
-    getArtistById,
     getEntityCommentsV2,
     getEntityReactions,
     getUserEntityReaction,
@@ -93,7 +91,7 @@ import { toast } from 'sonner';
 interface CommentSectionProps {
     mangaId?: string;
     entityId?: string;
-    entityType?: 'manga' | 'character' | 'author' | 'artist';
+    entityType?: 'manga' | 'character';
     chapterId?: string;
     blockedUserIds?: string[];
     totalReaderPages?: number;
@@ -933,14 +931,6 @@ const CommentSection: React.FC<CommentSectionProps> = ({
             case 'character': {
                 const character = await getCharacterById(entityId);
                 return character?.name || 'Karakter';
-            }
-            case 'author': {
-                const author = await getAuthorById(entityId);
-                return author?.name || 'Yazar';
-            }
-            case 'artist': {
-                const artist = await getArtistById(entityId);
-                return artist?.name || 'Çizer';
             }
             default:
                 return 'İçerik';

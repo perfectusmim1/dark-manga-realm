@@ -44,7 +44,7 @@ import { syncMangaToExternalProviders } from '@/lib/externalSync';
 
 interface LibraryItem {
     favorite: Favorite;
-    manga: Pick<Manga, 'id' | 'title' | 'cover' | 'author' | 'chapters'>;
+    manga: Pick<Manga, 'id' | 'title' | 'cover' | 'chapters'>;
     progress: ReadingProgress | undefined;
 }
 
@@ -94,7 +94,6 @@ const Library: React.FC = () => {
                         id: fav.mangaId,
                         title: fav.mangaTitle || 'Seri',
                         cover: fav.mangaCover || '',
-                        author: '',
                         chapters: [],
                     },
                     progress,

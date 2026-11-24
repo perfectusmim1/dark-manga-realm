@@ -23,12 +23,8 @@ const isBrowsePath = (pathname: string) => (
   || pathname === '/community'
   || pathname.startsWith('/community/')
   || pathname === '/characters'
-  || pathname === '/authors'
-  || pathname === '/artists'
   || pathname.startsWith('/manga/')
   || pathname.startsWith('/character/')
-  || pathname.startsWith('/author/')
-  || pathname.startsWith('/artist/')
 );
 
 const isLibraryPath = (pathname: string) => (

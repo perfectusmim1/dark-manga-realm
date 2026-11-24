@@ -8,8 +8,41 @@ if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error('Supabase URL veya Anon Key tanımlanmamış! .env dosyasını kontrol edin.');
 }
 
+const DEVICE_IDENTITY_SESSION_KEY = 'toonparrot_device_identity_v1';
+const DEVICE_IDENTITY_WAIT_CAP_MS = 80;
+
 let cachedDeviceIdentity: Awaited<ReturnType<typeof getDeviceIdentity>> | null = null;
 let cachedDeviceIdentityPromise: Promise<Awaited<ReturnType<typeof getDeviceIdentity>>> | null = null;
+
+const readSessionDeviceIdentitySync = (): Awaited<ReturnType<typeof getDeviceIdentity>> | null => {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    try {
+        const raw = window.sessionStorage.getItem(DEVICE_IDENTITY_SESSION_KEY);
+        if (!raw) {
+            return null;
+        }
+        const parsed = JSON.parse(raw) as { deviceInstallationId?: unknown; deviceHash?: unknown };
+        if (
+            parsed
+            && typeof parsed.deviceInstallationId === 'string'
+            && parsed.deviceInstallationId.length >= 16
+            && typeof parsed.deviceHash === 'string'
+            && parsed.deviceHash.length >= 32
+        ) {
+            return {
+                deviceInstallationId: parsed.deviceInstallationId,
+                deviceHash: parsed.deviceHash,
+            };
+        }
+    } catch {
+        // ignore storage errors
+    }
+
+    return null;
+};
 
 const getCachedDeviceIdentity = async () => {
     if (typeof window === 'undefined') {
@@ -18,6 +51,12 @@ const getCachedDeviceIdentity = async () => {
 
     if (cachedDeviceIdentity) {
         return cachedDeviceIdentity;
+    }
+
+    const sessionIdentity = readSessionDeviceIdentitySync();
+    if (sessionIdentity) {
+        cachedDeviceIdentity = sessionIdentity;
+        return sessionIdentity;
     }
 
     if (!cachedDeviceIdentityPromise) {
@@ -31,7 +70,19 @@ const getCachedDeviceIdentity = async () => {
             });
     }
 
-    return cachedDeviceIdentityPromise;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    try {
+        return await Promise.race([
+            cachedDeviceIdentityPromise,
+            new Promise<null>((resolve) => {
+                timeoutId = setTimeout(() => resolve(null), DEVICE_IDENTITY_WAIT_CAP_MS);
+            }),
+        ]);
+    } finally {
+        if (timeoutId !== null) {
+            clearTimeout(timeoutId);
+        }
+    }
 };
 
 const shouldAttachDeviceHeaders = (input: RequestInfo | URL) => {
@@ -99,9 +150,15 @@ const supabaseFetch: typeof fetch = async (input, init) => {
 
     try {
         if (isRestCall) {
-            const identity = await getCachedDeviceIdentity();
-            if (identity) {
-                mergedHeaders.set('x-device-hash', identity.deviceHash);
+            const syncIdentity = cachedDeviceIdentity ?? readSessionDeviceIdentitySync();
+            if (syncIdentity) {
+                cachedDeviceIdentity = syncIdentity;
+                mergedHeaders.set('x-device-hash', syncIdentity.deviceHash);
+            } else {
+                const identity = await getCachedDeviceIdentity();
+                if (identity) {
+                    mergedHeaders.set('x-device-hash', identity.deviceHash);
+                }
             }
         }
     } catch (error) {
@@ -610,8 +667,6 @@ export type Database = {
                 Row: {
                     id: string;
                     title: string;
-                    author: string;
-                    artist: string | null;
                     description: string;
                     cover: string;
                     banner: string | null;
@@ -809,38 +864,6 @@ export type Database = {
                 };
                 Update: Partial<Database['public']['Tables']['characters']['Insert']>;
             };
-            authors: {
-                Row: {
-                    id: string;
-                    name: string;
-                    image_url: string | null;
-                    description: string | null;
-                    likes_count: number;
-                    created_at: string;
-                };
-                Insert: Omit<Database['public']['Tables']['authors']['Row'], 'id' | 'created_at' | 'likes_count'> & {
-                    id?: string;
-                    created_at?: string;
-                    likes_count?: number;
-                };
-                Update: Partial<Database['public']['Tables']['authors']['Insert']>;
-            };
-            artists: {
-                Row: {
-                    id: string;
-                    name: string;
-                    image_url: string | null;
-                    description: string | null;
-                    likes_count: number;
-                    created_at: string;
-                };
-                Insert: Omit<Database['public']['Tables']['artists']['Row'], 'id' | 'created_at' | 'likes_count'> & {
-                    id?: string;
-                    created_at?: string;
-                    likes_count?: number;
-                };
-                Update: Partial<Database['public']['Tables']['artists']['Insert']>;
-            };
             manga_characters: {
                 Row: {
                     manga_id: string;
@@ -849,22 +872,6 @@ export type Database = {
                 Insert: Database['public']['Tables']['manga_characters']['Row'];
                 Update: Partial<Database['public']['Tables']['manga_characters']['Insert']>;
             };
-            manga_authors: {
-                Row: {
-                    manga_id: string;
-                    author_id: string;
-                };
-                Insert: Database['public']['Tables']['manga_authors']['Row'];
-                Update: Partial<Database['public']['Tables']['manga_authors']['Insert']>;
-            };
-            manga_artists: {
-                Row: {
-                    manga_id: string;
-                    artist_id: string;
-                };
-                Insert: Database['public']['Tables']['manga_artists']['Row'];
-                Update: Partial<Database['public']['Tables']['manga_artists']['Insert']>;
-            };
             character_likes: {
                 Row: {
                     user_id: string;
@@ -872,22 +879,6 @@ export type Database = {
                 };
                 Insert: Database['public']['Tables']['character_likes']['Row'];
                 Update: Partial<Database['public']['Tables']['character_likes']['Insert']>;
-            };
-            author_likes: {
-                Row: {
-                    user_id: string;
-                    author_id: string;
-                };
-                Insert: Database['public']['Tables']['author_likes']['Row'];
-                Update: Partial<Database['public']['Tables']['author_likes']['Insert']>;
-            };
-            artist_likes: {
-                Row: {
-                    user_id: string;
-                    artist_id: string;
-                };
-                Insert: Database['public']['Tables']['artist_likes']['Row'];
-                Update: Partial<Database['public']['Tables']['artist_likes']['Insert']>;
             };
             character_comments: {
                 Row: {
@@ -904,38 +895,6 @@ export type Database = {
                     likes?: number;
                 };
                 Update: Partial<Database['public']['Tables']['character_comments']['Insert']>;
-            };
-            author_comments: {
-                Row: {
-                    id: string;
-                    author_id: string;
-                    user_id: string;
-                    content: string;
-                    likes: number;
-                    created_at: string;
-                };
-                Insert: Omit<Database['public']['Tables']['author_comments']['Row'], 'id' | 'created_at' | 'likes'> & {
-                    id?: string;
-                    created_at?: string;
-                    likes?: number;
-                };
-                Update: Partial<Database['public']['Tables']['author_comments']['Insert']>;
-            };
-            artist_comments: {
-                Row: {
-                    id: string;
-                    artist_id: string;
-                    user_id: string;
-                    content: string;
-                    likes: number;
-                    created_at: string;
-                };
-                Insert: Omit<Database['public']['Tables']['artist_comments']['Row'], 'id' | 'created_at' | 'likes'> & {
-                    id?: string;
-                    created_at?: string;
-                    likes?: number;
-                };
-                Update: Partial<Database['public']['Tables']['artist_comments']['Insert']>;
             };
             forum_topics: {
                 Row: {

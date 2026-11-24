@@ -92,8 +92,7 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
     const filteredMangas = mangas.filter((manga) => {
         const matchesSection = isAdultSection ? manga.isAdult === true : manga.isAdult !== true;
         const query = searchQuery.toLocaleLowerCase('tr-TR');
-        const matchesSearch = manga.title.toLocaleLowerCase('tr-TR').includes(query) ||
-            manga.author.toLocaleLowerCase('tr-TR').includes(query);
+        const matchesSearch = manga.title.toLocaleLowerCase('tr-TR').includes(query);
         const matchesType = typeFilter === 'all' || manga.type === typeFilter;
         const matchesStatus = statusFilter === 'all' || manga.status === statusFilter;
         const matchesVisibility = visibilityFilter === 'all'
@@ -197,7 +196,7 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
                 <div className="relative w-full min-w-0 flex-1 sm:min-w-[200px]">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
-                        placeholder="Manga veya yazar ara..."
+                        placeholder="Manga ara..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         className="pl-10"
@@ -310,7 +309,6 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
                                 <div className="min-w-0 flex-1 space-y-2">
                                     <div className="min-w-0">
                                         <p className="break-words font-medium">{manga.title}</p>
-                                        <p className="truncate text-sm text-muted-foreground">{manga.author}</p>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
                                         {getTypeBadge(manga.type)}
@@ -379,7 +377,6 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
                                             />
                                             <div>
                                                 <p className="font-medium">{manga.title}</p>
-                                                <p className="text-sm text-muted-foreground">{manga.author}</p>
                                             </div>
                                         </div>
                                     </td>

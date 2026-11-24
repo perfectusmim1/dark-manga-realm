@@ -26,14 +26,12 @@ import {
   Users,
   Book,
   Clock3,
-  Sparkles,
   Download,
-  ChevronDown,
   LifeBuoy,
   Send,
   type LucideIcon,
 } from 'lucide-react';
-import { Artist, Author, Character, Manga } from '@/lib/types';
+import { Character, Manga } from '@/lib/types';
 import { resolveDisplayImageUrl } from '@/lib/imageProxy';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -79,7 +77,6 @@ import { useBootstrappedAppearancePreferences } from '@/hooks/useBootstrappedApp
 import { shouldRenderHeaderBootstrap } from '@/components/layout/HeaderBootstrapShell';
 import { prefetchRouteForPathname } from '@/lib/routeModules';
 
-const CHARACTER_MENU_LONG_PRESS_MS = 320;
 const QUICK_SEARCH_DEBOUNCE_MS = 120;
 const LIVE_SEARCH_CACHE_TTL_MS = 60_000;
 const NotificationDropdown = lazy(() => import('@/components/notifications/NotificationDropdown'));
@@ -89,8 +86,6 @@ type SearchDataModule = {
   getMangaSummaries: () => Promise<Manga[]>;
   getRandomMangaCandidates: (limit?: number) => Promise<Manga[]>;
   getCharacters: () => Promise<Character[]>;
-  getAuthors: () => Promise<Author[]>;
-  getArtists: () => Promise<Artist[]>;
   searchMangas: (query: string) => Promise<Manga[]>;
   subscribeMangaSummariesUpdated: (listener: (summaries: Manga[]) => void) => () => void;
 };
@@ -103,8 +98,6 @@ const loadSearchDataModule = () => {
       getMangaSummaries: module.getMangaSummaries,
       getRandomMangaCandidates: module.getRandomMangaCandidates,
       getCharacters: module.getCharacters,
-      getAuthors: module.getAuthors,
-      getArtists: module.getArtists,
       searchMangas: module.searchMangas,
       subscribeMangaSummariesUpdated: module.subscribeMangaSummariesUpdated,
     }));
@@ -159,15 +152,11 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [quickResults, setQuickResults] = useState<Manga[]>([]);
   const [quickCharacterResults, setQuickCharacterResults] = useState<Character[]>([]);
-  const [quickAuthorResults, setQuickAuthorResults] = useState<Author[]>([]);
-  const [quickArtistResults, setQuickArtistResults] = useState<Artist[]>([]);
   const [catalogRevision, setCatalogRevision] = useState(0);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const allMangasRef = useRef<Manga[]>([]);
   const allCharactersRef = useRef<Character[]>([]);
-  const allAuthorsRef = useRef<Author[]>([]);
-  const allArtistsRef = useRef<Artist[]>([]);
   const searchQueryRef = useRef('');
   const mangaLoadPromiseRef = useRef<Promise<Manga[]> | null>(null);
   const secondaryLoadPromiseRef = useRef<Promise<void> | null>(null);
@@ -241,29 +230,17 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
   };
 
   const ensureSecondaryEntitiesLoaded = async () => {
-    if (!isOnline) {
-      return;
-    }
-
-    if (
-      allCharactersRef.current.length > 0
-      && allAuthorsRef.current.length > 0
-      && allArtistsRef.current.length > 0
-    ) {
+    if (!isOnline || allCharactersRef.current.length > 0) {
       return;
     }
 
     if (!secondaryLoadPromiseRef.current) {
       secondaryLoadPromiseRef.current = loadSearchDataModule()
         .then(async (module) => {
-          const [chars, authors, artists] = await Promise.all([
-            allCharactersRef.current.length > 0 ? allCharactersRef.current : module.getCharacters(),
-            allAuthorsRef.current.length > 0 ? allAuthorsRef.current : module.getAuthors(),
-            allArtistsRef.current.length > 0 ? allArtistsRef.current : module.getArtists(),
-          ]);
+          const chars = allCharactersRef.current.length > 0
+            ? allCharactersRef.current
+            : await module.getCharacters();
           allCharactersRef.current = chars;
-          allAuthorsRef.current = authors;
-          allArtistsRef.current = artists;
           if (searchQueryRef.current.trim().length > 1) {
             setCatalogRevision((rev) => rev + 1);
           }
@@ -287,8 +264,6 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
     setSearchQuery('');
     setQuickResults((prev) => (prev.length === 0 ? prev : []));
     setQuickCharacterResults((prev) => (prev.length === 0 ? prev : []));
-    setQuickAuthorResults((prev) => (prev.length === 0 ? prev : []));
-    setQuickArtistResults((prev) => (prev.length === 0 ? prev : []));
     setIsSearchFocused(false);
   };
 
@@ -315,8 +290,6 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
     if (trimmed.length <= 1) {
       setQuickResults((prev) => (prev.length === 0 ? prev : []));
       setQuickCharacterResults((prev) => (prev.length === 0 ? prev : []));
-      setQuickAuthorResults((prev) => (prev.length === 0 ? prev : []));
-      setQuickArtistResults((prev) => (prev.length === 0 ? prev : []));
       return;
     }
 
@@ -324,19 +297,13 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
       if (allMangasRef.current.length === 0) {
         void ensureMangasLoaded();
       }
-      if (
-        allCharactersRef.current.length === 0
-        || allAuthorsRef.current.length === 0
-        || allArtistsRef.current.length === 0
-      ) {
+      if (allCharactersRef.current.length === 0) {
         void ensureSecondaryEntitiesLoaded();
       }
 
       const mangaMatches = rankTopMangaMatches(allMangasRef.current, trimmed, 3);
       setQuickResults(mangaMatches);
       setQuickCharacterResults(takeTopEntityMatches(allCharactersRef.current, trimmed, 3));
-      setQuickAuthorResults(takeTopEntityMatches(allAuthorsRef.current, trimmed, 3));
-      setQuickArtistResults(takeTopEntityMatches(allArtistsRef.current, trimmed, 3));
 
       // Önbellek henüz yeni senkronize edilmiş seriyi içermiyorsa canlı aramadan tamamla.
       if (isOnline && mangaMatches.length < 3) {
@@ -413,8 +380,6 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
     setSearchQuery('');
     setQuickResults((prev) => (prev.length === 0 ? prev : []));
     setQuickCharacterResults((prev) => (prev.length === 0 ? prev : []));
-    setQuickAuthorResults((prev) => (prev.length === 0 ? prev : []));
-    setQuickArtistResults((prev) => (prev.length === 0 ? prev : []));
     inputRef.current?.focus();
   };
 
@@ -428,7 +393,7 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
         <Input
           ref={inputRef}
           type="search"
-          placeholder="Manga, karakter, yazar veya çizer ara..."
+          placeholder="Manga veya karakter ara..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           onFocus={() => {
@@ -461,8 +426,6 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
         {isSearchFocused && (
           quickResults.length > 0
           || quickCharacterResults.length > 0
-          || quickAuthorResults.length > 0
-          || quickArtistResults.length > 0
         ) && (
           <div
             onMouseDown={(e) => e.preventDefault()}
@@ -550,68 +513,6 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
                 </div>
               )}
 
-              {quickAuthorResults.length > 0 && (
-                <div className="mt-3">
-                  <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-t border-border pt-2">Yazarlar</p>
-                  <div className="mt-1 space-y-1">
-                    {quickAuthorResults.map((author) => (
-                      <button
-                        key={author.id}
-                        type="button"
-                        onClick={() => handleEntityResultClick(`/author/${author.id}`)}
-                        className="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-secondary/80 group"
-                      >
-                        <Avatar className="h-8 w-8">
-                          <AvatarImage src={resolveDisplayImageUrl(author.imageUrl, { width: 80, quality: 85, format: 'webp', fit: 'cover' })} />
-                          <AvatarFallback className="text-[10px]">{author.name[0]}</AvatarFallback>
-                        </Avatar>
-                        <div className="min-w-0 flex-1">
-                          <h4 className="truncate text-sm font-semibold transition-colors group-hover:text-primary">{author.name}</h4>
-                          <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                            <Book className="h-2.5 w-2.5 text-primary" />
-                            <span>Yazar</span>
-                            <span className="h-1 w-1 rounded-full bg-border" />
-                            <Heart className="h-2 w-2 fill-primary text-primary" />
-                            <span>{author.likesCount} beğeni</span>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {quickArtistResults.length > 0 && (
-                <div className="mt-3">
-                  <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-t border-border pt-2">Çizerler</p>
-                  <div className="mt-1 space-y-1">
-                    {quickArtistResults.map((artist) => (
-                      <button
-                        key={artist.id}
-                        type="button"
-                        onClick={() => handleEntityResultClick(`/artist/${artist.id}`)}
-                        className="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-secondary/80 group"
-                      >
-                        <Avatar className="h-8 w-8">
-                          <AvatarImage src={resolveDisplayImageUrl(artist.imageUrl, { width: 80, quality: 85, format: 'webp', fit: 'cover' })} />
-                          <AvatarFallback className="text-[10px]">{artist.name[0]}</AvatarFallback>
-                        </Avatar>
-                        <div className="min-w-0 flex-1">
-                          <h4 className="truncate text-sm font-semibold transition-colors group-hover:text-primary">{artist.name}</h4>
-                          <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                            <Sparkles className="h-2.5 w-2.5 text-primary" />
-                            <span>Çizer</span>
-                            <span className="h-1 w-1 rounded-full bg-border" />
-                            <Heart className="h-2 w-2 fill-primary text-primary" />
-                            <span>{artist.likesCount} beğeni</span>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
               <div className="mt-2 border-t border-border pt-1">
                 <button
                   type="submit"
@@ -662,21 +563,6 @@ const HeaderCounterShell = ({
 
 export const GlobalHeaderEnabledContext = React.createContext(false);
 
-const characterMenuItems = [
-  {
-    path: '/characters',
-    label: 'Karakterler',
-  },
-  {
-    path: '/authors',
-    label: 'Yazarlar',
-  },
-  {
-    path: '/artists',
-    label: 'Çizerler',
-  },
-];
-
 interface HeaderProps {
   persistent?: boolean;
 }
@@ -706,31 +592,20 @@ const HeaderContent: React.FC = () => {
   const cachedAnnouncementCount = canUseCachedHeaderCounts ? headerShellSnapshot?.unreadAnnouncementCount || 0 : 0;
   const cachedNotificationCount = canUseCachedHeaderCounts ? headerShellSnapshot?.unreadNotificationCount || 0 : 0;
   const { disableHeavyEffects } = useDeviceProfile();
+  const [headerDropdownsReady, setHeaderDropdownsReady] = useState(false);
   const [isRandomDialogOpen, setIsRandomDialogOpen] = useState(false);
   const [isRandomRolling, setIsRandomRolling] = useState(false);
   const [randomQueue, setRandomQueue] = useState<Manga[]>([]);
   const [randomSpinIndex, setRandomSpinIndex] = useState(0);
   const [randomTransitionMs, setRandomTransitionMs] = useState(120);
-  const [isCharactersDesktopMenuOpen, setIsCharactersDesktopMenuOpen] = useState(false);
-  const [isCharactersMobileMenuOpen, setIsCharactersMobileMenuOpen] = useState(false);
-  const desktopCharactersCloseTimeoutRef = useRef<number | null>(null);
-  const mobileCharactersLongPressTimeoutRef = useRef<number | null>(null);
-  const mobileCharactersLongPressTriggeredRef = useRef(false);
-  const mobileCharactersMenuRef = useRef<HTMLDivElement | null>(null);
-  const mobileCharactersSubmenuRef = useRef<HTMLDivElement | null>(null);
   const randomLoadInFlightRef = useRef(false);
 
-  const isActive = (path: string) =>
+  const isActive = (path: string) => (
     path === '/community'
       ? location.pathname === '/community' || location.pathname.startsWith('/community/')
-      : location.pathname === path;
-  const isCharactersSectionActive = (
-    location.pathname === '/characters'
-    || location.pathname === '/authors'
-    || location.pathname === '/artists'
-    || location.pathname.startsWith('/character/')
-    || location.pathname.startsWith('/author/')
-    || location.pathname.startsWith('/artist/')
+      : path === '/characters'
+        ? location.pathname === '/characters' || location.pathname.startsWith('/character/')
+        : location.pathname === path
   );
 
   const navLinks: { path: string; label: string; icon?: LucideIcon; featured?: boolean }[] = [
@@ -742,142 +617,40 @@ const HeaderContent: React.FC = () => {
     ...(!authLoading && !displayUser ? [{ path: '/support', label: 'Destek', icon: LifeBuoy }] : []),
   ];
 
-  const clearDesktopCharactersCloseTimeout = () => {
-    if (desktopCharactersCloseTimeoutRef.current !== null) {
-      window.clearTimeout(desktopCharactersCloseTimeoutRef.current);
-      desktopCharactersCloseTimeoutRef.current = null;
-    }
-  };
+  useEffect(() => {
+    let cancelled = false;
+    let idleId: number | null = null;
+    const timeoutId = window.setTimeout(() => {
+      if (cancelled) {
+        return;
+      }
 
-  const clearMobileCharactersLongPressTimeout = () => {
-    if (mobileCharactersLongPressTimeoutRef.current !== null) {
-      window.clearTimeout(mobileCharactersLongPressTimeoutRef.current);
-      mobileCharactersLongPressTimeoutRef.current = null;
-    }
-  };
+      if (typeof window.requestIdleCallback === 'function') {
+        idleId = window.requestIdleCallback(() => {
+          if (!cancelled) {
+            setHeaderDropdownsReady(true);
+          }
+        }, { timeout: 250 });
+        return;
+      }
 
-  const closeCharacterMenus = () => {
-    clearDesktopCharactersCloseTimeout();
-    clearMobileCharactersLongPressTimeout();
-    mobileCharactersLongPressTriggeredRef.current = false;
-    setIsCharactersDesktopMenuOpen(false);
-    setIsCharactersMobileMenuOpen(false);
-  };
+      setHeaderDropdownsReady(true);
+    }, 350);
 
-  const openDesktopCharactersMenu = () => {
-    clearDesktopCharactersCloseTimeout();
-    setIsCharactersDesktopMenuOpen(true);
-  };
-
-  const scheduleDesktopCharactersMenuClose = () => {
-    clearDesktopCharactersCloseTimeout();
-    desktopCharactersCloseTimeoutRef.current = window.setTimeout(() => {
-      setIsCharactersDesktopMenuOpen(false);
-    }, 120);
-  };
-
-  const handleMobileCharactersLongPressStart = () => {
-    mobileCharactersLongPressTriggeredRef.current = false;
-    clearMobileCharactersLongPressTimeout();
-    mobileCharactersLongPressTimeoutRef.current = window.setTimeout(() => {
-      mobileCharactersLongPressTriggeredRef.current = true;
-      setIsCharactersMobileMenuOpen(true);
-    }, CHARACTER_MENU_LONG_PRESS_MS);
-  };
-
-  const handleMobileCharactersLongPressCancel = () => {
-    clearMobileCharactersLongPressTimeout();
-  };
-
-  const handleMobileCharactersLinkClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
-    if (mobileCharactersLongPressTriggeredRef.current) {
-      event.preventDefault();
-      mobileCharactersLongPressTriggeredRef.current = false;
-      return;
-    }
-
-    setIsCharactersMobileMenuOpen(false);
-    setIsMenuOpen(false);
-  };
-
-  const toggleMobileCharactersMenu = (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    clearMobileCharactersLongPressTimeout();
-    mobileCharactersLongPressTriggeredRef.current = false;
-    setIsCharactersMobileMenuOpen((previous) => !previous);
-  };
-
-  const renderCharacterMenuLinks = (onNavigate?: () => void, isInteractive = true) => (
-    <>
-      {characterMenuItems.map((item) => {
-        const isItemActive = item.path === '/characters'
-          ? location.pathname === '/characters' || location.pathname.startsWith('/character/')
-          : item.path === '/authors'
-            ? location.pathname === '/authors' || location.pathname.startsWith('/author/')
-            : location.pathname === '/artists' || location.pathname.startsWith('/artist/');
-
-        return (
-          <Link
-            key={item.path}
-            to={item.path}
-            onClick={onNavigate}
-            tabIndex={isInteractive ? undefined : -1}
-            className={`block rounded-xl px-4 py-2.5 transition-colors ${
-              isItemActive
-                ? 'bg-primary/12 text-primary'
-                : 'text-foreground hover:bg-secondary/80'
-            }`}
-          >
-            <p className="text-sm font-semibold">{item.label}</p>
-          </Link>
-        );
-      })}
-    </>
-  );
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      if (idleId !== null && typeof window.cancelIdleCallback === 'function') {
+        window.cancelIdleCallback(idleId);
+      }
+    };
+  }, []);
 
   useEffect(() => {
-    closeCharacterMenus();
     setIsMenuOpen(false);
     setIsRandomDialogOpen(false);
     setIsRandomRolling(false);
   }, [location.pathname]);
-
-  useEffect(() => {
-    if (isMenuOpen) {
-      return;
-    }
-
-    setIsCharactersMobileMenuOpen(false);
-    mobileCharactersLongPressTriggeredRef.current = false;
-    clearMobileCharactersLongPressTimeout();
-  }, [isMenuOpen]);
-
-  useEffect(() => {
-    if (!isCharactersMobileMenuOpen) {
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      const clickedInsideTrigger = mobileCharactersMenuRef.current?.contains(target);
-      const clickedInsideSubmenu = mobileCharactersSubmenuRef.current?.contains(target);
-      if (!clickedInsideTrigger && !clickedInsideSubmenu) {
-        setIsCharactersMobileMenuOpen(false);
-      }
-    };
-
-    document.addEventListener('pointerdown', handlePointerDown);
-
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-    };
-  }, [isCharactersMobileMenuOpen]);
-
-  useEffect(() => () => {
-    clearDesktopCharactersCloseTimeout();
-    clearMobileCharactersLongPressTimeout();
-  }, []);
 
   useEffect(() => {
     if (!isRandomRolling || randomQueue.length === 0) {
@@ -976,8 +749,6 @@ const HeaderContent: React.FC = () => {
           title: manga.title,
           cover: manga.cover,
           banner: manga.banner,
-          author: manga.author,
-          artist: manga.artist,
           type: manga.type,
           status: manga.status,
           description: manga.description,
@@ -1072,6 +843,20 @@ const HeaderContent: React.FC = () => {
     </Tooltip>
   );
 
+  const counterShellFallback = (
+    <>
+      <HeaderCounterShell
+        icon={Megaphone}
+        iconClassName="text-amber-500"
+        unreadCount={cachedAnnouncementCount}
+      />
+      <HeaderCounterShell
+        icon={Bell}
+        unreadCount={cachedNotificationCount}
+      />
+    </>
+  );
+
   return (
     <TooltipProvider>
     <header
@@ -1091,59 +876,7 @@ const HeaderContent: React.FC = () => {
         <nav className="hidden shrink-0 items-center gap-4 lg:flex xl:gap-6">
           {navLinks.map((link) => {
             const Icon = link.icon;
-            const isActiveLink = link.path === '/characters'
-              ? isCharactersSectionActive
-              : isActive(link.path);
-
-            if (link.path === '/characters') {
-              return (
-                <div
-                  key={link.path}
-                  className="relative -my-3 shrink-0 px-2 py-3"
-                  onMouseEnter={openDesktopCharactersMenu}
-                  onMouseLeave={scheduleDesktopCharactersMenuClose}
-                >
-                  <Link
-                    to={link.path}
-                    onPointerEnter={() => prefetchRouteForPathname(link.path)}
-                    onFocus={() => prefetchRouteForPathname(link.path)}
-                    aria-expanded={isCharactersDesktopMenuOpen}
-                    className={`flex items-center gap-1.5 whitespace-nowrap text-sm font-medium transition-colors ${
-                      isCharactersSectionActive
-                        ? 'text-primary'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {link.label}
-                    <ChevronDown
-                      className={`h-4 w-4 transition-transform duration-200 motion-reduce:transition-none ${
-                        isCharactersDesktopMenuOpen ? 'rotate-180' : ''
-                      }`}
-                    />
-                  </Link>
-
-                  <div
-                    ref={(node) => {
-                      if (node) {
-                        node.inert = !isCharactersDesktopMenuOpen;
-                      }
-                    }}
-                    aria-hidden={!isCharactersDesktopMenuOpen}
-                    className={`absolute left-1/2 top-full z-50 w-[14rem] -translate-x-1/2 pt-2 transition-[opacity,transform,visibility] duration-200 ease-out-smooth motion-reduce:transition-none ${
-                      isCharactersDesktopMenuOpen
-                        ? 'visible pointer-events-auto translate-y-0 opacity-100'
-                        : 'invisible pointer-events-none -translate-y-1 opacity-0'
-                    }`}
-                  >
-                    <div className="rounded-2xl border border-border/70 bg-background/95 p-2 shadow-2xl backdrop-blur-xl">
-                      <div className="space-y-1">
-                        {renderCharacterMenuLinks(undefined, isCharactersDesktopMenuOpen)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            }
+            const isActiveLink = isActive(link.path);
 
             return (
               <Link
@@ -1219,24 +952,14 @@ const HeaderContent: React.FC = () => {
               title="Uygulamayı Yükle"
             />
             {displayUser ? (
-              <Suspense
-                fallback={(
-                  <>
-                    <HeaderCounterShell
-                      icon={Megaphone}
-                      iconClassName="text-amber-500"
-                      unreadCount={cachedAnnouncementCount}
-                    />
-                    <HeaderCounterShell
-                      icon={Bell}
-                      unreadCount={cachedNotificationCount}
-                    />
-                  </>
-                )}
-              >
-                <AnnouncementDropdown userId={displayUser.id} />
-                <NotificationDropdown userId={displayUser.id} />
-              </Suspense>
+              headerDropdownsReady ? (
+                <Suspense fallback={counterShellFallback}>
+                  <AnnouncementDropdown userId={displayUser.id} />
+                  <NotificationDropdown userId={displayUser.id} />
+                </Suspense>
+              ) : (
+                counterShellFallback
+              )
             ) : null}
           </div>
 
@@ -1392,92 +1115,6 @@ const HeaderContent: React.FC = () => {
           <nav className="grid grid-cols-2 gap-1.5">
             {navLinks.map((link) => {
               const Icon = link.icon;
-
-              if (link.path === '/characters') {
-                return (
-                  <React.Fragment key={link.path}>
-                    <div
-                      ref={mobileCharactersMenuRef}
-                      className={cn(
-                        'flex min-h-11 min-w-0 items-center overflow-hidden rounded-xl border transition-colors',
-                        isCharactersMobileMenuOpen || isCharactersSectionActive
-                          ? 'border-primary/40 bg-primary/12 text-primary'
-                          : 'border-border/40 bg-secondary/25 text-foreground hover:bg-secondary/50',
-                      )}
-                    >
-                      <Link
-                        to={link.path}
-                        onClick={handleMobileCharactersLinkClick}
-                        onPointerEnter={() => prefetchRouteForPathname(link.path)}
-                        onFocus={() => prefetchRouteForPathname(link.path)}
-                        onTouchStart={handleMobileCharactersLongPressStart}
-                        onTouchEnd={handleMobileCharactersLongPressCancel}
-                        onTouchCancel={handleMobileCharactersLongPressCancel}
-                        onTouchMove={handleMobileCharactersLongPressCancel}
-                        onContextMenu={(event) => event.preventDefault()}
-                        className="flex min-h-11 min-w-0 flex-1 items-center px-3 py-2 text-xs font-medium"
-                      >
-                        <span className="truncate">Karakterler</span>
-                      </Link>
-
-                      <button
-                        type="button"
-                        onClick={toggleMobileCharactersMenu}
-                        className={cn(
-                          'mr-1 flex h-9 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
-                          isCharactersMobileMenuOpen
-                            ? 'bg-primary/15 text-primary'
-                            : 'text-muted-foreground hover:bg-secondary/70 hover:text-foreground',
-                        )}
-                        aria-expanded={isCharactersMobileMenuOpen}
-                        aria-label="Karakter alt menüsü"
-                      >
-                        <ChevronDown
-                          className={cn(
-                            'h-4 w-4 transition-transform duration-200 motion-reduce:transition-none',
-                            isCharactersMobileMenuOpen && 'rotate-180',
-                          )}
-                        />
-                      </button>
-                    </div>
-
-                    {isCharactersMobileMenuOpen && (
-                      <div
-                        ref={mobileCharactersSubmenuRef}
-                        className="col-span-2 grid grid-cols-3 gap-1.5 rounded-xl border border-border/50 bg-secondary/20 p-1.5 animate-card-reveal-fast motion-reduce:animate-none"
-                      >
-                        {characterMenuItems.map((item) => {
-                          const isItemActive = item.path === '/characters'
-                            ? location.pathname === '/characters' || location.pathname.startsWith('/character/')
-                            : item.path === '/authors'
-                              ? location.pathname === '/authors' || location.pathname.startsWith('/author/')
-                              : location.pathname === '/artists' || location.pathname.startsWith('/artist/');
-
-                          return (
-                            <Link
-                              key={item.path}
-                              to={item.path}
-                              onClick={() => {
-                                setIsCharactersMobileMenuOpen(false);
-                                setIsMenuOpen(false);
-                              }}
-                              className={cn(
-                                'flex min-h-9 min-w-0 items-center justify-center rounded-lg px-2 py-1.5 text-center text-xs font-medium transition-colors',
-                                isItemActive
-                                  ? 'bg-primary/15 text-primary'
-                                  : 'text-foreground/90 hover:bg-secondary/70',
-                              )}
-                            >
-                              <span className="truncate">{item.label}</span>
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </React.Fragment>
-                );
-              }
-
               const active = isActive(link.path);
 
               return (
@@ -1559,9 +1196,6 @@ const HeaderContent: React.FC = () => {
                 <div className="min-w-0 w-full space-y-3">
                   {randomQueue.map((manga, index) => {
                     const isActive = index === randomSpinIndex;
-                    const authorText = manga.author && manga.author.trim() && manga.author.trim().toLowerCase() !== 'bilinmiyor'
-                      ? manga.author.trim()
-                      : null;
 
                     return (
                       <div
@@ -1590,12 +1224,6 @@ const HeaderContent: React.FC = () => {
                             <span className="shrink-0 font-medium tracking-wide">
                               {getCompactMangaTypeLabel(manga.type)}
                             </span>
-                            {authorText && (
-                              <>
-                                <span className="h-1 w-1 shrink-0 rounded-full bg-border" />
-                                <span className="truncate">{authorText}</span>
-                              </>
-                            )}
                           </div>
                         </div>
                       </div>

@@ -42,8 +42,6 @@ const buildFavoriteFallbackManga = (favorite: Favorite): Manga => ({
   alternativeTitles: [],
   cover: favorite.mangaCover || FAVORITES_FALLBACK_COVER,
   banner: favorite.mangaCover || FAVORITES_FALLBACK_COVER,
-  author: '',
-  artist: '',
   status: 'ongoing',
   genres: [],
   description: '',

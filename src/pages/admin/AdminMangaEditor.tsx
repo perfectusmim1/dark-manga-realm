@@ -51,21 +51,13 @@ import {
     getMangaSummaries,
     deleteChapter,
     getCharacters,
-    getAuthors,
-    getArtists,
     saveCharacter,
-    saveAuthor,
-    saveArtist,
     getMangaCharacters,
-    ensureAuthorByName,
-    ensureArtistByName,
     replaceMangaCharacters,
-    replaceMangaAuthors,
-    replaceMangaArtists,
     replaceMangaRelatedSeries,
 } from '@/lib/database';
 import { formatChapterDisplayTitle } from '@/lib/chapterTitle';
-import { Manga, Chapter, Character, Author, Artist, MangaRelation } from '@/lib/types';
+import { Manga, Chapter, Character, MangaRelation } from '@/lib/types';
 import {
     DEFAULT_CHAPTER_CARD_IMAGE_MODE,
     getChapterCardImageMode,
@@ -85,28 +77,6 @@ import {
     upsertExternalSourceLink,
 } from '@/lib/externalSync';
 import { toast } from 'sonner';
-
-const normalizeNamedEntityValue = (value?: string | null) =>
-    value?.trim().replace(/\s+/g, ' ') || '';
-
-const normalizeNamedEntityKey = (value?: string | null) =>
-    normalizeNamedEntityValue(value).toLocaleLowerCase('tr-TR');
-
-const splitManualEntityNames = (value?: string | null) => {
-    const normalized = value || '';
-    const hasStructuredSeparator = /[\n;,|/]/.test(normalized);
-    const values = hasStructuredSeparator
-        ? normalized.split(/[\n;,|/]+/g)
-        : [normalized];
-
-    return Array.from(
-        new Set(
-            values
-                .map((item) => normalizeNamedEntityValue(item))
-                .filter(Boolean),
-        ),
-    );
-};
 
 const getSeriesGalleryUrls = (details?: Manga['details']) => {
     const rawGallery = details?.extra?.seriesGallery;
@@ -133,36 +103,6 @@ const parseSeriesGalleryInput = (value: string) => (
         ),
     )
 );
-
-const joinEntityNames = (values: Array<string | null | undefined>) => (
-    Array.from(
-        new Set(
-            values
-                .map((value) => normalizeNamedEntityValue(value))
-                .filter(Boolean),
-        ),
-    ).join(', ')
-);
-
-const removeEntityNameFromManualValue = (
-    currentValue: string | null | undefined,
-    removedName: string,
-) => (
-    joinEntityNames(
-        splitManualEntityNames(currentValue).filter(
-            (value) => normalizeNamedEntityKey(value) !== normalizeNamedEntityKey(removedName),
-        ),
-    )
-);
-
-const upsertNamedEntity = <T extends { id: string }>(items: T[], entity: T) => {
-    const existingIndex = items.findIndex((item) => item.id === entity.id);
-    if (existingIndex === -1) {
-        return [...items, entity];
-    }
-
-    return items.map((item) => (item.id === entity.id ? entity : item));
-};
 
 const DEFAULT_CHARACTER_LISTING_ROLE: CharacterListingRole = 'minor';
 const DEFAULT_ENTITY_PICKER_LIMIT = 10;
@@ -198,8 +138,6 @@ const createEmptyMangaDraft = (): Partial<Manga> => ({
     banner: '',
     isPublic: true,
     isAdult: false,
-    author: '',
-    artist: '',
     status: 'ongoing',
     type: 'manga',
     genres: [],
@@ -426,20 +364,16 @@ const AdminMangaEditor: React.FC = () => {
 
     // Entity States
     const [allCharacters, setAllCharacters] = useState<Character[]>([]);
-    const [allAuthors, setAllAuthors] = useState<Author[]>([]);
-    const [allArtists, setAllArtists] = useState<Artist[]>([]);
     const [allMangaOptions, setAllMangaOptions] = useState<Manga[]>([]);
     const [mangaCharacters, setMangaCharacters] = useState<Character[]>([]);
-    const [selectedAuthors, setSelectedAuthors] = useState<Author[]>([]);
-    const [selectedArtists, setSelectedArtists] = useState<Artist[]>([]);
     const [relatedSeries, setRelatedSeries] = useState<MangaRelation[]>([]);
     const [selectedRelatedMangaId, setSelectedRelatedMangaId] = useState<string>('');
     const [selectedRelationType, setSelectedRelationType] = useState<string>('related');
     const [selectedCharacterQuery, setSelectedCharacterQuery] = useState('');
     const [showAllSelectedCharacters, setShowAllSelectedCharacters] = useState(false);
 
-    // Dialog States for creating new entities
-    const [showEntityDialog, setShowEntityDialog] = useState<{ type: 'character' | 'author' | 'artist' | null }>({ type: null });
+    // Dialog States for creating new characters
+    const [showEntityDialog, setShowEntityDialog] = useState<{ type: 'character' | null }>({ type: null });
     const [newEntity, setNewEntity] = useState(() => createEmptyEntityDraft());
     const chapterCardImageMode = useMemo(
         () => getChapterCardImageMode(manga.details),
@@ -452,15 +386,11 @@ const AdminMangaEditor: React.FC = () => {
 
     useEffect(() => {
         const loadInitialData = async () => {
-            const [chars, auths, arts, mangas] = await Promise.all([
+            const [chars, mangas] = await Promise.all([
                 getCharacters({ includePrivate: true }),
-                getAuthors({ includePrivate: true }),
-                getArtists({ includePrivate: true }),
                 getMangaSummaries({ includePrivate: true }),
             ]);
             setAllCharacters(chars);
-            setAllAuthors(auths);
-            setAllArtists(arts);
             setAllMangaOptions(mangas);
         };
         loadInitialData();
@@ -481,8 +411,6 @@ const AdminMangaEditor: React.FC = () => {
                 setEditingChapterId(null);
                 setSelectedChapterIds([]);
                 setMangaCharacters([]);
-                setSelectedAuthors([]);
-                setSelectedArtists([]);
                 setRelatedSeries([]);
                 setSelectedRelatedMangaId('');
                 setSelectedRelationType('related');
@@ -504,14 +432,6 @@ const AdminMangaEditor: React.FC = () => {
                     return;
                 }
 
-                const linkedAuthorNames = existingManga.authorsDetails?.map((author) => author.name) || [];
-                const linkedArtistNames = existingManga.artistsDetails?.map((artist) => artist.name) || [];
-                const manualAuthorNames = splitManualEntityNames(existingManga.author).filter(
-                    (name) => !linkedAuthorNames.some((linkedName) => normalizeNamedEntityKey(linkedName) === normalizeNamedEntityKey(name)),
-                );
-                const manualArtistNames = splitManualEntityNames(existingManga.artist).filter(
-                    (name) => !linkedArtistNames.some((linkedName) => normalizeNamedEntityKey(linkedName) === normalizeNamedEntityKey(name)),
-                );
                 const chars = await getMangaCharacters(mangaId, { includePrivate: true });
 
                 if (cancelled) {
@@ -520,8 +440,6 @@ const AdminMangaEditor: React.FC = () => {
 
                 setManga({
                     ...existingManga,
-                    author: joinEntityNames(manualAuthorNames),
-                    artist: joinEntityNames(manualArtistNames),
                     genres: syncAdultContentGenres(
                         normalizeGenres(existingManga.genres || []),
                         { isAdult: existingManga.isAdult, type: existingManga.type },
@@ -539,8 +457,6 @@ const AdminMangaEditor: React.FC = () => {
                     listingRole: character.listingRole || DEFAULT_CHARACTER_LISTING_ROLE,
                 })));
                 setRelatedSeries(existingManga.relatedSeries || []);
-                setSelectedAuthors(existingManga.authorsDetails || []);
-                setSelectedArtists(existingManga.artistsDetails || []);
             } catch (err) {
                 if (!cancelled) {
                     toast.error('Veri yüklenemedi');
@@ -590,44 +506,6 @@ const AdminMangaEditor: React.FC = () => {
         handleChange('sourceLinks', nextLink ? upsertExternalSourceLink(baseLinks, nextLink) : baseLinks);
     };
 
-    const addSelectedAuthor = (author: Author) => {
-        setSelectedAuthors((current) => {
-            if (current.some((item) => item.id === author.id)) {
-                return current;
-            }
-
-            return [...current, author];
-        });
-        handleChange('author', removeEntityNameFromManualValue(manga.author, author.name));
-    };
-
-    const addSelectedArtist = (artist: Artist) => {
-        setSelectedArtists((current) => {
-            if (current.some((item) => item.id === artist.id)) {
-                return current;
-            }
-
-            return [...current, artist];
-        });
-        handleChange('artist', removeEntityNameFromManualValue(manga.artist, artist.name));
-    };
-
-    const removeSelectedAuthor = (authorId: string) => {
-        const authorToRemove = selectedAuthors.find((item) => item.id === authorId);
-        setSelectedAuthors((current) => current.filter((item) => item.id !== authorId));
-        if (authorToRemove) {
-            handleChange('author', removeEntityNameFromManualValue(manga.author, authorToRemove.name));
-        }
-    };
-
-    const removeSelectedArtist = (artistId: string) => {
-        const artistToRemove = selectedArtists.find((item) => item.id === artistId);
-        setSelectedArtists((current) => current.filter((item) => item.id !== artistId));
-        if (artistToRemove) {
-            handleChange('artist', removeEntityNameFromManualValue(manga.artist, artistToRemove.name));
-        }
-    };
-
     const addSelectedCharacter = (character: Character) => {
         setMangaCharacters((current) => {
             if (current.some((item) => item.id === character.id)) {
@@ -654,8 +532,6 @@ const AdminMangaEditor: React.FC = () => {
         )));
     };
 
-    const selectedAuthorIds = useMemo(() => new Set(selectedAuthors.map((author) => author.id)), [selectedAuthors]);
-    const selectedArtistIds = useMemo(() => new Set(selectedArtists.map((artist) => artist.id)), [selectedArtists]);
     const selectedCharacterIds = useMemo(() => new Set(mangaCharacters.map((character) => character.id)), [mangaCharacters]);
     const deferredSelectedCharacterQuery = useDeferredValue(selectedCharacterQuery);
     const normalizedSelectedCharacterQuery = useMemo(
@@ -663,14 +539,6 @@ const AdminMangaEditor: React.FC = () => {
         [deferredSelectedCharacterQuery],
     );
 
-    const availableAuthors = useMemo(
-        () => allAuthors.filter((author) => !selectedAuthorIds.has(author.id)),
-        [allAuthors, selectedAuthorIds],
-    );
-    const availableArtists = useMemo(
-        () => allArtists.filter((artist) => !selectedArtistIds.has(artist.id)),
-        [allArtists, selectedArtistIds],
-    );
     const availableCharacters = useMemo(
         () => allCharacters.filter((character) => !selectedCharacterIds.has(character.id)),
         [allCharacters, selectedCharacterIds],
@@ -971,18 +839,6 @@ const AdminMangaEditor: React.FC = () => {
     const handleSave = async () => {
         const normalizedTitle = manga.title?.trim();
         const normalizedCover = manga.cover?.trim();
-        const authorNames = Array.from(
-            new Set([
-                ...selectedAuthors.map((author) => normalizeNamedEntityValue(author.name)),
-                ...splitManualEntityNames(manga.author),
-            ].filter(Boolean)),
-        );
-        const artistNames = Array.from(
-            new Set([
-                ...selectedArtists.map((artist) => normalizeNamedEntityValue(artist.name)),
-                ...splitManualEntityNames(manga.artist),
-            ].filter(Boolean)),
-        );
 
         if (!normalizedTitle) {
             toast.error('Manga başlığı gerekli');
@@ -995,33 +851,6 @@ const AdminMangaEditor: React.FC = () => {
         setLoading(true);
 
         try {
-            const resolvedAuthors: Author[] = [];
-            for (const authorName of authorNames) {
-                const selectedMatch = selectedAuthors.find((author) => normalizeNamedEntityKey(author.name) === normalizeNamedEntityKey(authorName));
-                const resolvedAuthor = selectedMatch || await ensureAuthorByName(authorName);
-
-                if (resolvedAuthor) {
-                    resolvedAuthors.push(resolvedAuthor);
-                    setAllAuthors((prev) => upsertNamedEntity(prev, resolvedAuthor));
-                }
-            }
-
-            const resolvedArtists: Artist[] = [];
-            for (const artistName of artistNames) {
-                const selectedMatch = selectedArtists.find((artist) => normalizeNamedEntityKey(artist.name) === normalizeNamedEntityKey(artistName));
-                const resolvedArtist = selectedMatch || await ensureArtistByName(artistName);
-
-                if (resolvedArtist) {
-                    resolvedArtists.push(resolvedArtist);
-                    setAllArtists((prev) => upsertNamedEntity(prev, resolvedArtist));
-                }
-            }
-
-            const normalizedAuthorLabel = joinEntityNames(resolvedAuthors.map((author) => author.name));
-            const normalizedArtistLabel = joinEntityNames(resolvedArtists.map((artist) => artist.name));
-            setSelectedAuthors(resolvedAuthors);
-            setSelectedArtists(resolvedArtists);
-
             const mangaToSave: Manga = {
                 id: manga.id || `manga-${Date.now()}-${Math.random().toString(36).substring(7)}`,
                 title: normalizedTitle,
@@ -1030,8 +859,6 @@ const AdminMangaEditor: React.FC = () => {
                 banner: manga.banner?.trim() || normalizedCover,
                 isPublic: manga.isPublic ?? true,
                 isAdult: manga.isAdult ?? false,
-                author: normalizedAuthorLabel,
-                artist: normalizedArtistLabel || undefined,
                 status: manga.status as 'ongoing' | 'completed' | 'hiatus',
                 type: manga.type as 'manga' | 'manhwa' | 'manhua' | 'webtoon',
                 genres: syncAdultContentGenres(
@@ -1061,9 +888,6 @@ const AdminMangaEditor: React.FC = () => {
                 })),
             );
 
-            await replaceMangaAuthors(mangaToSave.id, resolvedAuthors.map((author) => author.id));
-            await replaceMangaArtists(mangaToSave.id, resolvedArtists.map((artist) => artist.id));
-
             await replaceMangaRelatedSeries(
                 mangaToSave.id,
                 relatedSeries.map((relation, index) => ({
@@ -1087,35 +911,18 @@ const AdminMangaEditor: React.FC = () => {
     const handleCreateEntity = async () => {
         if (!newEntity.name.trim()) return;
         try {
-            let id = '';
             const entity = {
                 name: newEntity.name.trim(),
                 imageUrl: newEntity.imageUrl.trim() || undefined,
                 description: newEntity.description.trim() || undefined,
             };
             if (showEntityDialog.type === 'character') {
-                id = await saveCharacter(entity);
+                const id = await saveCharacter(entity);
                 const chars = await getCharacters({ includePrivate: true });
                 setAllCharacters(chars);
                 const created = chars.find(c => c.id === id);
                 if (created) {
                     addSelectedCharacter(created);
-                }
-            } else if (showEntityDialog.type === 'author') {
-                id = await saveAuthor(entity);
-                const auths = await getAuthors({ includePrivate: true });
-                setAllAuthors(auths);
-                const created = auths.find(a => a.id === id);
-                if (created) {
-                    addSelectedAuthor(created);
-                }
-            } else if (showEntityDialog.type === 'artist') {
-                id = await saveArtist(entity);
-                const arts = await getArtists({ includePrivate: true });
-                setAllArtists(arts);
-                const created = arts.find(a => a.id === id);
-                if (created) {
-                    addSelectedArtist(created);
                 }
             }
             setShowEntityDialog({ type: null });
@@ -1186,85 +993,6 @@ const AdminMangaEditor: React.FC = () => {
                                     ))}
                                 </div>
                             )}
-                        </div>
-
-                        <div className="grid gap-4 md:grid-cols-2">
-                            <div className="space-y-4">
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium">Yazar</label>
-                                    <div className="flex flex-col gap-2 sm:flex-row">
-                                        <SearchableOptionPicker
-                                            options={availableAuthors}
-                                            onSelect={addSelectedAuthor}
-                                            placeholder="Yazar ara ve ekle..."
-                                            searchPlaceholder="Yazar adı yaz..."
-                                            emptyMessage="Eşleşen yazar bulunamadı."
-                                            getLabel={(author) => author.name}
-                                            getSearchValues={(author) => author.alternativeNames || []}
-                                            getSecondaryText={(author) => author.alternativeNames?.slice(0, 2).join(' • ')}
-                                        />
-                                        <Button type="button" variant="outline" size="icon" onClick={() => setShowEntityDialog({ type: 'author' })} className="sm:w-10" aria-label="Yeni yazar oluştur">
-                                            <Plus className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                    {selectedAuthors.length > 0 && (
-                                        <div className="flex flex-wrap gap-2">
-                                            {selectedAuthors.map((author) => (
-                                                <Badge key={author.id} variant="secondary" className="gap-2 px-3 py-1">
-                                                    <span>{author.name}</span>
-                                                    <button type="button" onClick={() => removeSelectedAuthor(author.id)} aria-label={`${author.name} yazarını kaldır`}>
-                                                        <X className="h-3 w-3" />
-                                                    </button>
-                                                </Badge>
-                                            ))}
-                                        </div>
-                                    )}
-                                    <Input
-                                        value={manga.author || ''}
-                                        onChange={(e) => handleChange('author', e.target.value)}
-                                        placeholder="Ek yazar adları için yeni satır veya ; kullanın"
-                                        className="mt-2"
-                                    />
-                                </div>
-                            </div>
-                            <div className="space-y-4">
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium">Çizer</label>
-                                    <div className="flex flex-col gap-2 sm:flex-row">
-                                        <SearchableOptionPicker
-                                            options={availableArtists}
-                                            onSelect={addSelectedArtist}
-                                            placeholder="Çizer ara ve ekle..."
-                                            searchPlaceholder="Çizer adı yaz..."
-                                            emptyMessage="Eşleşen çizer bulunamadı."
-                                            getLabel={(artist) => artist.name}
-                                            getSearchValues={(artist) => artist.alternativeNames || []}
-                                            getSecondaryText={(artist) => artist.alternativeNames?.slice(0, 2).join(' • ')}
-                                        />
-                                        <Button type="button" variant="outline" size="icon" onClick={() => setShowEntityDialog({ type: 'artist' })} className="sm:w-10" aria-label="Yeni çizer oluştur">
-                                            <Plus className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                    {selectedArtists.length > 0 && (
-                                        <div className="flex flex-wrap gap-2">
-                                            {selectedArtists.map((artist) => (
-                                                <Badge key={artist.id} variant="secondary" className="gap-2 px-3 py-1">
-                                                    <span>{artist.name}</span>
-                                                    <button type="button" onClick={() => removeSelectedArtist(artist.id)} aria-label={`${artist.name} çizerini kaldır`}>
-                                                        <X className="h-3 w-3" />
-                                                    </button>
-                                                </Badge>
-                                            ))}
-                                        </div>
-                                    )}
-                                    <Input
-                                        value={manga.artist || ''}
-                                        onChange={(e) => handleChange('artist', e.target.value)}
-                                        placeholder="Ek çizer adları için yeni satır veya ; kullanın"
-                                        className="mt-2"
-                                    />
-                                </div>
-                            </div>
                         </div>
 
                         <div className="space-y-2">
@@ -2038,12 +1766,12 @@ const AdminMangaEditor: React.FC = () => {
                 </DialogContent>
             </Dialog>
 
-            {/* Entity Add Dialog (Character/Author/Artist) */}
+            {/* Character Add Dialog */}
             <Dialog open={showEntityDialog.type !== null} onOpenChange={() => setShowEntityDialog({ type: null })}>
                 <DialogContent className="w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] sm:max-w-lg">
                     <DialogHeader>
                         <DialogTitle>
-                            Yeni {showEntityDialog.type === 'character' ? 'Karakter' : showEntityDialog.type === 'author' ? 'Yazar' : 'Çizer'} Ekle
+                            Yeni Karakter Ekle
                         </DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4">

@@ -18,12 +18,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import {
-    ensureArtistByName,
-    ensureAuthorByName,
     getAllMangas,
     getMangaById,
-    linkMangaToArtist,
-    linkMangaToAuthor,
     saveManga,
 } from '@/lib/database';
 import { Manga, Chapter } from '@/lib/types';
@@ -62,28 +58,6 @@ import {
     writePreferredScrapeSource,
 } from '@/lib/scraper/scrapeSources';
 import { useAdminPageGuard } from '@/hooks/useAdminPageGuard';
-
-const normalizeScrapedText = (value?: string | null) =>
-    value?.replace(/\s+/g, ' ').trim() || '';
-
-const extractPrimaryScrapedPersonName = (value?: string | null) =>
-    normalizeScrapedText(value);
-
-const splitScrapedEntityNames = (value?: string | null) => {
-    const normalized = normalizeScrapedText(value);
-    if (!normalized) {
-        return [] as string[];
-    }
-
-    return Array.from(
-        new Set(
-            normalized
-                .split(/[,，;\n|/]+/g)
-                .map((item) => extractPrimaryScrapedPersonName(item))
-                .filter(Boolean),
-        ),
-    );
-};
 
 const getMediaTypeLabel = (type?: Manga['type']) => {
     return getMangaTypeLabel(type);
@@ -432,17 +406,6 @@ const AdminScraper: React.FC = () => {
             // Sort chapters by number ascending
             chapters.sort((a, b) => Number(a.number) - Number(b.number));
 
-            const normalizedAuthorNames = splitScrapedEntityNames(fetchedData.author);
-            const normalizedArtistNames = splitScrapedEntityNames(fetchedData.artist);
-            const authorEntities = (await Promise.all(
-                normalizedAuthorNames.map((name) => ensureAuthorByName(name)),
-            )).filter(Boolean);
-            const artistEntities = (await Promise.all(
-                normalizedArtistNames.map((name) => ensureArtistByName(name)),
-            )).filter(Boolean);
-            const normalizedAuthorLabel = normalizedAuthorNames.join(', ');
-            const normalizedArtistLabel = normalizedArtistNames.join(', ');
-
             if (existingManga) {
                 // Update existing manga
                 const mergedAlternativeTitles = Array.from(new Set([
@@ -459,8 +422,6 @@ const AdminScraper: React.FC = () => {
                     alternativeTitles: mergedAlternativeTitles,
                     genres: mergedGenres,
                     chapters,
-                    author: existingManga.author || normalizedAuthorLabel || '',
-                    artist: existingManga.artist || normalizedArtistLabel || undefined,
                     description: existingManga.description || fetchedData.description || '',
                     cover: existingManga.cover || fetchedData.cover || '',
                     banner: existingManga.banner || fetchedData.banner || fetchedData.cover || '',
@@ -469,13 +430,6 @@ const AdminScraper: React.FC = () => {
                 };
 
                 await saveManga(updatedManga);
-
-                for (const authorEntity of authorEntities) {
-                    await linkMangaToAuthor(mangaId, authorEntity.id);
-                }
-                for (const artistEntity of artistEntities) {
-                    await linkMangaToArtist(mangaId, artistEntity.id);
-                }
 
                 toast.success(
                     `"${existingManga.title}" zaten mevcut. Seri üzerine güncellendi (+${newlyAddedCount} yeni, ${updatedCount} güncellenen bölüm).`,
@@ -490,8 +444,6 @@ const AdminScraper: React.FC = () => {
                     description: fetchedData.description || '',
                     cover: fetchedData.cover || '',
                     banner: fetchedData.banner || fetchedData.cover || '',
-                    author: normalizedAuthorLabel || '',
-                    artist: normalizedArtistLabel || undefined,
                     status: fetchedData.status || 'ongoing',
                     type: fetchedData.type || 'webtoon',
                     genres: fetchedData.genres || [],
@@ -507,13 +459,6 @@ const AdminScraper: React.FC = () => {
                 };
 
                 await saveManga(finalManga);
-
-                for (const authorEntity of authorEntities) {
-                    await linkMangaToAuthor(mangaId, authorEntity.id);
-                }
-                for (const artistEntity of artistEntities) {
-                    await linkMangaToArtist(mangaId, artistEntity.id);
-                }
 
                 const summaryParts = [`${chapters.length} bölüm eklendi`];
                 if (fallbackRecoveredCount > 0) summaryParts.push(`${fallbackRecoveredCount} bölüm yedek kaynaktan tamamlandı`);
@@ -685,7 +630,6 @@ const AdminScraper: React.FC = () => {
                                         </div>
                                         <div className="min-w-0 space-y-2">
                                             <h2 className="text-xl font-bold">{fetchedData.title}</h2>
-                                            <p className="text-sm text-muted-foreground">Yazar: {fetchedData.author || 'Belirtilmedi'}</p>
                                             <div className="flex flex-wrap gap-2">
                                                 {adultFormatLabel && adultFormatLabel !== getMediaTypeLabel(fetchedData.type) ? (
                                                     <Badge variant="outline" className="border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-300 hover:bg-fuchsia-500/20">

@@ -1,6 +1,5 @@
 import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
-  Users,
   UserPen,
   Trash2,
   Plus,
@@ -13,7 +12,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog,
@@ -44,16 +42,10 @@ import ConfirmDialog from '@/components/ui/confirm-dialog';
 import { AppPagination } from '@/components/ui/AppPagination';
 import {
   getCharacters,
-  getAuthors,
-  getArtists,
   saveCharacter,
-  saveAuthor,
-  saveArtist,
   deleteCharacter,
-  deleteAuthor,
-  deleteArtist,
 } from '@/lib/database';
-import { Character, Author, Artist, ExternalSourceLink } from '@/lib/types';
+import { Character, ExternalSourceLink } from '@/lib/types';
 import {
   EntityMetadataFormState,
   createEmptyEntityMetadataFormState,
@@ -69,9 +61,6 @@ import {
 } from '@/lib/characterRoles';
 import { matchesNamedEntitySearch } from '@/lib/searchMatching';
 import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
-
-type EntityType = 'character' | 'author' | 'artist';
-type EditableEntity = Character | Author | Artist;
 
 interface EntityDialogFormState {
   name: string;
@@ -118,17 +107,11 @@ const parseSourceLinks = (value: string): ExternalSourceLink[] => {
     }));
 };
 
-const ENTITY_LABELS: Record<EntityType, string> = {
-  character: 'Karakter',
-  author: 'Yazar',
-  artist: 'Çizer',
-};
-
 const ADMIN_ENTITY_PREVIEW_LIMIT = 20;
 const INTERACTIVE_ROW_ELEMENT_SELECTOR = 'button, a, input, textarea, select, [role="button"], [data-prevent-row-toggle="true"]';
 
 interface AdminEntityThumbnailProps {
-  item: EditableEntity;
+  item: Character;
   className: string;
   initialClassName: string;
 }
@@ -167,15 +150,12 @@ const AdminEntityThumbnail: React.FC<AdminEntityThumbnailProps> = ({
 
 const AdminEntities: React.FC = () => {
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<EntityType>('character');
   const [searchQuery, setSearchQuery] = useState('');
 
   const [characters, setCharacters] = useState<Character[]>([]);
-  const [authors, setAuthors] = useState<Author[]>([]);
-  const [artists, setArtists] = useState<Artist[]>([]);
 
   const [showDialog, setShowDialog] = useState(false);
-  const [editingEntity, setEditingEntity] = useState<EditableEntity | null>(null);
+  const [editingEntity, setEditingEntity] = useState<Character | null>(null);
   const [entityToDelete, setEntityToDelete] = useState<{ id: string; name: string } | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
@@ -187,15 +167,8 @@ const AdminEntities: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [chars, auths, arts] = await Promise.all([
-        getCharacters({ includePrivate: true }),
-        getAuthors({ includePrivate: true }),
-        getArtists({ includePrivate: true }),
-      ]);
-
+      const chars = await getCharacters({ includePrivate: true });
       setCharacters(chars);
-      setAuthors(auths);
-      setArtists(arts);
     } catch (error) {
       console.error(error);
       toast.error('Veriler yüklenemedi');
@@ -209,14 +182,10 @@ const AdminEntities: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    setSelectedIds([]);
-  }, [activeTab]);
-
-  useEffect(() => {
     setPage(1);
-  }, [activeTab, deferredSearchQuery]);
+  }, [deferredSearchQuery]);
 
-  const handleOpenDialog = (entity?: EditableEntity) => {
+  const handleOpenDialog = (entity?: Character) => {
     if (entity) {
       setEditingEntity(entity);
       setFormData({
@@ -227,9 +196,7 @@ const AdminEntities: React.FC = () => {
         alternativeNames: (entity.alternativeNames || []).join('\n'),
         galleryUrls: (entity.gallery || []).map((image) => image.url).join('\n'),
         sourceLinksJson: entity.sourceLinks?.length ? JSON.stringify(entity.sourceLinks, null, 2) : '',
-        characterRoleType: activeTab === 'character'
-          ? (getCharacterListingRoleFromMetadata(entity.details) || '')
-          : '',
+        characterRoleType: getCharacterListingRoleFromMetadata(entity.details) || '',
         metadata: entityMetadataToFormState(entity.details),
       });
       setShowDialog(true);
@@ -271,7 +238,7 @@ const AdminEntities: React.FC = () => {
       return;
     }
 
-    const payload: Partial<EditableEntity> = {
+    const payload: Partial<Character> = {
       ...(editingEntity || {}),
       name: formData.name.trim(),
       imageUrl: formData.imageUrl.trim() || undefined,
@@ -282,11 +249,6 @@ const AdminEntities: React.FC = () => {
       sourceLinks,
       details: (() => {
         const metadata = formStateToEntityMetadata(formData.metadata);
-
-        if (activeTab !== 'character') {
-          return metadata;
-        }
-
         const nextExtra = { ...(metadata.extra || {}) };
         if (formData.characterRoleType) {
           nextExtra.characterRoleType = formData.characterRoleType;
@@ -303,13 +265,7 @@ const AdminEntities: React.FC = () => {
     };
 
     try {
-      if (activeTab === 'character') {
-        await saveCharacter(payload as Partial<Character>);
-      } else if (activeTab === 'author') {
-        await saveAuthor(payload as Partial<Author>);
-      } else {
-        await saveArtist(payload as Partial<Artist>);
-      }
+      await saveCharacter(payload);
 
       toast.success('Başarıyla kaydedildi');
       setShowDialog(false);
@@ -327,13 +283,7 @@ const AdminEntities: React.FC = () => {
     setEntityToDelete(null);
 
     try {
-      if (activeTab === 'character') {
-        await deleteCharacter(target.id);
-      } else if (activeTab === 'author') {
-        await deleteAuthor(target.id);
-      } else {
-        await deleteArtist(target.id);
-      }
+      await deleteCharacter(target.id);
 
       toast.success('Başarıyla silindi');
       void loadData();
@@ -384,26 +334,13 @@ const AdminEntities: React.FC = () => {
     handleItemPress(id);
   };
 
-  const currentItems = useMemo(() => {
-    switch (activeTab) {
-      case 'character':
-        return characters;
-      case 'author':
-        return authors;
-      case 'artist':
-        return artists;
-      default:
-        return [];
-    }
-  }, [activeTab, authors, artists, characters]);
-
   const filteredItems = useMemo(() => {
     if (!deferredSearchQuery.trim()) {
-      return currentItems;
+      return characters;
     }
 
-    return currentItems.filter((item) => matchesNamedEntitySearch(item, deferredSearchQuery));
-  }, [currentItems, deferredSearchQuery]);
+    return characters.filter((item) => matchesNamedEntitySearch(item, deferredSearchQuery));
+  }, [characters, deferredSearchQuery]);
 
   const isSearchActive = deferredSearchQuery.trim().length > 0;
 
@@ -444,13 +381,7 @@ const AdminEntities: React.FC = () => {
 
     setShowBulkDeleteConfirm(false);
 
-    const deleteFn = activeTab === 'character'
-      ? deleteCharacter
-      : activeTab === 'author'
-        ? deleteAuthor
-        : deleteArtist;
-
-    const results = await Promise.allSettled(idsToDelete.map((id) => deleteFn(id)));
+    const results = await Promise.allSettled(idsToDelete.map((id) => deleteCharacter(id)));
     const successCount = results.filter((result) => result.status === 'fulfilled').length;
     const failureCount = results.length - successCount;
 
@@ -470,47 +401,33 @@ const AdminEntities: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold sm:text-3xl">Kişi & Karakter Yönetimi</h1>
+          <h1 className="text-2xl font-bold sm:text-3xl">Karakter Yönetimi</h1>
         </div>
         <Button onClick={openCreateDialog} className="w-full sm:w-auto">
           <Plus className="mr-2 h-4 w-4" />
-          Yeni {ENTITY_LABELS[activeTab]}
+          Yeni Karakter
         </Button>
       </div>
 
       <Card className="border-border/40 bg-card/60 backdrop-blur-sm">
         <CardHeader className="pb-3">
-          <CardTitle>{ENTITY_LABELS[activeTab]} Kayıtları</CardTitle>
+          <CardTitle>Karakter Kayıtları</CardTitle>
           <CardDescription>
             Gizli kayıtlar yalnızca yönetim panelinden görünür; herkese açık sayfalarda ve doğrudan bağlantılarda açılmaz.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as EntityType)} className="w-full">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <TabsList className="h-auto flex-wrap justify-start gap-2 bg-background/50 border border-border">
-                <TabsTrigger value="character" className="gap-2">
-                  <Users className="h-4 w-4" /> Karakterler
-                </TabsTrigger>
-                <TabsTrigger value="author" className="gap-2">
-                  <UserPen className="h-4 w-4" /> Yazarlar
-                </TabsTrigger>
-                <TabsTrigger value="artist" className="gap-2">
-                  <UserPen className="h-4 w-4" /> Çizerler
-                </TabsTrigger>
-              </TabsList>
-
-              <div className="relative w-full lg:w-80">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="İsim veya alternatif isim ara..."
-                  className="pl-9 bg-background/50"
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                />
-              </div>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-end">
+            <div className="relative w-full lg:w-80">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="İsim veya alternatif isim ara..."
+                className="pl-9 bg-background/50"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+              />
             </div>
-          </Tabs>
+          </div>
 
           <div className="flex flex-col gap-3 rounded-2xl border border-border bg-background/40 p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
@@ -774,7 +691,7 @@ const AdminEntities: React.FC = () => {
         <DialogContent className="w-[calc(100vw-1.5rem)] max-w-5xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
             <DialogTitle>
-              {editingEntity ? 'Düzenle' : 'Yeni Oluştur'}: {ENTITY_LABELS[activeTab]}
+              {editingEntity ? 'Düzenle' : 'Yeni Oluştur'}: Karakter
             </DialogTitle>
             <DialogDescription>
               Temel bilgi, görünürlük, alternatif isimler, meta veri, galeri ve kaynak bağlantılarını düzenleyin.
@@ -788,7 +705,7 @@ const AdminEntities: React.FC = () => {
                 <Input
                   value={formData.name}
                   onChange={(event) => setFormData((current) => ({ ...current, name: event.target.value }))}
-                  placeholder={`Örn: ${activeTab === 'character' ? 'Jin-Woo Sung' : activeTab === 'artist' ? 'Jang Seong-rak' : 'Chugong'}`}
+                  placeholder="Örn: Jin-Woo Sung"
                 />
               </div>
 
@@ -802,31 +719,29 @@ const AdminEntities: React.FC = () => {
               </div>
             </div>
 
-            {activeTab === 'character' ? (
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Varsayılan Karakter Konumu</label>
-                <Select
-                  value={formData.characterRoleType || 'auto'}
-                  onValueChange={(value) => setFormData((current) => ({
-                    ...current,
-                    characterRoleType: value === 'auto' ? '' : value as CharacterListingRole,
-                  }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seçilmezse diğer karakterler grubuna düşer" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto">Otomatik / Seçilmedi</SelectItem>
-                    <SelectItem value="main">Ana Karakter</SelectItem>
-                    <SelectItem value="supporting">Yan Karakter</SelectItem>
-                    <SelectItem value="minor">Diğer Karakter</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Bu alan yalnızca varsayılan profil bilgisidir. Seri bazlı ana/yan/diğer rolü manga düzenleme ekranından veya içe aktarım sırasında ayrı ayarlanır.
-                </p>
-              </div>
-            ) : null}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Varsayılan Karakter Konumu</label>
+              <Select
+                value={formData.characterRoleType || 'auto'}
+                onValueChange={(value) => setFormData((current) => ({
+                  ...current,
+                  characterRoleType: value === 'auto' ? '' : value as CharacterListingRole,
+                }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seçilmezse diğer karakterler grubuna düşer" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Otomatik / Seçilmedi</SelectItem>
+                  <SelectItem value="main">Ana Karakter</SelectItem>
+                  <SelectItem value="supporting">Yan Karakter</SelectItem>
+                  <SelectItem value="minor">Diğer Karakter</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Bu alan yalnızca varsayılan profil bilgisidir. Seri bazlı ana/yan/diğer rolü manga düzenleme ekranından veya içe aktarım sırasında ayrı ayarlanır.
+              </p>
+            </div>
 
             <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
               <div className="space-y-2">
@@ -1013,7 +928,7 @@ const AdminEntities: React.FC = () => {
         title="Seçili kayıtlar silinsin mi?"
         description={
           selectedIds.length > 0
-            ? `${selectedIds.length} ${ENTITY_LABELS[activeTab].toLocaleLowerCase('tr-TR')} kaydı kalıcı olarak silinecek. Bu işlem geri alınamaz.`
+            ? `${selectedIds.length} karakter kaydı kalıcı olarak silinecek. Bu işlem geri alınamaz.`
             : ''
         }
         confirmLabel="Seçilileri Sil"

@@ -19,8 +19,6 @@ import {
     Review,
     MangaReaction,
     Character,
-    Author,
-    Artist,
     MangaRelation,
     EntityMetadata,
     ExternalSourceLink,
@@ -158,15 +156,6 @@ const PERSON_PLACEHOLDER_KEYS = new Set([
     'undefined',
 ]);
 
-export const cleanPlaceholderNamedEntityString = (value?: string | null): string => {
-    if (!value) return '';
-    const parts = value.split(',').map((p) => normalizeNamedEntityValue(p)).filter(Boolean);
-    const meaningful = parts.filter((p) => isMeaningfulNamedEntity(p));
-    if (meaningful.length > 0) return meaningful.join(', ');
-    if (parts.some((p) => !isMeaningfulNamedEntity(p))) return '';
-    return value.trim();
-};
-
 export const chunkArray = <T>(items: T[], size: number): T[][] => {
     if (!items || items.length === 0) return [];
     const chunks: T[][] = [];
@@ -179,7 +168,7 @@ export const chunkArray = <T>(items: T[], size: number): T[][] => {
 const isMeaningfulNamedEntity = (value?: string | null) =>
     !PERSON_PLACEHOLDER_KEYS.has(normalizeNamedEntityKey(value));
 
-type NamedEntityTableName = 'characters' | 'authors' | 'artists';
+type NamedEntityTableName = 'characters';
 
 const NAMED_ENTITY_LIST_PAGE_SIZE = 1000;
 
@@ -210,28 +199,6 @@ const findNamedEntityRowByName = async <TRow extends { name: string }>(
 
     return null;
 };
-
-const mapAuthorRow = (row: any): Author => ({
-    ...row,
-    imageUrl: sanitizeEntityImageUrl(row.image_url || row.imageUrl || row.image),
-    likesCount: row.likes_count ?? 0,
-    isPublic: row.is_public ?? true,
-    alternativeNames: row.alternative_names || [],
-    details: row.details || {},
-    gallery: row.gallery || [],
-    sourceLinks: row.source_links || [],
-});
-
-const mapArtistRow = (row: any): Artist => ({
-    ...row,
-    imageUrl: sanitizeEntityImageUrl(row.image_url || row.imageUrl || row.image),
-    likesCount: row.likes_count ?? 0,
-    isPublic: row.is_public ?? true,
-    alternativeNames: row.alternative_names || [],
-    details: row.details || {},
-    gallery: row.gallery || [],
-    sourceLinks: row.source_links || [],
-});
 
 const mapCharacterRow = (
     row: any,
@@ -319,7 +286,7 @@ const normalizeSeriesGalleryUrls = (details?: EntityMetadata | Record<string, un
         .filter(Boolean);
 };
 
-const createRichEntityPayload = (entity: Partial<Character | Author | Artist>) => ({
+const createRichEntityPayload = (entity: Partial<Character>) => ({
     name: normalizeNamedEntityValue(entity.name),
     image_url: sanitizeEntityImageUrl(entity.imageUrl || (entity as any).image_url || (entity as any).image),
     description: entity.description,
@@ -331,7 +298,7 @@ const createRichEntityPayload = (entity: Partial<Character | Author | Artist>) =
 });
 
 const materializeNamedEntityMedia = async (
-    entityType: 'character' | 'author' | 'artist',
+    entityType: 'character',
     entityId: string,
     media: { imageUrl?: string | null; gallery?: EntityGalleryImage[] | null },
 ) => {
@@ -371,7 +338,7 @@ const materializeNamedEntityMedia = async (
 };
 
 const getOrderedEntityRank = async (
-    tableName: 'characters' | 'authors' | 'artists',
+    tableName: 'characters',
     entityId: string,
 ): Promise<number | undefined> => {
     let from = 0;
@@ -644,25 +611,6 @@ const fetchAllMangaRowsPaginated = async (
     return uniqueRows;
 };
 
-const joinNamedEntityValues = (values: Array<string | null | undefined>) => {
-    const rawList = Array.from(
-        new Set(
-            values
-                .map((value) => normalizeNamedEntityValue(value))
-                .filter(Boolean)
-                .map((value) => `${value}`),
-        ),
-    );
-    const meaningful = rawList.filter((value) => isMeaningfulNamedEntity(value));
-    const finalList = meaningful.length > 0 ? meaningful : rawList.filter((value) => isMeaningfulNamedEntity(value));
-    return finalList.join(', ');
-};
-
-const mapMangaVisibilityFields = (row: any) => ({
-    isPublic: row?.is_public ?? true,
-    isAdult: row?.is_adult ?? false,
-});
-
 const mapMangaBaseFields = (row: any) => ({
     alternativeTitles: row?.alternative_titles || row?.alternativeTitles || [],
     ...mapMangaVisibilityFields(row),
@@ -674,8 +622,6 @@ const mapMangaBaseFields = (row: any) => ({
     descriptionTr: sanitizeMangaDescription(row?.description_tr || row?.descriptionTr || row?.details?.descriptionTr || row?.description),
     descriptionEn: sanitizeMangaDescription(row?.description_en || row?.descriptionEn || row?.details?.descriptionEn || ''),
 });
-
-const LEGACY_MANGA_PERSON_LABEL_LIMIT = 100;
 
 export interface MangaMediaRecord {
     id: string;
@@ -692,48 +638,7 @@ export interface NamedEntityMediaRecord {
     gallery: EntityGalleryImage[];
 }
 
-const toLegacyMangaPersonLabel = (value?: string | null) => {
-    const normalized = normalizeNamedEntityValue(value);
-    if (!normalized) {
-        return '';
-    }
-
-    if (normalized.length <= LEGACY_MANGA_PERSON_LABEL_LIMIT) {
-        return normalized;
-    }
-
-    const parts = normalized
-        .split(',')
-        .map((part) => normalizeNamedEntityValue(part))
-        .filter(Boolean);
-
-    if (parts.length <= 1) {
-        return `${normalized.slice(0, LEGACY_MANGA_PERSON_LABEL_LIMIT - 3).trimEnd()}...`;
-    }
-
-    const selected: string[] = [];
-
-    for (let index = 0; index < parts.length; index += 1) {
-        const nextSelected = [...selected, parts[index]];
-        const remainingCount = parts.length - nextSelected.length;
-        const suffix = remainingCount > 0 ? ` +${remainingCount}` : '';
-        const candidate = `${nextSelected.join(', ')}${suffix}`;
-
-        if (candidate.length > LEGACY_MANGA_PERSON_LABEL_LIMIT) {
-            if (selected.length > 0) {
-                return `${selected.join(', ')} +${parts.length - selected.length}`;
-            }
-
-            return `${parts[index].slice(0, LEGACY_MANGA_PERSON_LABEL_LIMIT - 3).trimEnd()}...`;
-        }
-
-        selected.push(parts[index]);
-    }
-
-    return selected.join(', ');
-};
-
-type RichEntityType = 'character' | 'author' | 'artist';
+type RichEntityType = 'character';
 type CommentEntityType = 'manga' | RichEntityType;
 type ReactionIdColumn = 'comment_id' | 'review_id';
 
@@ -1051,14 +956,12 @@ const clearPersistedCatalogCache = () => {
         `${PERSISTED_LATEST_CHAPTERS_SERIES_KEY_PREFIX}staff:safe`,
         `${PERSISTED_LATEST_CHAPTERS_SERIES_KEY_PREFIX}staff:adult`,
         'named-entities-v1:characters:public',
-        'named-entities-v1:authors:public',
-        'named-entities-v1:artists:public',
     ]);
 };
-const MANGA_SUMMARY_BASE_SELECT_COLUMNS = 'id, title, alternative_titles, cover, banner, author, artist, status, genres, views, last_updated, latest_chapter_at, created_at, type, release_year, chapter_count, latest_chapters';
-// Liste/picker sorgularÄ± iÃ§in hafif kolon seti: description/details/source_links gibi aÄŸÄ±r
-// alanlar Ã§ekilmez (bkz. performans raporu: select('*') payload'Ä± 1.8 KB/satÄ±r).
-const MANGA_LIST_BASE_SELECT_COLUMNS = 'id, title, alternative_titles, cover, banner, author, artist, status, genres, views, last_updated, latest_chapter_at, created_at, type, release_year, chapter_count, latest_chapters';
+const MANGA_SUMMARY_BASE_SELECT_COLUMNS = 'id, title, alternative_titles, cover, banner, status, genres, views, last_updated, latest_chapter_at, created_at, type, release_year, chapter_count, latest_chapters';
+// Liste/picker sorguları için hafif kolon seti: description/details/source_links gibi ağır
+// alanlar çekilmez (bkz. performans raporu: select('*') payload'ı 1.8 KB/satır).
+const MANGA_LIST_BASE_SELECT_COLUMNS = 'id, title, alternative_titles, cover, banner, status, genres, views, last_updated, latest_chapter_at, created_at, type, release_year, chapter_count, latest_chapters';
 const HOME_PAGE_SECTION_LIMITS = Object.freeze({
     trending: 8,
     newlyAdded: 8,
@@ -1071,9 +974,7 @@ let mangaSummariesPromise: Partial<Record<MangaAudienceCacheKey, Promise<Manga[]
 let homePageMangaSectionsCache: Partial<Record<MangaAudienceCacheKey, { fetchedAt: number; value: HomePageMangaSections }>> = {};
 let homePageMangaSectionsPromise: Partial<Record<MangaAudienceCacheKey, Promise<HomePageMangaSections>>> = {};
 let mangaVisibilityColumnAvailableCache: boolean | null = true;
-let mangaVisibilityColumnAvailablePromise: Promise<boolean> | null = null;
 let mangaAdultColumnAvailableCache: boolean | null = true;
-let mangaAdultColumnAvailablePromise: Promise<boolean> | null = null;
 let currentViewerRoleCache:
     | { authUserId: string | null; fetchedAt: number; role?: User['role'] }
     | null = null;
@@ -1108,6 +1009,8 @@ const invalidateAllMangasCache = () => {
     homePageMangaSectionsCache = {};
     homePageMangaSectionsPromise = {};
     mangaDetailCache.clear();
+    clearMangaDetailSnapshotStorage();
+    invalidateMangaDetailMetaCache();
     clearPersistedCatalogCache();
     namedEntityRowsCache.clear();
     namedEntityRowsPromises.clear();
@@ -1223,6 +1126,289 @@ const writePersistedAdminAccessContext = (
     }
 };
 
+const MANGA_DETAIL_SNAP_PREFIX = 'toonparrot:manga-detail-snap:v1:';
+const MANGA_DETAIL_SNAP_LRU_KEY = 'toonparrot:manga-detail-snap-lru:v1';
+const MANGA_DETAIL_SNAP_ALIASES_KEY = 'toonparrot:manga-detail-snap-aliases:v1';
+const MANGA_DETAIL_SNAP_TTL_MS = 10 * 60_000;
+const MANGA_DETAIL_SNAP_MAX_ENTRIES = 25;
+const MANGA_VISIBILITY_ACCESS_SESSION_KEY = 'toonparrot:manga-visibility-access:v1';
+const MANGA_VISIBILITY_ACCESS_TTL_MS = 5 * 60_000;
+
+export const readSyncAuthUserId = (): string | null => {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    try {
+        const persisted = window.sessionStorage.getItem('toonparrot_auth_user_id_v1');
+        if (persisted && persisted !== '__anon__') {
+            return persisted;
+        }
+    } catch {
+        // ignore storage errors
+    }
+
+    return null;
+};
+
+export const readSyncAdultModePreference = (userIdOverride?: string | null): boolean => {
+    const targetUserId = userIdOverride ?? readSyncAuthUserId();
+    if (!targetUserId) {
+        return false;
+    }
+
+    const cachedPreferences = getCachedPreferencesForUser(targetUserId);
+    if (typeof cachedPreferences?.content?.adult_mode === 'boolean') {
+        return cachedPreferences.content.adult_mode === true;
+    }
+
+    const persistedAccess = readPersistedViewerAccess(targetUserId);
+    if (persistedAccess) {
+        return persistedAccess.adultModeEnabled === true;
+    }
+
+    return false;
+};
+
+const clearMangaDetailSnapshotStorage = (mangaId?: string) => {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    try {
+        if (mangaId) {
+            window.sessionStorage.removeItem(`${MANGA_DETAIL_SNAP_PREFIX}${mangaId}`);
+            return;
+        }
+
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < window.sessionStorage.length; i += 1) {
+            const key = window.sessionStorage.key(i);
+            if (
+                key
+                && (
+                    key.startsWith(MANGA_DETAIL_SNAP_PREFIX)
+                    || key === MANGA_DETAIL_SNAP_LRU_KEY
+                    || key === MANGA_DETAIL_SNAP_ALIASES_KEY
+                )
+            ) {
+                keysToRemove.push(key);
+            }
+        }
+        for (const key of keysToRemove) {
+            window.sessionStorage.removeItem(key);
+        }
+    } catch {
+        // ignore storage errors
+    }
+};
+
+const stripChapterForSnapshot = (chapter: Chapter): Chapter => ({
+    id: chapter.id,
+    number: chapter.number,
+    title: chapter.title,
+    pages: [],
+    ...(typeof chapter.pageCount === 'number' ? { pageCount: chapter.pageCount } : {}),
+    ...(chapter.cardImageUrl ? { cardImageUrl: chapter.cardImageUrl } : {}),
+    ...(chapter.cardImagePage !== undefined ? { cardImagePage: chapter.cardImagePage } : {}),
+    releaseDate: chapter.releaseDate,
+    ...(chapter.createdAt ? { createdAt: chapter.createdAt } : {}),
+    views: chapter.views || 0,
+    ...(chapter.language ? { language: chapter.language } : {}),
+    ...(chapter.groupName ? { groupName: chapter.groupName } : {}),
+    ...(chapter.sourceUrl ? { sourceUrl: chapter.sourceUrl } : {}),
+    ...(chapter._sourceLink ? { _sourceLink: chapter._sourceLink } : {}),
+});
+
+const stripMangaForSnapshot = (manga: Manga): Manga => {
+    const strippedRelatedSeries = Array.isArray(manga.relatedSeries)
+        ? manga.relatedSeries.map((rel) => ({
+            ...rel,
+            relatedManga: rel.relatedManga
+                ? {
+                    ...rel.relatedManga,
+                    chapters: Array.isArray(rel.relatedManga.chapters)
+                        ? rel.relatedManga.chapters.slice(0, 2).map(stripChapterForSnapshot)
+                        : [],
+                    ratings: [],
+                }
+                : undefined,
+        }))
+        : undefined;
+
+    return {
+        ...manga,
+        chapters: Array.isArray(manga.chapters) ? manga.chapters.map(stripChapterForSnapshot) : [],
+        ratings: [],
+        characters: undefined,
+        ...(strippedRelatedSeries ? { relatedSeries: strippedRelatedSeries } : {}),
+    };
+};
+
+const readSnapshotLruList = (): string[] => {
+    if (typeof window === 'undefined') return [];
+    try {
+        const raw = window.sessionStorage.getItem(MANGA_DETAIL_SNAP_LRU_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+    } catch {
+        return [];
+    }
+};
+
+const writeSnapshotLruList = (list: string[]) => {
+    if (typeof window === 'undefined') return;
+    try {
+        window.sessionStorage.setItem(MANGA_DETAIL_SNAP_LRU_KEY, JSON.stringify(list));
+    } catch {
+        // ignore quota errors
+    }
+};
+
+const resolveSnapshotCanonicalId = (id: string): string => {
+    if (typeof window === 'undefined' || !id) return id;
+    try {
+        const raw = window.sessionStorage.getItem(MANGA_DETAIL_SNAP_ALIASES_KEY);
+        if (!raw) return id;
+        const aliases = JSON.parse(raw) as Record<string, unknown>;
+        const mapped = aliases?.[id] ?? aliases?.[id.toLowerCase()];
+        return typeof mapped === 'string' && mapped ? mapped : id;
+    } catch {
+        return id;
+    }
+};
+
+const saveSnapshotAlias = (alias: string, canonicalId: string) => {
+    if (typeof window === 'undefined' || !alias || !canonicalId || alias === canonicalId) return;
+    try {
+        const raw = window.sessionStorage.getItem(MANGA_DETAIL_SNAP_ALIASES_KEY);
+        const parsed = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+        const entries = Object.entries(parsed).filter(([key]) => key !== alias && key !== alias.toLowerCase());
+        entries.push([alias.toLowerCase(), canonicalId]);
+        if (entries.length > 50) {
+            entries.splice(0, entries.length - 50);
+        }
+        window.sessionStorage.setItem(MANGA_DETAIL_SNAP_ALIASES_KEY, JSON.stringify(Object.fromEntries(entries)));
+    } catch {
+        // ignore storage errors
+    }
+};
+
+export const readCachedMangaDetailSnapshot = (id: string): Manga | null => {
+    if (typeof window === 'undefined' || !id?.trim()) {
+        return null;
+    }
+
+    const cleanId = id.trim();
+    const directKey = `${MANGA_DETAIL_SNAP_PREFIX}${cleanId}`;
+    let raw = window.sessionStorage.getItem(directKey);
+    let storageKey = directKey;
+
+    if (!raw) {
+        const canonicalId = resolveSnapshotCanonicalId(cleanId);
+        if (canonicalId !== cleanId) {
+            storageKey = `${MANGA_DETAIL_SNAP_PREFIX}${canonicalId}`;
+            raw = window.sessionStorage.getItem(storageKey);
+        }
+    }
+
+    if (!raw) {
+        return null;
+    }
+
+    try {
+        const parsed = JSON.parse(raw) as { fetchedAt?: unknown; value?: Manga };
+        if (!parsed || typeof parsed.fetchedAt !== 'number' || !parsed.value || !parsed.value.id) {
+            window.sessionStorage.removeItem(storageKey);
+            return null;
+        }
+
+        if (Date.now() - parsed.fetchedAt >= MANGA_DETAIL_SNAP_TTL_MS) {
+            window.sessionStorage.removeItem(storageKey);
+            return null;
+        }
+
+        const snapshot = parsed.value;
+        const authUserId = readSyncAuthUserId();
+        const persistedAccess = readPersistedViewerAccess(authUserId);
+        const isStaff = persistedAccess?.role === 'admin' || persistedAccess?.role === 'moderator';
+
+        if (snapshot.isPublic === false && !isStaff) {
+            return null;
+        }
+
+        return cloneMangaForCache(snapshot);
+    } catch {
+        return null;
+    }
+};
+
+export const writeCachedMangaDetailSnapshot = (manga: Manga, aliasId?: string): void => {
+    if (typeof window === 'undefined' || !manga?.id) {
+        return;
+    }
+
+    const payload = JSON.stringify({
+        fetchedAt: Date.now(),
+        value: stripMangaForSnapshot(manga),
+    });
+    const targetKey = `${MANGA_DETAIL_SNAP_PREFIX}${manga.id}`;
+
+    const nextLru = readSnapshotLruList().filter((entryId) => entryId !== manga.id);
+    nextLru.push(manga.id);
+    while (nextLru.length > MANGA_DETAIL_SNAP_MAX_ENTRIES) {
+        const evictedId = nextLru.shift();
+        if (evictedId) {
+            try {
+                window.sessionStorage.removeItem(`${MANGA_DETAIL_SNAP_PREFIX}${evictedId}`);
+            } catch {
+                // ignore
+            }
+        }
+    }
+
+    try {
+        window.sessionStorage.setItem(targetKey, payload);
+        writeSnapshotLruList(nextLru);
+    } catch {
+        // Evict oldest half on QuotaExceededError and retry once
+        try {
+            const evictCount = Math.max(1, Math.floor(nextLru.length / 2));
+            const evicted = nextLru.splice(0, evictCount);
+            for (const evictedId of evicted) {
+                window.sessionStorage.removeItem(`${MANGA_DETAIL_SNAP_PREFIX}${evictedId}`);
+            }
+            window.sessionStorage.setItem(targetKey, payload);
+            writeSnapshotLruList(nextLru);
+        } catch {
+            // ignore storage failures
+        }
+    }
+
+    const slug = (manga as { slug?: unknown }).slug;
+    if (typeof slug === 'string' && slug.trim() && slug.trim() !== manga.id) {
+        saveSnapshotAlias(slug.trim(), manga.id);
+    }
+    if (aliasId && aliasId.trim() && aliasId.trim() !== manga.id) {
+        saveSnapshotAlias(aliasId.trim(), manga.id);
+    }
+};
+
+export const invalidateMangaDetailSnapshotCache = (mangaId?: string) => {
+    if (!mangaId) {
+        mangaDetailCache.clear();
+        clearMangaDetailSnapshotStorage();
+        return;
+    }
+
+    for (const key of mangaDetailCache.keys()) {
+        if (key.startsWith(`${mangaId}:`)) {
+            mangaDetailCache.delete(key);
+        }
+    }
+    clearMangaDetailSnapshotStorage(mangaId);
+};
+
 export const invalidateMangaVisibilityCaches = () => {
     currentViewerRoleCache = null;
     currentViewerRolePromise = null;
@@ -1231,6 +1417,13 @@ export const invalidateMangaVisibilityCaches = () => {
     adminAccessContextCache = null;
     writePersistedViewerAccess(null, { role: undefined, adultModeEnabled: false });
     writePersistedAdminAccessContext(null);
+    if (typeof window !== 'undefined') {
+        try {
+            window.sessionStorage.removeItem(MANGA_VISIBILITY_ACCESS_SESSION_KEY);
+        } catch {
+            // ignore
+        }
+    }
     invalidateAllMangasCache();
 };
 
@@ -1257,79 +1450,75 @@ const getMangaListSelectColumns = (
 );
 
 const getMangaVisibilityColumnAvailability = async (): Promise<boolean> => {
-    if (mangaVisibilityColumnAvailableCache !== null) {
-        return mangaVisibilityColumnAvailableCache;
-    }
-
-    if (!mangaVisibilityColumnAvailablePromise) {
-        mangaVisibilityColumnAvailablePromise = (async () => {
-            const { error } = await supabase
-                .from('mangas')
-                .select(`id, ${MANGA_VISIBILITY_COLUMN_NAME}`)
-                .limit(1);
-
-            if (error) {
-                if (isMissingMangaVisibilityColumnError(error)) {
-                    return false;
-                }
-
-                if (!isExpectedAccessControlError(error)) {
-                    console.error('Manga visibility column check error:', error);
-                }
-
-                return true;
-            }
-
-            return true;
-        })()
-            .then((result) => {
-                mangaVisibilityColumnAvailableCache = result;
-                return result;
-            })
-            .finally(() => {
-                mangaVisibilityColumnAvailablePromise = null;
-            });
-    }
-
-    return mangaVisibilityColumnAvailablePromise;
+    return mangaVisibilityColumnAvailableCache ?? true;
 };
 
 const getMangaAdultColumnAvailability = async (): Promise<boolean> => {
-    if (mangaAdultColumnAvailableCache !== null) {
-        return mangaAdultColumnAvailableCache;
+    return mangaAdultColumnAvailableCache ?? true;
+};
+
+const readPersistedMangaVisibilityAccess = (
+    authUserId: string | null,
+): { role: User['role'] | undefined; adultModeEnabled: boolean } | null => {
+    if (typeof window === 'undefined') {
+        return null;
     }
 
-    if (!mangaAdultColumnAvailablePromise) {
-        mangaAdultColumnAvailablePromise = (async () => {
-            const { error } = await supabase
-                .from('mangas')
-                .select(`id, ${MANGA_ADULT_COLUMN_NAME}`)
-                .limit(1);
+    const expectedScope = authUserId || '__anon__';
+    try {
+        const raw = window.sessionStorage.getItem(MANGA_VISIBILITY_ACCESS_SESSION_KEY);
+        if (!raw) {
+            return null;
+        }
+        const parsed = JSON.parse(raw) as {
+            authUserId?: unknown;
+            fetchedAt?: unknown;
+            role?: unknown;
+            adultModeEnabled?: unknown;
+        };
+        if (
+            !parsed
+            || parsed.authUserId !== expectedScope
+            || typeof parsed.fetchedAt !== 'number'
+            || Date.now() - parsed.fetchedAt >= MANGA_VISIBILITY_ACCESS_TTL_MS
+        ) {
+            return null;
+        }
+        const cachedPreferences = authUserId ? getCachedPreferencesForUser(authUserId) : null;
+        const adultModeEnabled = cachedPreferences && typeof cachedPreferences.content?.adult_mode === 'boolean'
+            ? cachedPreferences.content.adult_mode === true
+            : parsed.adultModeEnabled === true;
 
-            if (error) {
-                if (isMissingMangaAdultColumnError(error)) {
-                    return false;
-                }
+        return {
+            role: parsed.role as User['role'] | undefined,
+            adultModeEnabled,
+        };
+    } catch {
+        return null;
+    }
+};
 
-                if (!isExpectedAccessControlError(error)) {
-                    console.error('Manga adult column check error:', error);
-                }
-
-                return true;
-            }
-
-            return true;
-        })()
-            .then((result) => {
-                mangaAdultColumnAvailableCache = result;
-                return result;
-            })
-            .finally(() => {
-                mangaAdultColumnAvailablePromise = null;
-            });
+const writePersistedMangaVisibilityAccess = (
+    authUserId: string | null,
+    access: { role: User['role'] | undefined; adultModeEnabled: boolean },
+) => {
+    if (typeof window === 'undefined') {
+        return;
     }
 
-    return mangaAdultColumnAvailablePromise;
+    try {
+        window.sessionStorage.setItem(
+            MANGA_VISIBILITY_ACCESS_SESSION_KEY,
+            JSON.stringify({
+                authUserId: authUserId || '__anon__',
+                fetchedAt: Date.now(),
+                role: access.role,
+                adultModeEnabled: access.adultModeEnabled === true,
+            }),
+        );
+    } catch {
+        // ignore storage quota errors
+    }
 };
 
 let currentViewerAdultModeCache: {
@@ -1461,21 +1650,43 @@ const getCurrentViewerAccessProfile = async (): Promise<{
     return currentViewerAccessPromise;
 };
 
+const readSyncAuthScopeKey = (): string | null => {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    try {
+        return window.sessionStorage.getItem('toonparrot_auth_user_id_v1');
+    } catch {
+        return null;
+    }
+};
+
 const resolveMangaVisibilityAccess = async (includePrivateOverride?: boolean) => {
-    const [visibilityColumnAvailable, adultColumnAvailable, accessProfile] = await Promise.all([
-        getMangaVisibilityColumnAvailability(),
-        getMangaAdultColumnAvailability(),
-        getCurrentViewerAccessProfile(),
-    ]);
+    const syncScopeKey = readSyncAuthScopeKey();
+    const syncAuthUserId = syncScopeKey && syncScopeKey !== '__anon__' ? syncScopeKey : null;
+    const persistedVisibilityAccess = syncScopeKey !== null
+        ? readPersistedMangaVisibilityAccess(syncAuthUserId)
+        : null;
+    let accessProfile: { role: User['role'] | undefined; adultModeEnabled: boolean };
+
+    if (persistedVisibilityAccess) {
+        accessProfile = persistedVisibilityAccess;
+    } else {
+        accessProfile = await getCurrentViewerAccessProfile();
+        const resolvedAuthId = currentViewerRoleCache?.authUserId ?? syncAuthUserId;
+        writePersistedMangaVisibilityAccess(resolvedAuthId, accessProfile);
+    }
+
     const includePrivate = includePrivateOverride === true;
     const includeAdult = includePrivate || accessProfile.adultModeEnabled;
 
     return {
         includePrivate,
         includeAdult,
-        visibilityColumnAvailable,
-        adultColumnAvailable,
-        summarySelectColumns: getMangaSummarySelectColumns(visibilityColumnAvailable, adultColumnAvailable),
+        visibilityColumnAvailable: true,
+        adultColumnAvailable: true,
+        summarySelectColumns: getMangaSummarySelectColumns(true, true),
     };
 };
 
@@ -1860,8 +2071,6 @@ const mapSummaryRowToManga = (
 
     return {
         ...manga,
-        author: cleanPlaceholderNamedEntityString(manga.author) || manga.author,
-        artist: cleanPlaceholderNamedEntityString(manga.artist) || manga.artist,
         ...mapMangaBaseFields(manga),
         chapters: precomputedChapters,
         chapterCount: Number(manga.chapter_count ?? manga.chapterCount) || precomputedChapters.length || 0,
@@ -2384,16 +2593,12 @@ export const getHomePageMangaSections = async (
             const precomputedChapters = mapPrecomputedLatestChapters(manga.latest_chapters);
             list.push({
                 ...manga,
-                author: cleanPlaceholderNamedEntityString(manga.author) || manga.author,
-                artist: cleanPlaceholderNamedEntityString(manga.artist) || manga.artist,
                 ...mapMangaBaseFields(manga),
                 chapters: precomputedChapters,
                 ratings: [],
                 chapterCount: Number(manga.chapter_count ?? manga.chapterCount) || precomputedChapters.length || 0,
                 averageRating: Number(manga.average_rating ?? 0),
                 reviewCount: Number(manga.review_count ?? 0),
-                authorsDetails: [],
-                artistsDetails: [],
             } as Manga);
         }
         return list;
@@ -2674,8 +2879,6 @@ const mapR2ShardRowToMangaSummary = (raw: any): Manga | null => {
         id: String(raw.id),
         slug,
         title: String(raw.title),
-        author: cleanPlaceholderNamedEntityString(raw.author) || raw.author || 'Bilinmiyor',
-        artist: cleanPlaceholderNamedEntityString(raw.artist) || raw.artist || '',
         cover: String(raw.cover || ''),
         banner: String(raw.banner || raw.cover || ''),
         genres: normalizeGenres(raw.genres || []),
@@ -2724,9 +2927,23 @@ export const getChapterById = async (chapterId: string): Promise<{ chapter: Chap
     }
 };
 
+const sortMangaChaptersList = (chapters: Chapter[], fallbackLang: string): Chapter[] => {
+    chapters.sort((a, b) => {
+        if (b.number !== a.number) return b.number - a.number;
+        const langA = resolveChapterLanguageCode(a, fallbackLang);
+        const langB = resolveChapterLanguageCode(b, fallbackLang);
+        if (langA === 'tr' && langB !== 'tr') return -1;
+        if (langB === 'tr' && langA !== 'tr') return 1;
+        if (langA === 'en' && langB !== 'en') return -1;
+        if (langB === 'en' && langA !== 'en') return 1;
+        return langA.localeCompare(langB);
+    });
+    return chapters;
+};
+
 export const getMangaChapters = async (
     mangaId: string,
-    options?: { includePages?: boolean; slug?: string; fallbackLanguage?: string }
+    options?: { includePages?: boolean; slug?: string; fallbackLanguage?: string; skipR2Fallback?: boolean }
 ): Promise<Chapter[]> => {
     const includePages = options?.includePages === true;
     const selectColumns = includePages
@@ -2762,7 +2979,7 @@ export const getMangaChapters = async (
     let resolvedSlug = options?.slug || r2MangaSlugById.get(mangaId) || '';
     let fallbackLang = options?.fallbackLanguage || '';
 
-    if (!resolvedSlug || !fallbackLang) {
+    if ((!resolvedSlug && !options?.skipR2Fallback) || !fallbackLang) {
         try {
             const { data: mangaRow } = await supabase
                 .from('mangas')
@@ -2791,8 +3008,10 @@ export const getMangaChapters = async (
     });
 
     const needsR2Chapters =
-        mapped.length === 0 ||
-        (includePages && mapped.some((ch) => !ch.pages || ch.pages.length === 0));
+        !options?.skipR2Fallback && (
+            mapped.length === 0 ||
+            (includePages && mapped.some((ch) => !ch.pages || ch.pages.length === 0))
+        );
 
     try {
         if (resolvedSlug && needsR2Chapters) {
@@ -2839,18 +3058,7 @@ export const getMangaChapters = async (
         console.warn(`Failed to merge R2 chapters for manga ${mangaId}:`, e);
     }
 
-    mapped.sort((a, b) => {
-        if (b.number !== a.number) return b.number - a.number;
-        const langA = resolveChapterLanguageCode(a, fallbackLang);
-        const langB = resolveChapterLanguageCode(b, fallbackLang);
-        if (langA === 'tr' && langB !== 'tr') return -1;
-        if (langB === 'tr' && langA !== 'tr') return 1;
-        if (langA === 'en' && langB !== 'en') return -1;
-        if (langB === 'en' && langA !== 'en') return 1;
-        return langA.localeCompare(langB);
-    });
-
-    return mapped;
+    return sortMangaChaptersList(mapped, fallbackLang);
 };
 
 export const getChapterPagesByIds = async (chapterIds: string[]): Promise<Record<string, string[]>> => {
@@ -3000,6 +3208,137 @@ export const getMangaById = async (
         return cloneMangaForCache(cachedMangaDetail.value);
     }
 
+    // Fast path: single round-trip RPC bundle for metadata-only series open
+    if (options?.includePages !== true) {
+        try {
+            const { data: bundleData, error: bundleError } = await callUntypedRpc<Record<string, any>>(
+                'get_manga_detail_bundle',
+                { p_manga_id: mangaId },
+            );
+
+            if (!bundleError && bundleData && typeof bundleData === 'object' && bundleData.manga && typeof bundleData.manga === 'object') {
+                const rawManga = bundleData.manga as Record<string, any>;
+                const realMangaId = String(rawManga.id || '');
+                if (realMangaId && (includePrivate || rawManga.is_public !== false)) {
+                    if (rawManga.slug) {
+                        r2MangaSlugById.set(realMangaId, String(rawManga.slug));
+                    }
+
+                    const fallbackLang = getSeriesLanguage(rawManga as any);
+                    const rawChapters = Array.isArray(bundleData.chapters) ? bundleData.chapters : [];
+                    const mappedChapters = rawChapters.map((row: any) => {
+                        const ch = mapChapterRowToChapter(row, { includePages: false });
+                        ch.language = resolveChapterLanguageCode(ch, fallbackLang);
+                        return ch;
+                    });
+                    sortMangaChaptersList(mappedChapters, fallbackLang);
+                    const hydratedChapters = hydrateChaptersWithCardImageState(mappedChapters, rawManga.details);
+
+                    const rawRatingStats = (bundleData.ratingStats && typeof bundleData.ratingStats === 'object'
+                        ? bundleData.ratingStats
+                        : {}) as Record<string, any>;
+                    const rawBreakdown = (rawRatingStats.breakdown && typeof rawRatingStats.breakdown === 'object'
+                        ? rawRatingStats.breakdown
+                        : {}) as Record<string, any>;
+
+                    const average = Number(rawRatingStats.average) || 0;
+                    const reviewCount = Number(rawRatingStats.count) || 0;
+                    const breakdown = {
+                        story: Number(rawBreakdown.story) || 0,
+                        characters: Number(rawBreakdown.characters) || 0,
+                        art: Number(rawBreakdown.art) || 0,
+                        progression: Number(rawBreakdown.progression) || 0,
+                        engagement: Number(rawBreakdown.engagement) || 0,
+                    };
+
+                    const rawRelated = Array.isArray(bundleData.relatedSeries) ? bundleData.relatedSeries : [];
+                    const relatedSeries: MangaRelation[] = rawRelated
+                        .map((rel: any) => {
+                            const relMangaRaw = rel?.manga;
+                            const mappedRelManga = relMangaRaw && typeof relMangaRaw === 'object' && relMangaRaw.id
+                                ? mapSummaryRowToManga(relMangaRaw)
+                                : undefined;
+                            return {
+                                id: String(rel?.relationId || rel?.id || ''),
+                                mangaId: realMangaId,
+                                relatedMangaId: String(relMangaRaw?.id || ''),
+                                relationType: String(rel?.relationType || 'related'),
+                                sourceName: rel?.sourceName || undefined,
+                                sourceUrl: rel?.sourceUrl || undefined,
+                                sortOrder: Number(rel?.sortOrder ?? 0),
+                                relatedManga: mappedRelManga,
+                            } satisfies MangaRelation;
+                        })
+                        .filter((relation: MangaRelation) => {
+                            if (!relation.relatedMangaId) return false;
+                            if (includePrivate) return true;
+                            if (!relation.relatedManga) return false;
+                            if (relation.relatedManga.isPublic === false) return false;
+                            if (!includeAdult && relation.relatedManga.isAdult === true) return false;
+                            return true;
+                        });
+
+                    const cleanedAltTitles = Array.from(
+                        new Set(
+                            (Array.isArray(rawManga.alternative_titles) ? rawManga.alternative_titles : [])
+                                .map((t: any) => String(t || '').trim())
+                                .filter((t: string) => Boolean(t) && t.toLowerCase() !== String(rawManga.title || '').trim().toLowerCase()),
+                        ),
+                    );
+                    const normalizedDetails = rawManga.details || {};
+                    const normalizedSourceLinks = normalizeEntitySourceLinks(rawManga.source_links || []);
+                    const uniqueChapterCount = new Set(hydratedChapters.map((c) => Number(c.number))).size
+                        || Number(rawManga.chapter_count)
+                        || hydratedChapters.length;
+
+                    const mangaDetail = {
+                        ...rawManga,
+                        id: realMangaId,
+                        slug: rawManga.slug ? String(rawManga.slug) : undefined,
+                        title: String(rawManga.title || ''),
+                        cover: String(rawManga.cover || ''),
+                        banner: rawManga.banner ? String(rawManga.banner) : undefined,
+                        genres: normalizeGenres(rawManga.genres || []),
+                        status: (rawManga.status === 'completed' || rawManga.status === 'hiatus' ? rawManga.status : 'ongoing') as Manga['status'],
+                        type: (rawManga.type || 'manhwa') as Manga['type'],
+                        views: Number(rawManga.views) || 0,
+                        ...mapMangaBaseFields({
+                            ...rawManga,
+                            details: normalizedDetails,
+                            alternative_titles: cleanedAltTitles,
+                        }),
+                        details: normalizedDetails,
+                        sourceLinks: normalizedSourceLinks,
+                        relatedSeries,
+                        chapters: hydratedChapters,
+                        chapterCount: uniqueChapterCount,
+                        ratings: [],
+                        characterCount: Number(bundleData.characterCount) || 0,
+                        averageRating: average,
+                        ratingBreakdown: breakdown,
+                        reviewCount,
+                    } as Manga;
+
+                    mangaDetailCache.set(mangaDetailCacheKey, {
+                        fetchedAt: Date.now(),
+                        value: cloneMangaForCache(mangaDetail),
+                    });
+                    if (!includePrivate) {
+                        writeCachedMangaDetailSnapshot(mangaDetail, mangaId !== realMangaId ? mangaId : undefined);
+                    }
+
+                    return mangaDetail;
+                }
+
+                if (realMangaId && !includePrivate && rawManga.is_public === false) {
+                    return undefined;
+                }
+            }
+        } catch {
+            // Fall through to multi-query fallback
+        }
+    }
+
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(mangaId);
     let query = supabase.from('mangas').select('*');
     if (isUuid) {
@@ -3026,8 +3365,6 @@ export const getMangaById = async (
                 id: String(r2MangaRaw.id),
                 slug: String(r2MangaRaw.slug || targetSlug || ''),
                 title: String(r2MangaRaw.title),
-                author: r2MangaRaw.author || 'Bilinmiyor',
-                artist: r2MangaRaw.artist || '',
                 is_public: r2MangaRaw.is_public ?? r2MangaRaw.isPublic ?? true,
                 is_adult: r2MangaRaw.is_adult ?? r2MangaRaw.isAdult ?? false,
                 description: r2MangaRaw.description || '',
@@ -3063,29 +3400,25 @@ export const getMangaById = async (
     const [
         { data: reviewData },
         chapterRows,
-        authorsDetails,
-        artistsDetails,
         relatedSeries,
         { count: characterCount },
     ] = await Promise.all([
-        supabase.from('reviews').select('*').eq('manga_id', realMangaId),
+        supabase
+            .from('reviews')
+            .select('rating_story, rating_characters, rating_art, rating_progression, rating_engagement')
+            .eq('manga_id', realMangaId),
         getMangaChapters(realMangaId, {
             includePages: options?.includePages === true,
             slug: data.slug,
             fallbackLanguage: getSeriesLanguage(data),
+            skipR2Fallback: options?.includePages !== true,
         }),
-        getMangaAuthors(realMangaId, options),
-        getMangaArtists(realMangaId, options),
         getMangaRelatedSeries(realMangaId, { includePrivate }),
         supabase
             .from('manga_characters')
             .select('manga_id', { count: 'exact', head: true })
             .eq('manga_id', realMangaId),
     ]);
-
-    const r2SeriesData = data.slug && chapterRows.length === 0
-        ? await fetchR2SeriesBySlug(data.slug)
-        : null;
 
     const reviews = reviewData || [];
     let average = 0;
@@ -3097,7 +3430,6 @@ export const getMangaById = async (
             , 0);
         average = Math.round((totalPoints / reviews.length) * 10) / 10;
 
-        // Calculate breakdown
         reviews.forEach(r => {
             breakdown.story += r.rating_story;
             breakdown.characters += r.rating_characters;
@@ -3115,37 +3447,25 @@ export const getMangaById = async (
 
     const hydratedChapters = hydrateChaptersWithCardImageState(chapterRows, data.details);
 
-    const r2MangaObj = r2SeriesData?.manga || r2SeriesData || {};
     const mergedAltTitles = Array.from(
         new Set(
-            [
-                ...(Array.isArray(data.alternative_titles) ? data.alternative_titles : []),
-                ...(Array.isArray(r2MangaObj.alternative_titles) ? r2MangaObj.alternative_titles : []),
-                ...(Array.isArray(r2MangaObj.alternativeTitles) ? r2MangaObj.alternativeTitles : []),
-            ]
+            (Array.isArray(data.alternative_titles) ? data.alternative_titles : [])
                 .map((t) => String(t || '').trim())
                 .filter((t) => Boolean(t) && t.toLowerCase() !== String(data.title || '').trim().toLowerCase())
         )
     );
 
-    const mergedSourceLinks = normalizeEntitySourceLinks([
-        ...(Array.isArray(data.source_links) ? data.source_links : []),
-        ...(Array.isArray(r2MangaObj.source_links) ? r2MangaObj.source_links : []),
-        ...(Array.isArray(r2MangaObj.sourceLinks) ? r2MangaObj.sourceLinks : []),
-    ]);
+    const mergedSourceLinks = normalizeEntitySourceLinks(
+        Array.isArray(data.source_links) ? data.source_links : [],
+    );
 
-    const r2CharacterList = Array.isArray(r2SeriesData?.characters) ? r2SeriesData.characters : [];
-    const totalCharacterCount = Math.max(characterCount || 0, r2CharacterList.length);
-
+    const totalCharacterCount = characterCount || 0;
     const uniqueChapterCount = new Set(hydratedChapters.map((c) => Number(c.number))).size || hydratedChapters.length;
-    const mergedDetails = { ...(r2MangaObj.details || {}), ...(data.details || {}) };
+    const mergedDetails = data.details || {};
 
     const mangaDetail = {
         ...data,
-        author: joinNamedEntityValues(authorsDetails.map((author) => author.name)) || cleanPlaceholderNamedEntityString(data.author) || data.author,
-        artist: joinNamedEntityValues(artistsDetails.map((artist) => artist.name)) || cleanPlaceholderNamedEntityString(data.artist) || data.artist,
         ...mapMangaBaseFields({
-            ...r2MangaObj,
             ...data,
             details: mergedDetails,
             alternative_titles: mergedAltTitles,
@@ -3156,26 +3476,25 @@ export const getMangaById = async (
         chapters: hydratedChapters,
         chapterCount: uniqueChapterCount,
         ratings: reviews.map(r => ({
-            userId: r.user_id,
+            userId: '',
             rating: Math.round((r.rating_story + r.rating_characters + r.rating_art + r.rating_progression + r.rating_engagement) / 5),
-            createdAt: r.created_at
+            createdAt: '',
         })),
         characterCount: totalCharacterCount,
         averageRating: average,
         ratingBreakdown: breakdown,
         reviewCount: reviews.length,
-        authorDetails: authorsDetails[0],
-        artistDetails: artistsDetails[0],
-        authorsDetails,
-        artistsDetails,
-    } as any;
+    } as Manga;
 
     mangaDetailCache.set(mangaDetailCacheKey, {
         fetchedAt: Date.now(),
-        value: cloneMangaForCache(mangaDetail as Manga),
+        value: cloneMangaForCache(mangaDetail),
     });
+    if (!includePrivate) {
+        writeCachedMangaDetailSnapshot(mangaDetail, mangaId !== realMangaId ? mangaId : undefined);
+    }
 
-    return mangaDetail as Manga;
+    return mangaDetail;
 };
 
 /**
@@ -3297,8 +3616,6 @@ export const saveManga = async (manga: Manga): Promise<void> => {
     const mangaData = {
         id: manga.id,
         title: manga.title,
-        author: toLegacyMangaPersonLabel(manga.author),
-        artist: toLegacyMangaPersonLabel(manga.artist),
         is_public: manga.isPublic ?? true,
         is_adult: manga.isAdult ?? false,
         description: manga.description,
@@ -3322,9 +3639,7 @@ export const saveManga = async (manga: Manga): Promise<void> => {
 
     if (error && isMissingMangaVisibilityColumnError(error)) {
         mangaVisibilityColumnAvailableCache = false;
-        mangaVisibilityColumnAvailablePromise = null;
         mangaAdultColumnAvailableCache = false;
-        mangaAdultColumnAvailablePromise = null;
 
         const { is_public: _ignoredVisibility, is_adult: _ignoredAdult, ...legacyMangaData } = mangaData;
         const retryResult = await supabase
@@ -3334,7 +3649,6 @@ export const saveManga = async (manga: Manga): Promise<void> => {
         error = retryResult.error;
     } else if (error && isMissingMangaAdultColumnError(error)) {
         mangaAdultColumnAvailableCache = false;
-        mangaAdultColumnAvailablePromise = null;
 
         const { is_adult: _ignoredAdult, ...legacyMangaData } = mangaData;
         const retryResult = await supabase
@@ -3815,6 +4129,7 @@ export const rateManga = async (mangaId: string, userId: string, rating: number)
         }
     }
 
+    invalidateMangaDetailSnapshotCache(mangaId);
     return true;
 };
 
@@ -3836,6 +4151,8 @@ export const addReview = async (
     if (error) {
         throw toReadableDatabaseError(error, 'İnceleme gönderilemedi');
     }
+
+    invalidateMangaDetailSnapshotCache(review.mangaId);
 };
 
 export const deleteReview = async (reviewId: string): Promise<void> => {
@@ -4065,7 +4382,7 @@ export const searchMangas = async (
         supabase
             .from('mangas')
             .select(getMangaListSelectColumns(visibilityColumnAvailable, adultColumnAvailable))
-            .or(`title.ilike.%${sanitizedQuery}%,author.ilike.%${sanitizedQuery}%`)
+            .ilike('title', `%${sanitizedQuery}%`)
             .limit(100),
         { includePrivate, includeAdult, visibilityColumnAvailable, adultColumnAvailable },
     );
@@ -4544,8 +4861,6 @@ export const getRecentAdminMangas = async (limit = 5): Promise<Manga[]> => {
         const precomputedChapters = mapPrecomputedLatestChapters(m.latest_chapters);
         return {
             ...m,
-            author: cleanPlaceholderNamedEntityString(m.author) || m.author,
-            artist: cleanPlaceholderNamedEntityString(m.artist) || m.artist,
             ...mapMangaBaseFields(m),
             chapters: precomputedChapters,
             chapterCount: Number(m.chapter_count ?? m.chapterCount) || precomputedChapters.length || 0,
@@ -5492,15 +5807,11 @@ export const getCommentReports = async (): Promise<CommentReport[]> => {
     const groupedIds = {
         manga: data.filter((report: any) => report.comment_entity_type === 'manga').map((report: any) => report.comment_id),
         character: data.filter((report: any) => report.comment_entity_type === 'character').map((report: any) => report.comment_id),
-        author: data.filter((report: any) => report.comment_entity_type === 'author').map((report: any) => report.comment_id),
-        artist: data.filter((report: any) => report.comment_entity_type === 'artist').map((report: any) => report.comment_id),
     };
 
     const [
         { data: mangaCommentsData },
         { data: characterCommentsData },
-        { data: authorCommentsData },
-        { data: artistCommentsData },
     ] = await Promise.all([
         groupedIds.manga.length
             ? supabase.from('comments').select('id, manga_id, user_id, username, content, created_at').in('id', groupedIds.manga)
@@ -5508,32 +5819,20 @@ export const getCommentReports = async (): Promise<CommentReport[]> => {
         groupedIds.character.length
             ? supabase.from('character_comments').select('id, character_id, user_id, username, content, created_at').in('id', groupedIds.character)
             : Promise.resolve({ data: [] as any[] }),
-        groupedIds.author.length
-            ? supabase.from('author_comments').select('id, author_id, user_id, username, content, created_at').in('id', groupedIds.author)
-            : Promise.resolve({ data: [] as any[] }),
-        groupedIds.artist.length
-            ? supabase.from('artist_comments').select('id, artist_id, user_id, username, content, created_at').in('id', groupedIds.artist)
-            : Promise.resolve({ data: [] as any[] }),
     ]);
 
     const commentMap = new Map<string, any>();
     (mangaCommentsData || []).forEach((comment: any) => commentMap.set(`manga:${comment.id}`, comment));
     (characterCommentsData || []).forEach((comment: any) => commentMap.set(`character:${comment.id}`, comment));
-    (authorCommentsData || []).forEach((comment: any) => commentMap.set(`author:${comment.id}`, comment));
-    (artistCommentsData || []).forEach((comment: any) => commentMap.set(`artist:${comment.id}`, comment));
 
     const targetIds = {
         manga: [...new Set(data.filter((report: any) => report.comment_entity_type === 'manga').map((report: any) => report.target_entity_id).filter(Boolean))],
         character: [...new Set(data.filter((report: any) => report.comment_entity_type === 'character').map((report: any) => report.target_entity_id).filter(Boolean))],
-        author: [...new Set(data.filter((report: any) => report.comment_entity_type === 'author').map((report: any) => report.target_entity_id).filter(Boolean))],
-        artist: [...new Set(data.filter((report: any) => report.comment_entity_type === 'artist').map((report: any) => report.target_entity_id).filter(Boolean))],
     };
 
     const [
         { data: mangaTargetsData },
         { data: characterTargetsData },
-        { data: authorTargetsData },
-        { data: artistTargetsData },
     ] = await Promise.all([
         targetIds.manga.length
             ? supabase.from('mangas').select('id, title').in('id', targetIds.manga)
@@ -5541,19 +5840,11 @@ export const getCommentReports = async (): Promise<CommentReport[]> => {
         targetIds.character.length
             ? supabase.from('characters').select('id, name').in('id', targetIds.character)
             : Promise.resolve({ data: [] as any[] }),
-        targetIds.author.length
-            ? supabase.from('authors').select('id, name').in('id', targetIds.author)
-            : Promise.resolve({ data: [] as any[] }),
-        targetIds.artist.length
-            ? supabase.from('artists').select('id, name').in('id', targetIds.artist)
-            : Promise.resolve({ data: [] as any[] }),
     ]);
 
     const targetTitleMap = new Map<string, string>();
     (mangaTargetsData || []).forEach((target: any) => targetTitleMap.set(`manga:${target.id}`, target.title));
     (characterTargetsData || []).forEach((target: any) => targetTitleMap.set(`character:${target.id}`, target.name));
-    (authorTargetsData || []).forEach((target: any) => targetTitleMap.set(`author:${target.id}`, target.name));
-    (artistTargetsData || []).forEach((target: any) => targetTitleMap.set(`artist:${target.id}`, target.name));
 
     return data.map((report: any) => {
         const commentKey = `${report.comment_entity_type}:${report.comment_id}`;
@@ -5726,7 +6017,7 @@ const fetchReadingListItemSummaries = async (mangaIds: string[]) => {
         chunks.map((chunk) =>
             supabase
                 .from('mangas')
-                .select('id, title, alternative_titles, cover, banner, author, artist, status, genres, description, type, views, last_updated, created_at, is_public, is_adult, chapter_count')
+                .select('id, title, alternative_titles, cover, banner, status, genres, description, type, views, last_updated, created_at, is_public, is_adult, chapter_count')
                 .in('id', chunk)
         )
     );
@@ -5751,8 +6042,6 @@ const fetchReadingListItemSummaries = async (mangaIds: string[]) => {
             ...mapMangaBaseFields(manga),
             cover: manga.cover,
             banner: manga.banner,
-            author: cleanPlaceholderNamedEntityString(manga.author) || manga.author,
-            artist: cleanPlaceholderNamedEntityString(manga.artist) || manga.artist,
             status: manga.status,
             genres: manga.genres || [],
             description: manga.description || '',
@@ -6407,7 +6696,7 @@ export const addEntityReactionV2 = async (entityType: CommentEntityType, entityI
         created_at: new Date().toISOString()
     };
 
-    let onConflictCols = ['user_id', colName];
+    const onConflictCols = ['user_id', colName];
 
     if (entityType === 'manga') {
         insertData.chapter_id = chapterId || null;
@@ -6514,7 +6803,7 @@ export const getSimilarMangas = async (
     }
 };
 
-// ==================== CHARACTER, AUTHOR, ARTIST OPERATIONS ====================
+// ==================== CHARACTER OPERATIONS ====================
 
 export const getCharacters = async (
     options?: { includePrivate?: boolean }
@@ -6897,461 +7186,6 @@ export const replaceMangaCharacters = async (
     }
 };
 
-// Same for Authors/Artists (shorter versions)
-export const getAuthors = async (options?: { includePrivate?: boolean }): Promise<Author[]> => {
-    try {
-        const rows = await fetchNamedEntityRows('authors', options?.includePrivate);
-        return rows.map((author, index) => ({
-            ...mapAuthorRow(author),
-            rank: index + 1,
-        }));
-    } catch (error) {
-        console.error('getAuthors error:', error);
-        return [];
-    }
-};
-
-export const getAuthorMediaRecords = async (): Promise<NamedEntityMediaRecord[]> => {
-    const { data, error } = await supabase
-        .from('authors')
-        .select('id, name, image_url, gallery')
-        .order('name', { ascending: true });
-
-    if (error) {
-        throw error;
-    }
-
-    return (data || []).map((row) => ({
-        id: row.id,
-        name: row.name,
-        imageUrl: sanitizeEntityImageUrl(row.image_url || (row as any).imageUrl || (row as any).image),
-        gallery: normalizeEntityGallery(row.gallery),
-    }));
-};
-
-export const getArtists = async (options?: { includePrivate?: boolean }): Promise<Artist[]> => {
-    try {
-        const rows = await fetchNamedEntityRows('artists', options?.includePrivate);
-        return rows.map((artist, index) => ({
-            ...mapArtistRow(artist),
-            rank: index + 1,
-        }));
-    } catch (error) {
-        console.error('getArtists error:', error);
-        return [];
-    }
-};
-
-export const getArtistMediaRecords = async (): Promise<NamedEntityMediaRecord[]> => {
-    const { data, error } = await supabase
-        .from('artists')
-        .select('id, name, image_url, gallery')
-        .order('name', { ascending: true });
-
-    if (error) {
-        throw error;
-    }
-
-    return (data || []).map((row) => ({
-        id: row.id,
-        name: row.name,
-        imageUrl: sanitizeEntityImageUrl(row.image_url || (row as any).imageUrl || (row as any).image),
-        gallery: normalizeEntityGallery(row.gallery),
-    }));
-};
-
-export const getAuthorById = async (
-    id: string,
-    options?: { includePrivate?: boolean }
-): Promise<Author | undefined> => {
-    const { data, error } = await applyPublicEntityFilter(
-        supabase
-            .from('authors')
-            .select(`*, mangas:manga_authors(manga:mangas(id))`)
-            .eq('id', id),
-        options?.includePrivate,
-    ).maybeSingle();
-    if (error || !data) return undefined;
-
-    const seriesIds = ((data as any).mangas || [])
-        .map((item: any) => item.manga?.id)
-        .filter(Boolean);
-    const [series, rank] = await Promise.all([
-        getMangasByIds(seriesIds, { includePrivate: options?.includePrivate }),
-        getOrderedEntityRank('authors', id),
-    ]);
-
-    return { ...mapAuthorRow(data), series, rank };
-};
-
-export const getArtistById = async (
-    id: string,
-    options?: { includePrivate?: boolean }
-): Promise<Artist | undefined> => {
-    const { data, error } = await applyPublicEntityFilter(
-        supabase
-            .from('artists')
-            .select(`*, mangas:manga_artists(manga:mangas(id))`)
-            .eq('id', id),
-        options?.includePrivate,
-    ).maybeSingle();
-    if (error || !data) return undefined;
-
-    const seriesIds = ((data as any).mangas || [])
-        .map((item: any) => item.manga?.id)
-        .filter(Boolean);
-    const [series, rank] = await Promise.all([
-        getMangasByIds(seriesIds, { includePrivate: options?.includePrivate }),
-        getOrderedEntityRank('artists', id),
-    ]);
-
-    return { ...mapArtistRow(data), series, rank };
-};
-
-export const findAuthorByName = async (name: string): Promise<Author | null> => {
-    const row = await findNamedEntityRowByName<any>('authors', name);
-    return row ? mapAuthorRow(row) : null;
-};
-
-export const findArtistByName = async (name: string): Promise<Artist | null> => {
-    const row = await findNamedEntityRowByName<any>('artists', name);
-    return row ? mapArtistRow(row) : null;
-};
-
-export const saveAuthor = async (author: Partial<Author>) => {
-    const normalizedName = normalizeNamedEntityValue(author.name);
-    if (!normalizedName) {
-        throw new Error('AUTHOR_NAME_REQUIRED');
-    }
-
-    const data = createRichEntityPayload({
-        ...author,
-        name: normalizedName,
-    });
-    const { image_url: _imageUrl, gallery: _gallery, ...dataWithoutMedia } = data;
-    if (author.id) {
-        const { error } = await supabase.from('authors').update(dataWithoutMedia).eq('id', author.id);
-        if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
-        if ('imageUrl' in author || 'gallery' in author) {
-            await updateAuthorMedia(author.id, {
-                imageUrl: author.imageUrl,
-                gallery: author.gallery,
-            });
-        }
-        return author.id;
-    }
-
-    const { data: inserted, error } = await supabase
-        .from('authors')
-        .insert(dataWithoutMedia)
-        .select('id')
-        .single();
-    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
-    if ('imageUrl' in author || 'gallery' in author) {
-        await updateAuthorMedia(inserted.id, {
-            imageUrl: author.imageUrl,
-            gallery: author.gallery,
-        });
-    }
-    return inserted.id;
-};
-
-export const updateAuthorImageUrl = async (
-    authorId: string,
-    imageUrl?: string | null,
-): Promise<void> => {
-    await updateAuthorMedia(authorId, { imageUrl });
-};
-
-export const updateAuthorMedia = async (
-    authorId: string,
-    media: { imageUrl?: string | null; gallery?: EntityGalleryImage[] | null },
-): Promise<void> => {
-    const payload: Record<string, unknown> = {};
-    const materializedMedia = await materializeNamedEntityMedia('author', authorId, media);
-
-    if ('imageUrl' in media) {
-        payload.image_url = materializedMedia.imageUrl;
-    }
-
-    if ('gallery' in media) {
-        payload.gallery = materializedMedia.gallery;
-    }
-
-    if (Object.keys(payload).length === 0) {
-        return;
-    }
-
-    const { error } = await supabase
-        .from('authors')
-        .update(payload)
-        .eq('id', authorId);
-
-    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
-};
-
-export const deleteAuthor = async (id: string): Promise<void> => {
-    const { error } = await supabase.from('authors').delete().eq('id', id);
-    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
-};
-
-export const saveArtist = async (artist: Partial<Artist>) => {
-    const normalizedName = normalizeNamedEntityValue(artist.name);
-    if (!normalizedName) {
-        throw new Error('ARTIST_NAME_REQUIRED');
-    }
-
-    const data = createRichEntityPayload({
-        ...artist,
-        name: normalizedName,
-    });
-    const { image_url: _imageUrl, gallery: _gallery, ...dataWithoutMedia } = data;
-    if (artist.id) {
-        const { error } = await supabase.from('artists').update(dataWithoutMedia).eq('id', artist.id);
-        if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
-        if ('imageUrl' in artist || 'gallery' in artist) {
-            await updateArtistMedia(artist.id, {
-                imageUrl: artist.imageUrl,
-                gallery: artist.gallery,
-            });
-        }
-        return artist.id;
-    }
-
-    const { data: inserted, error } = await supabase
-        .from('artists')
-        .insert(dataWithoutMedia)
-        .select('id')
-        .single();
-    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
-    if ('imageUrl' in artist || 'gallery' in artist) {
-        await updateArtistMedia(inserted.id, {
-            imageUrl: artist.imageUrl,
-            gallery: artist.gallery,
-        });
-    }
-    return inserted.id;
-};
-
-export const updateArtistImageUrl = async (
-    artistId: string,
-    imageUrl?: string | null,
-): Promise<void> => {
-    await updateArtistMedia(artistId, { imageUrl });
-};
-
-export const updateArtistMedia = async (
-    artistId: string,
-    media: { imageUrl?: string | null; gallery?: EntityGalleryImage[] | null },
-): Promise<void> => {
-    const payload: Record<string, unknown> = {};
-    const materializedMedia = await materializeNamedEntityMedia('artist', artistId, media);
-
-    if ('imageUrl' in media) {
-        payload.image_url = materializedMedia.imageUrl;
-    }
-
-    if ('gallery' in media) {
-        payload.gallery = materializedMedia.gallery;
-    }
-
-    if (Object.keys(payload).length === 0) {
-        return;
-    }
-
-    const { error } = await supabase
-        .from('artists')
-        .update(payload)
-        .eq('id', artistId);
-
-    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
-};
-
-export const deleteArtist = async (id: string): Promise<void> => {
-    const { error } = await supabase.from('artists').delete().eq('id', id);
-    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
-};
-
-export const ensureAuthorByName = async (name: string): Promise<Author | null> => {
-    const normalizedName = normalizeNamedEntityValue(name);
-    if (!isMeaningfulNamedEntity(normalizedName)) {
-        return null;
-    }
-
-    const existing = await findAuthorByName(normalizedName);
-    if (existing) {
-        return existing;
-    }
-
-    const id = await saveAuthor({ name: normalizedName });
-    return {
-        id,
-        name: normalizedName,
-        imageUrl: undefined,
-        description: undefined,
-        likesCount: 0,
-        createdAt: new Date().toISOString(),
-        isPublic: true,
-        alternativeNames: [],
-        details: {},
-        gallery: [],
-        sourceLinks: [],
-    };
-};
-
-export const ensureArtistByName = async (name: string): Promise<Artist | null> => {
-    const normalizedName = normalizeNamedEntityValue(name);
-    if (!isMeaningfulNamedEntity(normalizedName)) {
-        return null;
-    }
-
-    const existing = await findArtistByName(normalizedName);
-    if (existing) {
-        return existing;
-    }
-
-    const id = await saveArtist({ name: normalizedName });
-    return {
-        id,
-        name: normalizedName,
-        imageUrl: undefined,
-        description: undefined,
-        likesCount: 0,
-        createdAt: new Date().toISOString(),
-        isPublic: true,
-        alternativeNames: [],
-        details: {},
-        gallery: [],
-        sourceLinks: [],
-    };
-};
-
-export const getMangaAuthors = async (
-    mangaId: string,
-    options?: { includePrivate?: boolean }
-): Promise<Author[]> => {
-    const { data, error } = await supabase
-        .from('manga_authors')
-        .select('author:authors(*)')
-        .eq('manga_id', mangaId);
-
-    if (error) {
-        console.error('Manga authors fetch error:', error);
-        return [];
-    }
-
-    return (data || [])
-        .map((entry: any) => entry.author)
-        .filter((author: any) => author && (options?.includePrivate || author.is_public !== false))
-        .map((author: any) => mapAuthorRow(author));
-};
-
-const getMangaAuthorsByIds = async (
-    mangaIds: string[],
-    options?: { includePrivate?: boolean }
-): Promise<Map<string, Author[]>> => {
-    if (mangaIds.length === 0) {
-        return new Map();
-    }
-
-    const chunks = chunkArray(mangaIds, 100);
-    const chunkResults = await Promise.all(
-        chunks.map((chunk) =>
-            supabase
-                .from('manga_authors')
-                .select('manga_id, author:authors(*)')
-                .in('manga_id', chunk)
-        )
-    );
-
-    const authorsByMangaId = new Map<string, Author[]>();
-
-    for (const { data, error } of chunkResults) {
-        if (error) {
-            console.error('Manga authors batch fetch error:', error);
-            continue;
-        }
-
-        (data || []).forEach((entry: any) => {
-            const author = entry.author;
-            const mangaId = entry.manga_id;
-
-            if (!mangaId || !author || (!options?.includePrivate && author.is_public === false)) {
-                return;
-            }
-
-            const current = authorsByMangaId.get(mangaId) || [];
-            current.push(mapAuthorRow(author));
-            authorsByMangaId.set(mangaId, current);
-        });
-    }
-
-    return authorsByMangaId;
-};
-
-export const getMangaArtists = async (
-    mangaId: string,
-    options?: { includePrivate?: boolean }
-): Promise<Artist[]> => {
-    const { data, error } = await supabase
-        .from('manga_artists')
-        .select('artist:artists(*)')
-        .eq('manga_id', mangaId);
-
-    if (error) {
-        console.error('Manga artists fetch error:', error);
-        return [];
-    }
-
-    return (data || [])
-        .map((entry: any) => entry.artist)
-        .filter((artist: any) => artist && (options?.includePrivate || artist.is_public !== false))
-        .map((artist: any) => mapArtistRow(artist));
-};
-
-const getMangaArtistsByIds = async (
-    mangaIds: string[],
-    options?: { includePrivate?: boolean }
-): Promise<Map<string, Artist[]>> => {
-    if (mangaIds.length === 0) {
-        return new Map();
-    }
-
-    const chunks = chunkArray(mangaIds, 100);
-    const chunkResults = await Promise.all(
-        chunks.map((chunk) =>
-            supabase
-                .from('manga_artists')
-                .select('manga_id, artist:artists(*)')
-                .in('manga_id', chunk)
-        )
-    );
-
-    const artistsByMangaId = new Map<string, Artist[]>();
-
-    for (const { data, error } of chunkResults) {
-        if (error) {
-            console.error('Manga artists batch fetch error:', error);
-            continue;
-        }
-
-        (data || []).forEach((entry: any) => {
-            const artist = entry.artist;
-            const mangaId = entry.manga_id;
-
-            if (!mangaId || !artist || (!options?.includePrivate && artist.is_public === false)) {
-                return;
-            }
-
-            const current = artistsByMangaId.get(mangaId) || [];
-            current.push(mapArtistRow(artist));
-            artistsByMangaId.set(mangaId, current);
-        });
-    }
-
-    return artistsByMangaId;
-};
-
 const createEmptyHomePageMangaSections = (): HomePageMangaSections => ({
     trendingManga: [],
     newlyAddedSeries: [],
@@ -7430,13 +7264,10 @@ const buildMangaSummariesForRows = async (
     const hasPrecomputedChapters = visibleRows.every(
         (row: any) => Array.isArray(row?.latest_chapters) || typeof row?.chapter_count === 'number',
     );
-    const shouldFetchEntityRelations = Boolean((options as any)?.includeEntityRelations);
 
     const [
         { data: reviewRows, error: reviewError },
         chapterRows,
-        nextAuthorsByMangaId,
-        nextArtistsByMangaId,
     ] = await Promise.all([
         fetchReviewsForIds(mangaIds),
         hasPrecomputedChapters
@@ -7450,12 +7281,6 @@ const buildMangaSummariesForRows = async (
                 }
                 return [];
             }),
-        shouldFetchEntityRelations
-            ? getMangaAuthorsByIds(mangaIds, { includePrivate: options?.includePrivate })
-            : Promise.resolve(new Map<string, Author[]>()),
-        shouldFetchEntityRelations
-            ? getMangaArtistsByIds(mangaIds, { includePrivate: options?.includePrivate })
-            : Promise.resolve(new Map<string, Artist[]>()),
     ]);
 
     if (reviewError) {
@@ -7468,8 +7293,6 @@ const buildMangaSummariesForRows = async (
 
     return visibleRows.map((manga: any) => {
         const reviewStats = reviewStatsByMangaId.get(manga.id);
-        const authorsDetails = nextAuthorsByMangaId.get(manga.id) || [];
-        const artistsDetails = nextArtistsByMangaId.get(manga.id) || [];
         const precomputedChapters = mapPrecomputedLatestChapters(manga.latest_chapters);
         const finalChapters = precomputedChapters.length > 0
             ? precomputedChapters
@@ -7477,76 +7300,14 @@ const buildMangaSummariesForRows = async (
 
         return {
             ...manga,
-            author: joinNamedEntityValues(authorsDetails.map((author) => author.name)) || cleanPlaceholderNamedEntityString(manga.author) || manga.author,
-            artist: joinNamedEntityValues(artistsDetails.map((artist) => artist.name)) || cleanPlaceholderNamedEntityString(manga.artist) || manga.artist,
             ...mapMangaBaseFields(manga),
             chapters: finalChapters,
             ratings: [],
             chapterCount: chapterCountByMangaId.get(manga.id) || Number(manga.chapter_count ?? manga.chapterCount) || finalChapters.length || 0,
             averageRating: reviewStats?.average || 0,
             reviewCount: reviewStats?.reviewCount || 0,
-            authorDetails: authorsDetails[0],
-            artistDetails: artistsDetails[0],
-            authorsDetails,
-            artistsDetails,
         } as Manga;
     });
-};
-
-export const linkMangaToAuthor = async (mangaId: string, authorId: string) => {
-    await supabase.from('manga_authors').upsert({ manga_id: mangaId, author_id: authorId });
-};
-
-export const linkMangaToArtist = async (mangaId: string, artistId: string) => {
-    await supabase.from('manga_artists').upsert({ manga_id: mangaId, artist_id: artistId });
-};
-
-export const replaceMangaAuthors = async (mangaId: string, authorIds: string[]) => {
-    const { error: deleteError } = await supabase
-        .from('manga_authors')
-        .delete()
-        .eq('manga_id', mangaId);
-
-    if (deleteError) {
-        throw deleteError;
-    }
-
-    const uniqueAuthorIds = [...new Set(authorIds.filter(Boolean))];
-    if (uniqueAuthorIds.length === 0) {
-        return;
-    }
-
-    const { error } = await supabase
-        .from('manga_authors')
-        .insert(uniqueAuthorIds.map((authorId) => ({ manga_id: mangaId, author_id: authorId })));
-
-    if (error) {
-        throw error;
-    }
-};
-
-export const replaceMangaArtists = async (mangaId: string, artistIds: string[]) => {
-    const { error: deleteError } = await supabase
-        .from('manga_artists')
-        .delete()
-        .eq('manga_id', mangaId);
-
-    if (deleteError) {
-        throw deleteError;
-    }
-
-    const uniqueArtistIds = [...new Set(artistIds.filter(Boolean))];
-    if (uniqueArtistIds.length === 0) {
-        return;
-    }
-
-    const { error } = await supabase
-        .from('manga_artists')
-        .insert(uniqueArtistIds.map((artistId) => ({ manga_id: mangaId, artist_id: artistId })));
-
-    if (error) {
-        throw error;
-    }
 };
 
 export const getMangaRelatedSeries = async (
@@ -9013,16 +8774,12 @@ export const getMangaCatalogPage = async (options: {
 
         items.push({
             ...row,
-            author: cleanPlaceholderNamedEntityString(row.author) || row.author,
-            artist: cleanPlaceholderNamedEntityString(row.artist) || row.artist,
             ...mapMangaBaseFields(row),
             chapters: precomputedChapters,
             ratings: [],
             chapterCount: Number(row.chapter_count ?? row.chapterCount) || precomputedChapters.length || 0,
             averageRating: Number(row.average_rating ?? 0),
             reviewCount: Number(row.review_count ?? 0),
-            authorsDetails: [],
-            artistsDetails: [],
         } as Manga);
     }
 
@@ -9037,7 +8794,7 @@ export const getMangaCatalogPage = async (options: {
 
 export const getCommentLikePreviews = async (
     commentIds: string[],
-    entityType: 'manga' | 'character' | 'author' | 'artist' = 'manga',
+    entityType: 'manga' | 'character' = 'manga',
 ): Promise<Record<string, CommentLikePreviewUser[]>> => {
     const cleanIds = Array.from(new Set(commentIds.map((id) => String(id || '').trim()).filter(Boolean))).slice(0, 60);
     if (cleanIds.length === 0) {
@@ -9188,7 +8945,8 @@ export interface AllTimeMangaRanksResult {
     total: number;
 }
 
-const MANGA_DETAIL_META_TTL_MS = 2 * 60 * 1000;
+const MANGA_DETAIL_META_TTL_MS = 3 * 60 * 1000;
+const MANGA_DETAIL_META_SESSION_PREFIX = 'toonparrot:manga-detail-meta:v1:';
 const mangaDetailMetaCache = new Map<string, { fetchedAt: number; value: MangaDetailMeta }>();
 const mangaDetailMetaInFlight = new Map<string, Promise<MangaDetailMeta>>();
 
@@ -9214,9 +8972,100 @@ const callUntypedRpc = <T = unknown>(
     rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: T | null; error: unknown }>;
 }).rpc(fn, params);
 
+const clearMangaDetailMetaSessionStorage = (mangaId?: string) => {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    try {
+        const prefix = mangaId
+            ? `${MANGA_DETAIL_META_SESSION_PREFIX}${mangaId}:`
+            : MANGA_DETAIL_META_SESSION_PREFIX;
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < window.sessionStorage.length; i += 1) {
+            const key = window.sessionStorage.key(i);
+            if (key && key.startsWith(prefix)) {
+                keysToRemove.push(key);
+            }
+        }
+        for (const key of keysToRemove) {
+            window.sessionStorage.removeItem(key);
+        }
+    } catch {
+        // ignore storage errors
+    }
+};
+
+export const readCachedMangaDetailMeta = (
+    mangaId: string,
+    includeAdult: boolean = false,
+): MangaDetailMeta | null => {
+    const cleanId = mangaId?.trim();
+    if (!cleanId) {
+        return null;
+    }
+
+    const cacheKey = `${cleanId}:${includeAdult ? 'all' : 'safe'}`;
+    const memCached = mangaDetailMetaCache.get(cacheKey);
+    if (memCached && Date.now() - memCached.fetchedAt < MANGA_DETAIL_META_TTL_MS) {
+        return memCached.value;
+    }
+
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    try {
+        const storageKey = `${MANGA_DETAIL_META_SESSION_PREFIX}${cacheKey}`;
+        const raw = window.sessionStorage.getItem(storageKey);
+        if (!raw) {
+            return null;
+        }
+
+        const parsed = JSON.parse(raw) as { fetchedAt?: unknown; value?: MangaDetailMeta };
+        if (
+            !parsed
+            || typeof parsed.fetchedAt !== 'number'
+            || !parsed.value
+            || Date.now() - parsed.fetchedAt >= MANGA_DETAIL_META_TTL_MS
+        ) {
+            window.sessionStorage.removeItem(storageKey);
+            return null;
+        }
+
+        mangaDetailMetaCache.set(cacheKey, {
+            fetchedAt: parsed.fetchedAt,
+            value: parsed.value,
+        });
+        return parsed.value;
+    } catch {
+        return null;
+    }
+};
+
+const writeCachedMangaDetailMeta = (cacheKey: string, value: MangaDetailMeta) => {
+    mangaDetailMetaCache.set(cacheKey, { fetchedAt: Date.now(), value });
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    try {
+        window.sessionStorage.setItem(
+            `${MANGA_DETAIL_META_SESSION_PREFIX}${cacheKey}`,
+            JSON.stringify({
+                fetchedAt: Date.now(),
+                value,
+            }),
+        );
+    } catch {
+        // ignore quota errors
+    }
+};
+
 export const invalidateMangaDetailMetaCache = (mangaId?: string) => {
     if (!mangaId) {
         mangaDetailMetaCache.clear();
+        clearMangaDetailMetaSessionStorage();
         return;
     }
     for (const key of mangaDetailMetaCache.keys()) {
@@ -9224,6 +9073,7 @@ export const invalidateMangaDetailMetaCache = (mangaId?: string) => {
             mangaDetailMetaCache.delete(key);
         }
     }
+    clearMangaDetailMetaSessionStorage(mangaId);
 };
 
 export const getMangaDetailMeta = async (
@@ -9243,9 +9093,9 @@ export const getMangaDetailMeta = async (
     }
 
     const cacheKey = `${cleanId}:${includeAdult ? 'all' : 'safe'}`;
-    const cached = mangaDetailMetaCache.get(cacheKey);
-    if (cached && Date.now() - cached.fetchedAt < MANGA_DETAIL_META_TTL_MS) {
-        return cached.value;
+    const cached = readCachedMangaDetailMeta(cleanId, includeAdult);
+    if (cached) {
+        return cached;
     }
 
     const existingPromise = mangaDetailMetaInFlight.get(cacheKey);
@@ -9281,7 +9131,7 @@ export const getMangaDetailMeta = async (
             libraryAvatars: mapReaderAvatars(payload.libraryAvatars),
         };
 
-        mangaDetailMetaCache.set(cacheKey, { fetchedAt: Date.now(), value });
+        writeCachedMangaDetailMeta(cacheKey, value);
         return value;
     })().finally(() => {
         mangaDetailMetaInFlight.delete(cacheKey);
@@ -9558,11 +9408,7 @@ export const getFastHomeCatalogPage = async (options: {
 
         if (!result && (sort === 'updated' || sort === 'newest' || sort === 'popular')) {
             try {
-                const [visibilityColumnAvailable, adultColumnAvailable, accessProfile] = await Promise.all([
-                    getMangaVisibilityColumnAvailability(),
-                    getMangaAdultColumnAvailability(),
-                    getCurrentViewerAccessProfile(),
-                ]);
+                const accessProfile = await getCurrentViewerAccessProfile();
                 const isStaff = accessProfile.role === 'admin' || accessProfile.role === 'moderator';
                 const effectiveIncludeAdult = Boolean(includeAdult && (isStaff || accessProfile.adultModeEnabled));
                 const orderColumn = sort === 'newest'
@@ -9579,8 +9425,8 @@ export const getFastHomeCatalogPage = async (options: {
                     {
                         includePrivate: isStaff,
                         includeAdult: effectiveIncludeAdult,
-                        visibilityColumnAvailable,
-                        adultColumnAvailable,
+                        visibilityColumnAvailable: true,
+                        adultColumnAvailable: true,
                     },
                 )
                     .order(orderColumn, { ascending: false })
@@ -9594,8 +9440,8 @@ export const getFastHomeCatalogPage = async (options: {
                     {
                         includePrivate: isStaff,
                         includeAdult: effectiveIncludeAdult,
-                        visibilityColumnAvailable,
-                        adultColumnAvailable,
+                        visibilityColumnAvailable: true,
+                        adultColumnAvailable: true,
                     },
                 );
 
@@ -9633,16 +9479,12 @@ export const getFastHomeCatalogPage = async (options: {
 
                         return {
                             ...row,
-                            author: cleanPlaceholderNamedEntityString(row.author) || row.author,
-                            artist: cleanPlaceholderNamedEntityString(row.artist) || row.artist,
                             ...mapMangaBaseFields(row),
                             chapters: precomputedChapters,
                             ratings: [],
                             chapterCount: Number(row.chapter_count ?? 0) || precomputedChapters.length || 0,
                             averageRating: reviewStats?.average ?? 0,
                             reviewCount: reviewStats?.reviewCount ?? 0,
-                            authorsDetails: [],
-                            artistsDetails: [],
                         } as Manga;
                     });
 
@@ -9846,10 +9688,6 @@ export const getLatestChaptersSeriesPage = async (options: {
             const totalCountPromise = buffer.totalSeriesCount === null
                 ? (async () => {
                     try {
-                        const [visibilityColumnAvailable, adultColumnAvailable] = await Promise.all([
-                            getMangaVisibilityColumnAvailability(),
-                            getMangaAdultColumnAvailability(),
-                        ]);
                         const countRes = await applyPublicMangaFilter(
                             supabase
                                 .from('mangas')
@@ -9858,8 +9696,8 @@ export const getLatestChaptersSeriesPage = async (options: {
                             {
                                 includePrivate: isStaff,
                                 includeAdult,
-                                visibilityColumnAvailable,
-                                adultColumnAvailable,
+                                visibilityColumnAvailable: true,
+                                adultColumnAvailable: true,
                             },
                         );
                         if (!countRes.error && typeof countRes.count === 'number') {

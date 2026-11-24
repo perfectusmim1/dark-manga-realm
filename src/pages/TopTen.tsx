@@ -308,12 +308,11 @@ const TopTenCard: React.FC<{
             <h3 className="line-clamp-2 text-xs font-bold leading-snug tracking-tight text-white transition-colors group-hover:text-primary group-focus-visible:text-primary sm:text-[13px]">
               {manga.title}
             </h3>
-            <div className="mt-1 flex items-center justify-between gap-1.5 text-[10px] text-white/80 sm:text-[11px]">
-              <span className="min-w-0 truncate">{manga.author}</span>
-              {ratingValue > 0 ? (
+            {ratingValue > 0 ? (
+              <div className="mt-1 flex items-center justify-end">
                 <MangaRatingBadge value={ratingValue} className="shrink-0 text-[10px]" />
-              ) : null}
-            </div>
+              </div>
+            ) : null}
           </div>
         </div>
 

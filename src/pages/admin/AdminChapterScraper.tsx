@@ -199,8 +199,6 @@ const AdminChapterScraper: React.FC = () => {
 
                 const haystacks = [
                     manga.title,
-                    manga.author,
-                    manga.artist,
                     ...(manga.alternativeTitles || []),
                 ]
                     .filter(Boolean)
@@ -684,14 +682,14 @@ const AdminChapterScraper: React.FC = () => {
                                 <DialogHeader className="border-b border-border px-4 py-3 text-left">
                                     <DialogTitle>Manga Seç</DialogTitle>
                                     <DialogDescription>
-                                        Seri adı, yazar, çizer veya alternatif ada göre ara.
+                                        Seri adı veya alternatif ada göre ara.
                                     </DialogDescription>
                                 </DialogHeader>
                                 <Command shouldFilter={false}>
                                     <CommandInput
                                         value={localMangaSearch}
                                         onValueChange={setLocalMangaSearch}
-                                        placeholder="Seri adı, yazar veya alternatif ad ara..."
+                                        placeholder="Seri adı veya alternatif ad ara..."
                                         className="h-11"
                                     />
                                     <CommandList>
@@ -714,9 +712,6 @@ const AdminChapterScraper: React.FC = () => {
                                                             <div className="min-w-0 flex-1">
                                                                 <div className="truncate text-sm font-semibold text-foreground">
                                                                     {manga.title}
-                                                                </div>
-                                                                <div className="mt-1 truncate text-xs text-muted-foreground">
-                                                                    {[manga.author, manga.artist].filter(Boolean).join(' • ') || 'Yazar / çizer bilgisi yok'}
                                                                 </div>
                                                                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                                                                     <Badge variant="outline" className="h-5 border-primary/20 bg-primary/5 px-1.5 text-[10px] text-primary">

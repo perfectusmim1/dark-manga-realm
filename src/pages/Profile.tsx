@@ -1020,11 +1020,7 @@ const Profile: React.FC = () => {
                            ? comment.mangaType
                              ? getCompactMangaTypeLabel(comment.mangaType)
                              : 'Seri'
-                           : comment.entityType === 'character'
-                             ? 'Karakter'
-                             : comment.entityType === 'author'
-                               ? 'Yazar'
-                               : 'Çizer';
+                           : 'Karakter';
 
                        return (
                          <Link

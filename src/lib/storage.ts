@@ -257,7 +257,7 @@ const cacheOfflineMangaMetadata = async (mangaIds: string[]) => {
     const [{ data: mangaRows, error: mangaError }, { data: chapterRows, error: chapterError }] = await Promise.all([
         supabase
             .from('mangas')
-            .select('id, title, alternative_titles, cover, banner, author, artist, status, genres, description, type, views, last_updated, created_at, details')
+            .select('id, title, alternative_titles, cover, banner, status, genres, description, type, views, last_updated, created_at, details')
             .in('id', uniqueMangaIds),
         supabase
             .from('chapters')
@@ -300,8 +300,6 @@ const cacheOfflineMangaMetadata = async (mangaIds: string[]) => {
                 alternativeTitles: mangaRow.alternative_titles || [],
                 cover: mangaRow.cover,
                 banner: mangaRow.banner,
-                author: mangaRow.author,
-                artist: mangaRow.artist,
                 status: mangaRow.status,
                 genres: mangaRow.genres || [],
                 description: mangaRow.description || '',

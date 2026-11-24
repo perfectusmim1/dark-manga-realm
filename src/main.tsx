@@ -3,6 +3,7 @@ import App from "./App.tsx";
 import "./index.css";
 import { registerSW } from "virtual:pwa-register";
 import { isNativeApp } from "@/lib/appRuntime";
+import { routeModuleLoaders } from "@/lib/routeModules";
 
 // Third-party browser extension error suppressor (e.g. 200.js sniffer/downloader M_ID errors)
 if (typeof window !== "undefined") {
@@ -74,6 +75,15 @@ if (typeof window !== "undefined") {
     event.preventDefault();
     triggerChunkRecoveryReload();
   });
+
+  const initialPathname = window.location.pathname;
+  if (initialPathname.startsWith("/manga/")) {
+    if (initialPathname.includes("/chapter/")) {
+      void routeModuleLoaders.Reader().catch(() => undefined);
+    } else {
+      void routeModuleLoaders.MangaDetail().catch(() => undefined);
+    }
+  }
 }
 
 

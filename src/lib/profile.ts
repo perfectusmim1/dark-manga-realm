@@ -65,7 +65,7 @@ const buildProfileSectionAccess = (
 
 export interface ProfileRecentComment {
     id: string;
-    entityType: 'manga' | 'character' | 'author' | 'artist';
+    entityType: 'manga' | 'character';
     entityId: string;
     targetName: string;
     targetImage?: string | null;
@@ -336,7 +336,7 @@ const buildCommentPreview = (rawContent: string) => {
 };
 
 export const getUserRecentComments = async (userId: string, limit: number = 100): Promise<ProfileRecentComment[]> => {
-    const [mangaComments, characterComments, authorComments, artistComments] = await Promise.all([
+    const [mangaComments, characterComments] = await Promise.all([
         supabase
             .from('comments')
             .select('id, manga_id, chapter_id, page_number, content, gif_url, parent_id, likes, created_at, mangas:manga_id(title, cover, type, status), chapters:chapter_id(number, title)')
@@ -346,18 +346,6 @@ export const getUserRecentComments = async (userId: string, limit: number = 100)
         supabase
             .from('character_comments')
             .select('id, character_id, content, likes, created_at, characters:character_id(name, image_url)')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false })
-            .limit(limit),
-        supabase
-            .from('author_comments')
-            .select('id, author_id, content, likes, created_at, authors:author_id(name, image_url)')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false })
-            .limit(limit),
-        supabase
-            .from('artist_comments')
-            .select('id, artist_id, content, likes, created_at, artists:artist_id(name, image_url)')
             .eq('user_id', userId)
             .order('created_at', { ascending: false })
             .limit(limit),
@@ -399,10 +387,10 @@ export const getUserRecentComments = async (userId: string, limit: number = 100)
 
     const normalizeEntityComments = (
         items: any[],
-        entityType: 'character' | 'author' | 'artist',
-        entityKey: 'character_id' | 'author_id' | 'artist_id',
-        relationKey: 'characters' | 'authors' | 'artists',
-        hrefPrefix: '/character' | '/author' | '/artist',
+        entityType: 'character',
+        entityKey: 'character_id',
+        relationKey: 'characters',
+        hrefPrefix: '/character',
         fallbackName: string
     ): ProfileRecentComment[] =>
         items.map((comment: any) => {
@@ -428,8 +416,6 @@ export const getUserRecentComments = async (userId: string, limit: number = 100)
     return [
         ...normalizedMangaComments,
         ...normalizeEntityComments(characterComments.data || [], 'character', 'character_id', 'characters', '/character', 'Karakter'),
-        ...normalizeEntityComments(authorComments.data || [], 'author', 'author_id', 'authors', '/author', 'Yazar'),
-        ...normalizeEntityComments(artistComments.data || [], 'artist', 'artist_id', 'artists', '/artist', 'Çizer'),
     ]
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         .slice(0, limit);

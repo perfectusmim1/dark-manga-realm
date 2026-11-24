@@ -16,8 +16,6 @@ export interface CachedReadingListItem {
   alternativeTitles?: string[];
   cover: string;
   banner?: string;
-  author: string;
-  artist?: string;
   status: Manga['status'];
   genres: string[];
   description: string;
@@ -559,8 +557,6 @@ export const mapMangaToCachedReadingListItem = (manga: Manga): CachedReadingList
   alternativeTitles: [...(manga.alternativeTitles || [])],
   cover: manga.cover,
   banner: manga.banner,
-  author: manga.author,
-  artist: manga.artist,
   status: manga.status,
   genres: [...(manga.genres || [])],
   description: manga.description,
@@ -579,8 +575,6 @@ export const mapCachedReadingListItemToManga = (item: CachedReadingListItem): Ma
   alternativeTitles: [...(item.alternativeTitles || [])],
   cover: item.cover,
   banner: item.banner,
-  author: item.author,
-  artist: item.artist,
   status: item.status,
   genres: [...(item.genres || [])],
   description: item.description,

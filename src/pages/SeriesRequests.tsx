@@ -417,12 +417,6 @@ const SeriesRequests: React.FC = () => {
                                   ))}
                                 </div>
                               ) : null}
-
-                              {fetchedMetadata.authors.length > 0 ? (
-                                <p className="text-[11px] text-muted-foreground truncate">
-                                  Yazar: {fetchedMetadata.authors.slice(0, 2).join(', ')}
-                                </p>
-                              ) : null}
                             </div>
                           </div>
 

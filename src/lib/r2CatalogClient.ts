@@ -1,23 +1,17 @@
 /**
  * PostgREST-over-R2 Client Engine
- * Routes queries for the 16 catalog tables from Supabase SDK to Cloudflare R2 / Catalog Worker
+ * Routes queries for the catalog tables from Supabase SDK to Cloudflare R2 / Catalog Worker
  */
 
 export const R2_CATALOG_TABLES = new Set([
   'mangas',
   'chapters',
   'characters',
-  'authors',
-  'artists',
   'tags',
   'manga_characters',
-  'manga_authors',
-  'manga_artists',
   'manga_relations',
   'manga_tags',
   'character_tags',
-  'author_tags',
-  'artist_tags',
   'chapter_automations',
   'chapter_automation_runs',
 ]);
@@ -170,9 +164,7 @@ const normalizeCatalogTableRow = (tableName: string, rawRow: any): any => {
     row.usageCount = usageCount;
   } else if (
     tableName === 'manga_tags' ||
-    tableName === 'character_tags' ||
-    tableName === 'author_tags' ||
-    tableName === 'artist_tags'
+    tableName === 'character_tags'
   ) {
     const discoverable =
       row.is_discoverable !== undefined
@@ -257,14 +249,6 @@ const normalizeRowFields = (row: any): any => {
   // characterId <-> character_id
   if (row.characterId !== undefined && row.character_id === undefined) row.character_id = row.characterId;
   else if (row.character_id !== undefined && row.characterId === undefined) row.characterId = row.character_id;
-
-  // authorId <-> author_id
-  if (row.authorId !== undefined && row.author_id === undefined) row.author_id = row.authorId;
-  else if (row.author_id !== undefined && row.authorId === undefined) row.authorId = row.author_id;
-
-  // artistId <-> artist_id
-  if (row.artistId !== undefined && row.artist_id === undefined) row.artist_id = row.artistId;
-  else if (row.artist_id !== undefined && row.artistId === undefined) row.artistId = row.artist_id;
 
   // tagId <-> tag_id
   if (row.tagId !== undefined && row.tag_id === undefined) row.tag_id = row.tagId;
@@ -653,12 +637,6 @@ const resolveRelatedRows = (
   } else if (relationName === 'character_id' || relationName === 'characters' || relationName === 'character') {
     targetTable = 'characters';
     fkCol = 'character_id';
-  } else if (relationName === 'author_id' || relationName === 'authors' || relationName === 'author') {
-    targetTable = 'authors';
-    fkCol = 'author_id';
-  } else if (relationName === 'artist_id' || relationName === 'artists' || relationName === 'artist') {
-    targetTable = 'artists';
-    fkCol = 'artist_id';
   } else if (relationName === 'tag_id' || relationName === 'tags' || relationName === 'tag') {
     targetTable = 'tags';
     fkCol = 'tag_id';
@@ -681,7 +659,7 @@ const resolveRelatedRows = (
 
   // Case 2: Target table points to parent row (1-to-many reverse relation)
   // e.g. mangas -> chapters (chapter.manga_id === manga.id)
-  // e.g. mangas -> manga_characters, manga_tags, manga_authors, manga_artists, manga_relations
+  // e.g. mangas -> manga_characters, manga_tags, manga_relations
   // e.g. characters -> manga_characters, character_tags
   const directTable = relationName;
   if (R2_CATALOG_TABLES.has(directTable)) {
@@ -689,8 +667,6 @@ const resolveRelatedRows = (
     let parentKey = 'manga_id';
 
     if (parentTable === 'characters') parentKey = 'character_id';
-    else if (parentTable === 'authors') parentKey = 'author_id';
-    else if (parentTable === 'artists') parentKey = 'artist_id';
     else if (parentTable === 'tags') parentKey = 'tag_id';
     else if (parentTable === 'chapter_automations') parentKey = 'automation_id';
 
@@ -1241,8 +1217,6 @@ export const handleR2CatalogRestRequest = async (
       const cascadeTables = [
         'chapters',
         'manga_characters',
-        'manga_authors',
-        'manga_artists',
         'manga_tags',
         'manga_relations',
       ];
@@ -1268,7 +1242,7 @@ export const handleR2CatalogRestRequest = async (
   }
 
   // 4. READ: GET or HEAD
-  let matchingRows = tableRows.filter((row) => filterRow(row, url.searchParams));
+  const matchingRows = tableRows.filter((row) => filterRow(row, url.searchParams));
   const totalCount = matchingRows.length;
 
   // Sorting

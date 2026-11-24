@@ -4,7 +4,7 @@ import {
   getPreferredOfflineProxyUrlForSource,
 } from '@/lib/offline/proxyConfig';
 
-export type MediaEntityType = 'manga' | 'character' | 'author' | 'artist' | 'chapter';
+export type MediaEntityType = 'manga' | 'character' | 'chapter';
 export type MediaVariant = 'cover' | 'banner' | 'profile' | 'gallery' | 'page';
 
 export interface MediaTransformPreset {
@@ -68,10 +68,6 @@ const PRESETS: Partial<Record<`${MediaEntityType}:${MediaVariant}`, MediaTransfo
   'manga:gallery': { width: 1600, quality: 84, fit: 'scale-down', format: 'webp' },
   'character:profile': { width: 640, quality: 84, fit: 'cover', format: 'webp' },
   'character:gallery': { width: 1200, quality: 84, fit: 'scale-down', format: 'webp' },
-  'author:profile': { width: 560, quality: 84, fit: 'cover', format: 'webp' },
-  'author:gallery': { width: 1200, quality: 84, fit: 'scale-down', format: 'webp' },
-  'artist:profile': { width: 560, quality: 84, fit: 'cover', format: 'webp' },
-  'artist:gallery': { width: 1200, quality: 84, fit: 'scale-down', format: 'webp' },
   'chapter:page': { quality: 90, format: 'webp' },
 };
 

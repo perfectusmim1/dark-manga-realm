@@ -68,7 +68,7 @@ export default defineConfig(({ mode }) => ({
             handler: "NetworkFirst",
             options: {
               cacheName: "toonparrot-html-v1",
-              networkTimeoutSeconds: 6,
+              networkTimeoutSeconds: 2.5,
               cacheableResponse: {
                 statuses: [200],
               },

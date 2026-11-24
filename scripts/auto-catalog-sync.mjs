@@ -15,10 +15,10 @@
  *    - AniList (GraphQL) + MyAnimeList (Jikan v4) + MangaDex + MangaUpdates (v1 API) + Anime-Planet + aniSearch
  *    - Populates source_links (anilist, myanimelist, mangadex, mangaupdates, animeplanet, anisearch) for 100% user account sync
  *    - Guarantees 100% Turkish series descriptions (uses scraped Turkish text or translates English synopsis via GTX)
- *    - Auto-imports characters (with roles, native names, images, descriptions), authors, artists, and Turkish tags
+ *    - Auto-imports characters (with roles, native names, images, descriptions) and Turkish tags
  * 4. Dual Cloudflare R2 + Supabase PostgreSQL Mirror Sync:
  *    - Writes full catalog + chapter pages + automation-state to Cloudflare R2
- *    - Mirrors lightweight mangas, chapters (pages: '{}'), characters, authors, artists, tags, and chapter_automations to Supabase
+ *    - Mirrors lightweight mangas, chapters (pages: '{}'), characters, tags, and chapter_automations to Supabase
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
@@ -1186,8 +1186,6 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
       cover: upgradeSourceImageUrl(cover),
       description,
       alternativeTitles: Array.isArray(seriesMeta?.alternativeTitles) ? seriesMeta.alternativeTitles : [],
-      author: seriesMeta?.author || 'Bilinmiyor',
-      artist: seriesMeta?.artist || undefined,
       status,
       genres,
       isAdult: detectIsAdult({
@@ -1292,8 +1290,6 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
       cover: seriesMeta?.cover_url || seriesMeta?.headline_url || fallbackCover,
       description: seriesMeta?.description_text || '',
       alternativeTitles: altTitles,
-      author: seriesMeta?.author || 'Bilinmiyor',
-      artist: seriesMeta?.artist || undefined,
       status: mappedOkuStatus,
       genres: genres.length > 0 ? genres : ['Webtoon'],
       isAdult: false,
@@ -1314,8 +1310,6 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
 
     const blocks = html.split(/<div class="post-content_item[^"]*">/i).slice(1);
     let alternativeTitles = [];
-    let author = '';
-    let artist = '';
     let status = 'ongoing';
 
     for (const block of blocks) {
@@ -1332,10 +1326,6 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
             .map((t) => t.trim())
             .filter((t) => t.length > 1 && !/g[üu]ncellenecek/i.test(t));
         }
-      } else if (headingText.includes('yazar') || headingText.includes('author')) {
-        if (contentText) author = contentText;
-      } else if (headingText.includes('çizer') || headingText.includes('artist') || headingText.includes('cizer')) {
-        if (contentText) artist = contentText;
       } else if (headingText.includes('durum') || headingText.includes('status')) {
         const lower = contentText.toLowerCase();
         if (lower.includes('tamam') || lower.includes('bitti') || lower.includes('completed') || lower.includes('final')) {
@@ -1392,8 +1382,6 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
       cover,
       description,
       alternativeTitles,
-      author: author || 'Bilinmiyor',
-      artist: artist || undefined,
       status,
       genres,
       isAdult: detectIsAdult({
@@ -1432,9 +1420,6 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
           .map((t) => t.trim())
           .filter((t) => t.length > 1 && !/g[üu]ncellenecek/i.test(t))
       : [];
-
-    const authorMatch = /<a[^>]+href="https:\/\/siyahmelek\.my\/yazar\/[^"]*"[^>]*>([\s\S]*?)<\/a>/i.exec(html);
-    const author = authorMatch ? stripTags(authorMatch[1]).trim() : 'Bilinmiyor';
 
     const h1Idx = html.indexOf('id="manga-title"');
     const smHeroHtml = h1Idx > 0 ? html.slice(Math.max(0, h1Idx - 6000), h1Idx + 4000) : html.slice(0, 45000);
@@ -1517,8 +1502,6 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
       cover: smCover,
       description,
       alternativeTitles,
-      author,
-      artist: undefined,
       status: smStatus,
       genres,
       isAdult,
@@ -1563,8 +1546,6 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
       cover: upgradeSourceImageUrl(okuCover),
       description,
       alternativeTitles: [],
-      author: 'Bilinmiyor',
-      artist: undefined,
       status: 'ongoing',
       genres: ['Webtoon'],
       isAdult: false,
@@ -1641,7 +1622,6 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
       cover,
       description,
       alternativeTitles: [],
-      author: 'Bilinmiyor',
       status: 'ongoing',
       genres: combinedGenres,
       isAdult: true,
@@ -1855,17 +1835,6 @@ const queryAniList = async (searchTerms = [], options = {}) => {
               }
             }
           }
-          staff(perPage: 10) {
-            edges {
-              role
-              node {
-                id
-                name {
-                  full
-                }
-              }
-            }
-          }
         }
       }
     }
@@ -1955,7 +1924,6 @@ const queryJikanMal = async (searchTerms = [], directMalId = null) => {
           altTitles: [manga.title_english, manga.title_japanese, ...(manga.titles || []).map((t) => t.title)].filter(Boolean),
           description: manga.synopsis || '',
           cover: manga.images?.jpg?.large_image_url || manga.images?.jpg?.image_url || '',
-          authors: (manga.authors || []).map((a) => a.name).filter(Boolean),
           characters,
         };
       }
@@ -1985,7 +1953,6 @@ const queryJikanMal = async (searchTerms = [], directMalId = null) => {
           altTitles: [manga.title_english, manga.title_japanese, ...(manga.titles || []).map((t) => t.title)].filter(Boolean),
           description: manga.synopsis || '',
           cover: manga.images?.jpg?.large_image_url || manga.images?.jpg?.image_url || '',
-          authors: (manga.authors || []).map((a) => a.name).filter(Boolean),
           characters,
         };
       }
@@ -2000,7 +1967,7 @@ const queryMangaDex = async (searchTerms = [], options = {}) => {
   for (const term of searchTerms) {
     if (!term || term.length < 2 || /^\d+$/.test(term.trim())) continue;
     try {
-      const url = `${MANGADEX_API_URL}/manga?title=${encodeURIComponent(term)}&contentRating[]=safe&contentRating[]=suggestive&contentRating[]=erotica&contentRating[]=pornographic&includes[]=cover_art&includes[]=author&includes[]=artist&limit=5`;
+      const url = `${MANGADEX_API_URL}/manga?title=${encodeURIComponent(term)}&contentRating[]=safe&contentRating[]=suggestive&contentRating[]=erotica&contentRating[]=pornographic&includes[]=cover_art&limit=5`;
       const res = await fetch(url, {
         headers: { 'User-Agent': DEFAULT_USER_AGENT },
         signal: AbortSignal.timeout(7000),
@@ -2029,12 +1996,6 @@ const queryMangaDex = async (searchTerms = [], options = {}) => {
         }) || coverRels[0];
         // Never use uploads.mangadex.org directly as cover/banner (hotlink protection returns "Read on MangaDex" banner)
         const coverUrl = '';
-        const authors = (manga.relationships || [])
-          .filter((r) => r.type === 'author' && r.attributes?.name)
-          .map((r) => r.attributes.name);
-        const artists = (manga.relationships || [])
-          .filter((r) => r.type === 'artist' && r.attributes?.name)
-          .map((r) => r.attributes.name);
 
         return {
           id: manga.id,
@@ -2045,8 +2006,6 @@ const queryMangaDex = async (searchTerms = [], options = {}) => {
           altTitles: (manga.attributes?.altTitles || []).flatMap((t) => Object.values(t)).filter(Boolean),
           status: manga.attributes?.status || null,
           lastChapter: manga.attributes?.lastChapter || null,
-          authors,
-          artists,
         };
       }
     } catch {}
@@ -2166,13 +2125,9 @@ class SmartCatalogStore {
   constructor(initialState = {}) {
     this.mangas = new Map(Object.entries(initialState.mangas || {}));
     this.characters = new Map(Object.entries(initialState.characters || {}));
-    this.authors = new Map(Object.entries(initialState.authors || {}));
-    this.artists = new Map(Object.entries(initialState.artists || {}));
     this.tags = new Map(Object.entries(initialState.tags || {}));
 
     this.mangaCharacters = [...(initialState.mangaCharacters || [])];
-    this.mangaAuthors = [...(initialState.mangaAuthors || [])];
-    this.mangaArtists = [...(initialState.mangaArtists || [])];
     this.mangaTags = [...(initialState.mangaTags || [])];
     this.chapterAutomations = new Map();
     this.chapterAutomationRuns = [];
@@ -2409,14 +2364,6 @@ class SmartCatalogStore {
     for (const c of r2Chars) {
       if (c?.id) this.characters.set(c.id, { ...(this.characters.get(c.id) || {}), ...c, image: c.image || c.image_url });
     }
-    const r2Authors = Array.isArray(tables?.authors) && tables.authors.length > 0 ? tables.authors : snapshot?.authors || [];
-    for (const a of r2Authors) {
-      if (a?.id) this.authors.set(a.id, { ...(this.authors.get(a.id) || {}), ...a });
-    }
-    const r2Artists = Array.isArray(tables?.artists) && tables.artists.length > 0 ? tables.artists : snapshot?.artists || [];
-    for (const a of r2Artists) {
-      if (a?.id) this.artists.set(a.id, { ...(this.artists.get(a.id) || {}), ...a });
-    }
     const r2Tags = Array.isArray(tables?.tags) && tables.tags.length > 0 ? tables.tags : snapshot?.tags || [];
     for (const t of r2Tags) {
       if (t?.id) this.tags.set(t.id, { ...(this.tags.get(t.id) || {}), ...t });
@@ -2424,8 +2371,6 @@ class SmartCatalogStore {
 
     if (tables) {
       if (Array.isArray(tables.manga_characters)) this.mangaCharacters = [...tables.manga_characters];
-      if (Array.isArray(tables.manga_authors)) this.mangaAuthors = [...tables.manga_authors];
-      if (Array.isArray(tables.manga_artists)) this.mangaArtists = [...tables.manga_artists];
       if (Array.isArray(tables.manga_tags)) this.mangaTags = [...tables.manga_tags];
     }
 
@@ -2528,8 +2473,6 @@ class SmartCatalogStore {
 
     if (!keep.description && remove.description) keep.description = remove.description;
     if (!keep.cover && remove.cover) keep.cover = remove.cover;
-    if ((!keep.author || keep.author === 'Bilinmiyor') && remove.author) keep.author = remove.author;
-    if (!keep.artist && remove.artist) keep.artist = remove.artist;
     if (remove.isAdult) keep.isAdult = true;
 
     keep.sourceLinks = this.mergeSourceLinksList(keep.sourceLinks, remove.sourceLinks);
@@ -2541,12 +2484,6 @@ class SmartCatalogStore {
 
     for (const mc of this.mangaCharacters) {
       if (mc.manga_id === removeMangaId) mc.manga_id = keepMangaId;
-    }
-    for (const ma of this.mangaAuthors) {
-      if (ma.manga_id === removeMangaId) ma.manga_id = keepMangaId;
-    }
-    for (const mar of this.mangaArtists) {
-      if (mar.manga_id === removeMangaId) mar.manga_id = keepMangaId;
     }
     for (const mt of this.mangaTags) {
       if (mt.manga_id === removeMangaId) mt.manga_id = keepMangaId;
@@ -2701,8 +2638,6 @@ class SmartCatalogStore {
       description: scraped.description || '',
       cover: !isJunkCoverUrl(scraped.cover) ? upgradeSourceImageUrl(scraped.cover) : '',
       banner: !isJunkCoverUrl(scraped.cover) ? upgradeSourceImageUrl(scraped.cover) : '',
-      author: scraped.author || 'Bilinmiyor',
-      artist: scraped.artist || undefined,
       status: scraped.status || 'ongoing',
       type: deriveMangaType({ isAdult: Boolean(scraped.isAdult), primarySource: scraped.source }),
       genres: normalizedGenres,
@@ -2749,50 +2684,6 @@ class SmartCatalogStore {
 
   syncScrapedTaxonomies(mangaId, scraped) {
     if (!mangaId || !scraped) return;
-
-    if (scraped.author && scraped.author !== 'Bilinmiyor') {
-      const parts = scraped.author.split(/[,&/]/).map((s) => s.trim()).filter((s) => s.length > 1);
-      for (const authName of parts) {
-        const authKey = normalizeTitleKey(authName);
-        if (!authKey) continue;
-        let authorId = null;
-        for (const [aId, aObj] of this.authors.entries()) {
-          if (normalizeTitleKey(aObj.name) === authKey) {
-            authorId = aId;
-            break;
-          }
-        }
-        if (!authorId) {
-          authorId = randomUUID();
-          this.authors.set(authorId, { id: authorId, name: authName });
-        }
-        if (!this.mangaAuthors.some((ma) => ma.manga_id === mangaId && ma.author_id === authorId)) {
-          this.mangaAuthors.push({ manga_id: mangaId, author_id: authorId });
-        }
-      }
-    }
-
-    if (scraped.artist && scraped.artist !== 'Bilinmiyor') {
-      const parts = scraped.artist.split(/[,&/]/).map((s) => s.trim()).filter((s) => s.length > 1);
-      for (const artName of parts) {
-        const artKey = normalizeTitleKey(artName);
-        if (!artKey) continue;
-        let artistId = null;
-        for (const [arId, arObj] of this.artists.entries()) {
-          if (normalizeTitleKey(arObj.name) === artKey) {
-            artistId = arId;
-            break;
-          }
-        }
-        if (!artistId) {
-          artistId = randomUUID();
-          this.artists.set(artistId, { id: artistId, name: artName });
-        }
-        if (!this.mangaArtists.some((mar) => mar.manga_id === mangaId && mar.artist_id === artistId)) {
-          this.mangaArtists.push({ manga_id: mangaId, artist_id: artistId });
-        }
-      }
-    }
 
     if (Array.isArray(scraped.genres)) {
       for (const rawGenre of scraped.genres) {
@@ -2992,22 +2883,6 @@ class SmartCatalogStore {
           }
         }
 
-        // Staff
-        for (const edge of anilistData.staff?.edges || []) {
-          const node = edge?.node;
-          const role = (edge?.role || '').toLowerCase();
-          if (!node?.name?.full) continue;
-          const staffName = node.name.full;
-          if (role.includes('story') || role.includes('original') || role.includes('author')) {
-            this.syncScrapedTaxonomies(finalId, { author: staffName });
-            if (target.author === 'Bilinmiyor') target.author = staffName;
-          }
-          if (role.includes('art') || role.includes('illustrator')) {
-            this.syncScrapedTaxonomies(finalId, { artist: staffName });
-            if (!target.artist) target.artist = staffName;
-          }
-        }
-
         // Tags
         const trTags = (anilistData.tags || [])
           .filter((t) => t?.name && (t.rank || 0) >= 40 && !t.isMediaSpoiler)
@@ -3115,14 +2990,6 @@ class SmartCatalogStore {
         } else {
           currentManga.banner = currentManga.cover;
         }
-      }
-      if (mdData.authors?.length && currentManga.author === 'Bilinmiyor') {
-        currentManga.author = mdData.authors[0];
-        this.syncScrapedTaxonomies(finalId, { author: mdData.authors.join(', ') });
-      }
-      if (mdData.artists?.length && !currentManga.artist) {
-        currentManga.artist = mdData.artists[0];
-        this.syncScrapedTaxonomies(finalId, { artist: mdData.artists.join(', ') });
       }
     }
 
@@ -3358,8 +3225,6 @@ class SmartCatalogStore {
       updatedAt: new Date().toISOString(),
       mangas: lightweightMangas,
       characters: Array.from(this.characters.values()),
-      authors: Array.from(this.authors.values()),
-      artists: Array.from(this.artists.values()),
       tags: Array.from(this.tags.values()),
       mangaRelationships: [],
     };
@@ -3368,16 +3233,6 @@ class SmartCatalogStore {
   toTablesPayload() {
     const now = new Date().toISOString();
     const { automations, runs, pruneAutomationIds } = this.buildAutomationsPayload();
-
-    const sanitizePersonField = (val, fallback = 'Bilinmiyor') => {
-      if (!val || typeof val !== 'string') return fallback;
-      const cleaned = val
-        .split(',')
-        .map((p) => p.trim())
-        .filter((p) => p && !/^(?:girilmedi\.{0,3}|bilinmiyor|unknown|n\/a|-+|\?+)$/i.test(p))
-        .join(', ');
-      return (cleaned || fallback).slice(0, 95);
-    };
 
     const sanitizeDescField = (val) => {
       if (!val || typeof val !== 'string') return '';
@@ -3390,8 +3245,6 @@ class SmartCatalogStore {
     };
 
     const mangasRows = Array.from(this.mangas.values()).map((m) => {
-      const cleanAuthor = sanitizePersonField(m.author, 'Bilinmiyor');
-      const cleanArtist = sanitizePersonField(m.artist || cleanAuthor, cleanAuthor);
       const sortedCh = [...(m.chapters || [])].sort(
         (a, b) => Number(b.chapterNumber ?? b.number ?? 0) - Number(a.chapterNumber ?? a.number ?? 0)
       );
@@ -3399,8 +3252,6 @@ class SmartCatalogStore {
         id: m.id,
         title: m.title,
         slug: m.slug,
-        author: cleanAuthor,
-        artist: cleanArtist,
         is_public: true,
         is_adult: Boolean(m.isAdult),
         description: sanitizeDescField(m.description),
@@ -3452,43 +3303,6 @@ class SmartCatalogStore {
       created_at: now,
     }));
 
-    const isPlaceholderName = (n) => !n || /^(?:girilmedi\.{0,3}|bilinmiyor|unknown|n\/a|-+|\?+)$/i.test(String(n).trim());
-
-    const authorsRows = Array.from(this.authors.values())
-      .filter((entity) => !isPlaceholderName(entity.name))
-      .map((entity) => ({
-        id: entity.id,
-        name: entity.name,
-        image_url: entity.image_url || entity.imageUrl || entity.image || null,
-        description: entity.description || '',
-        likes_count: 0,
-        is_public: true,
-        alternative_names: entity.alternativeName ? [entity.alternativeName] : entity.alternative_names || [],
-        details: entity.details || {},
-        gallery: [],
-        source_links: [],
-        created_at: now,
-      }));
-
-    const artistsRows = Array.from(this.artists.values())
-      .filter((entity) => !isPlaceholderName(entity.name))
-      .map((entity) => ({
-        id: entity.id,
-        name: entity.name,
-        image_url: entity.image_url || entity.imageUrl || entity.image || null,
-        description: entity.description || '',
-        likes_count: 0,
-        is_public: true,
-        alternative_names: entity.alternativeName ? [entity.alternativeName] : entity.alternative_names || [],
-        details: entity.details || {},
-        gallery: [],
-        source_links: [],
-        created_at: now,
-      }));
-
-    const validAuthorIds = new Set(authorsRows.map((a) => a.id));
-    const validArtistIds = new Set(artistsRows.map((a) => a.id));
-
     const tagUsageMap = new Map();
     const normalizedMangaTags = this.mangaTags.map((rel) => {
       if (rel?.tag_id) {
@@ -3517,17 +3331,11 @@ class SmartCatalogStore {
       mangas: mangasRows,
       chapters: chaptersRows,
       characters: charactersRows,
-      authors: authorsRows,
-      artists: artistsRows,
       tags: tagsRows,
       manga_characters: this.mangaCharacters,
-      manga_authors: this.mangaAuthors.filter((ma) => validAuthorIds.has(ma.author_id)),
-      manga_artists: this.mangaArtists.filter((mar) => validArtistIds.has(mar.artist_id)),
       manga_tags: normalizedMangaTags,
       manga_relations: [],
       character_tags: [],
-      author_tags: [],
-      artist_tags: [],
       chapter_automations: automations,
       chapter_automation_runs: runs,
       prune_automation_ids: pruneAutomationIds,
@@ -3539,12 +3347,8 @@ class SmartCatalogStore {
       version: 2,
       mangas: Object.fromEntries(this.mangas.entries()),
       characters: Object.fromEntries(this.characters.entries()),
-      authors: Object.fromEntries(this.authors.entries()),
-      artists: Object.fromEntries(this.artists.entries()),
       tags: Object.fromEntries(this.tags.entries()),
       mangaCharacters: this.mangaCharacters,
-      mangaAuthors: this.mangaAuthors,
-      mangaArtists: this.mangaArtists,
       mangaTags: this.mangaTags,
       pendingSupabaseSyncIds: Array.from(this.pendingSupabaseSyncIds || []),
     };
@@ -3556,7 +3360,7 @@ class SmartCatalogStore {
 // ============================================================================
 const loadLocalCheckpoint = () => {
   if (!existsSync(CHECKPOINT_PATH)) {
-    return { version: 2, seriesQueue: {}, mangas: {}, characters: {}, authors: {}, artists: {}, tags: {} };
+    return { version: 2, seriesQueue: {}, mangas: {}, characters: {}, tags: {} };
   }
   try {
     const parsed = JSON.parse(readFileSync(CHECKPOINT_PATH, 'utf8'));
@@ -3599,7 +3403,7 @@ const loadLocalCheckpoint = () => {
     }
     return parsed;
   } catch {
-    return { version: 2, seriesQueue: {}, mangas: {}, characters: {}, authors: {}, artists: {}, tags: {} };
+    return { version: 2, seriesQueue: {}, mangas: {}, characters: {}, tags: {} };
   }
 };
 
@@ -3780,12 +3584,8 @@ const syncAllToR2AndSupabase = async (store, seriesQueue, touchedSlugs = new Set
       'mangas',
       'chapters',
       'characters',
-      'authors',
-      'artists',
       'tags',
       'manga_characters',
-      'manga_authors',
-      'manga_artists',
       'manga_tags',
       'chapter_automations',
       'chapter_automation_runs',
@@ -4073,16 +3873,12 @@ const syncAllToR2AndSupabase = async (store, seriesQueue, touchedSlugs = new Set
     }
 
     // ======================================================================
-    // 3. AŞAMA: YAN TAKSONOMİ TABLOLARI (KARAKTERLER, YAZARLAR, ETİKETLER)
+    // 3. AŞAMA: YAN TAKSONOMİ TABLOLARI (KARAKTERLER VE ETİKETLER)
     // ======================================================================
     try {
       await syncTableInChunks('characters', tablesPayload.characters, 600);
-      await syncTableInChunks('authors', tablesPayload.authors, 600);
-      await syncTableInChunks('artists', tablesPayload.artists, 600);
       await syncTableInChunks('tags', tablesPayload.tags, 600);
       await syncTableInChunks('manga_characters', tablesPayload.manga_characters, 1500);
-      await syncTableInChunks('manga_authors', tablesPayload.manga_authors, 1500);
-      await syncTableInChunks('manga_artists', tablesPayload.manga_artists, 1500);
       await syncTableInChunks('manga_tags', tablesPayload.manga_tags, 1500);
       logInfo('Supabase yan taksonomi tabloları senkronize edildi.');
     } catch (metaErr) {
@@ -4147,7 +3943,7 @@ const main = async () => {
       }
 
       logInfo(
-        `Katalog yüklendi: ${store.mangas.size} seri, ${store.characters.size} karakter, ${store.authors.size} yazar, ${store.tags.size} etiket.`
+        `Katalog yüklendi: ${store.mangas.size} seri, ${store.characters.size} karakter, ${store.tags.size} etiket.`
       );
       if (store.sanitizedCleanedIds?.size > 0) {
         for (const cleanedId of store.sanitizedCleanedIds) {
@@ -4816,7 +4612,7 @@ const main = async () => {
 
   console.log('='.repeat(76));
   logInfo(
-    `Otomasyon Başarıyla Tamamlandı! Toplam Seri: ${store.mangas.size} | Toplam Bölüm: ${store.toTablesPayload().chapters.length} | Karakter: ${store.characters.size} | Yazar: ${store.authors.size}`
+    `Otomasyon Başarıyla Tamamlandı! Toplam Seri: ${store.mangas.size} | Toplam Bölüm: ${store.toTablesPayload().chapters.length} | Karakter: ${store.characters.size}`
   );
   console.log('='.repeat(76));
 };

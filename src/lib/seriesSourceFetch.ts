@@ -14,7 +14,6 @@ export interface FetchedSeriesInfo {
   genres: string[];
   score?: number | string;
   year?: number | string;
-  authors: string[];
 }
 
 const ANILIST_URL_PATTERN = /(?:https?:\/\/)?(?:www\.)?anilist\.co\/manga\/(\d+)/i;
@@ -77,16 +76,6 @@ const buildAniListQuery = (paramName: 'id' | 'idMal') => `
         large
         medium
       }
-      staff(perPage: 6) {
-        edges {
-          role
-          node {
-            name {
-              full
-            }
-          }
-        }
-      }
     }
   }
 `;
@@ -116,16 +105,6 @@ const parseAniListMedia = (
     });
   }
 
-  const authors: string[] = [];
-  if (media.staff?.edges) {
-    media.staff.edges.forEach((edge: { role?: string; node?: { name?: { full?: string } } }) => {
-      const name = edge.node?.name?.full;
-      if (name && !authors.includes(name)) {
-        authors.push(name);
-      }
-    });
-  }
-
   const coverUrl = media.coverImage?.extraLarge || media.coverImage?.large || media.coverImage?.medium;
 
   return {
@@ -142,7 +121,6 @@ const parseAniListMedia = (
     genres: Array.isArray(media.genres) ? media.genres : [],
     score: media.averageScore ? `${media.averageScore}%` : undefined,
     year: media.startDate?.year,
-    authors,
   };
 };
 
@@ -247,15 +225,6 @@ const fetchMyAnimeListSeries = async (id: string, sourceUrl: string, signal?: Ab
           });
         }
 
-        const authors: string[] = [];
-        if (Array.isArray(manga.authors)) {
-          manga.authors.forEach((a: { name?: string }) => {
-            if (a.name && !authors.includes(a.name)) {
-              authors.push(a.name);
-            }
-          });
-        }
-
         const coverUrl = manga.images?.jpg?.large_image_url || manga.images?.jpg?.image_url || manga.images?.webp?.large_image_url;
         const startYear = manga.published?.from ? new Date(manga.published.from).getFullYear() : undefined;
 
@@ -273,7 +242,6 @@ const fetchMyAnimeListSeries = async (id: string, sourceUrl: string, signal?: Ab
           genres,
           score: manga.score ? `${manga.score} / 10` : undefined,
           year: isNaN(Number(startYear)) ? undefined : startYear,
-          authors,
         };
       }
     }
@@ -346,9 +314,6 @@ export const formatSeriesMetadataSummary = (info: FetchedSeriesInfo): string => 
   }
   if (info.genres.length > 0) {
     parts.push(`Kategori: ${info.genres.slice(0, 4).join(', ')}`);
-  }
-  if (info.authors.length > 0) {
-    parts.push(`Yazar: ${info.authors.slice(0, 2).join(', ')}`);
   }
   if (info.alternativeTitles.length > 0) {
     parts.push(`Alternatif İsimler: ${info.alternativeTitles.slice(0, 3).join(' / ')}`);

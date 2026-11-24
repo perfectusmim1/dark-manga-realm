@@ -64,11 +64,7 @@ const HeaderBootstrapShell = () => {
             const isActive = link.path === '/characters'
               ? (
                 location.pathname === '/characters'
-                || location.pathname === '/authors'
-                || location.pathname === '/artists'
                 || location.pathname.startsWith('/character/')
-                || location.pathname.startsWith('/author/')
-                || location.pathname.startsWith('/artist/')
               )
               : link.path === '/community'
                 ? location.pathname === '/community' || location.pathname.startsWith('/community/')
@@ -100,7 +96,7 @@ const HeaderBootstrapShell = () => {
         <div className="hidden max-w-md flex-1 items-center gap-2 md:flex">
           <div className="relative flex-1">
             <div className="flex h-10 items-center rounded-md border border-input bg-background px-3 pl-10 text-sm text-muted-foreground">
-              Manga, karakter, yazar veya çizer ara...
+              Manga veya karakter ara...
             </div>
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           </div>

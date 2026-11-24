@@ -1,9 +1,7 @@
-import type { Artist, Author, Character, Manga } from '@/lib/types';
+import type { Character, Manga } from '@/lib/types';
 import { normalizeComparableText, normalizeLooseComparableText } from '@/lib/textMatching';
 
-type SearchableNamedEntity = Pick<Character, 'name' | 'alternativeNames' | 'details'>
-  | Pick<Author, 'name' | 'alternativeNames' | 'details'>
-  | Pick<Artist, 'name' | 'alternativeNames' | 'details'>;
+type SearchableNamedEntity = Pick<Character, 'name' | 'alternativeNames' | 'details'>;
 
 export interface PreparedSearchQuery {
   normalized: string;
@@ -196,22 +194,7 @@ const getIndexedMangaSecondaryFields = (indexed: IndexedMangaSearch): IndexedSea
 
   const { manga } = indexed;
   const secondaryRawTerms: Array<string | null | undefined> = [];
-  if (manga.author) secondaryRawTerms.push(manga.author);
-  if (manga.artist) secondaryRawTerms.push(manga.artist);
   pushStringList(secondaryRawTerms, manga.alternativeTitles);
-  pushEntitySearchTerms(secondaryRawTerms, manga.authorDetails);
-  pushEntitySearchTerms(secondaryRawTerms, manga.artistDetails);
-
-  if (manga.authorsDetails && manga.authorsDetails.length > 0) {
-    for (let index = 0; index < manga.authorsDetails.length; index += 1) {
-      pushEntitySearchTerms(secondaryRawTerms, manga.authorsDetails[index]);
-    }
-  }
-  if (manga.artistsDetails && manga.artistsDetails.length > 0) {
-    for (let index = 0; index < manga.artistsDetails.length; index += 1) {
-      pushEntitySearchTerms(secondaryRawTerms, manga.artistsDetails[index]);
-    }
-  }
 
   const seenNorms = new Set<string>(indexed.title ? [indexed.title.norm] : []);
   const secondary: IndexedSearchField[] = [];

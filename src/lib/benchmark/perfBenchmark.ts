@@ -1184,8 +1184,6 @@ export const runFullPerformanceBenchmark = async (
             { id: 'route-reading-lists', name: 'Okuma Listeleri (/reading-lists)', path: '/reading-lists' },
             { id: 'route-tier-lists', name: 'Kademe Listeleri (/tier-lists)', path: '/tier-lists' },
             { id: 'route-characters', name: 'Karakterler (/characters)', path: '/characters' },
-            { id: 'route-authors', name: 'Yazarlar (/authors)', path: '/authors' },
-            { id: 'route-artists', name: 'Çizerler (/artists)', path: '/artists' },
             { id: 'route-settings', name: 'Ayarlar (/settings)', path: '/settings' },
             ...(currentUserId ? [{ id: 'route-profile', name: 'Profil Sayfam (/profile)', path: `/profile/${currentUserId}` }] : []),
         );

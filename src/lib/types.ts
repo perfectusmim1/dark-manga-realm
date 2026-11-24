@@ -6,8 +6,6 @@ export interface Manga {
   banner?: string;
   isPublic?: boolean;
   isAdult?: boolean;
-  author: string;
-  artist?: string;
   status: 'ongoing' | 'completed' | 'hiatus';
   genres: string[];
   description: string;
@@ -26,10 +24,6 @@ export interface Manga {
   type: 'manga' | 'manhwa' | 'manhua' | 'webtoon' | 'hentai' | 'webtoon_hentai';
   releaseYear?: number;
   characters?: Character[];
-  authorDetails?: Author;
-  artistDetails?: Artist;
-  authorsDetails?: Author[];
-  artistsDetails?: Artist[];
   details?: EntityMetadata;
   sourceLinks?: ExternalSourceLink[];
   relatedSeries?: MangaRelation[];
@@ -201,38 +195,6 @@ export interface Character {
   gallery?: BaseRichEntity['gallery'];
   sourceLinks?: BaseRichEntity['sourceLinks'];
   listingRole?: 'main' | 'supporting' | 'minor';
-}
-
-export interface Author {
-  id: BaseRichEntity['id'];
-  name: BaseRichEntity['name'];
-  imageUrl?: BaseRichEntity['imageUrl'];
-  description?: BaseRichEntity['description'];
-  likesCount: BaseRichEntity['likesCount'];
-  createdAt: BaseRichEntity['createdAt'];
-  series?: BaseRichEntity['series'];
-  rank?: BaseRichEntity['rank'];
-  isPublic?: BaseRichEntity['isPublic'];
-  alternativeNames?: BaseRichEntity['alternativeNames'];
-  details?: BaseRichEntity['details'];
-  gallery?: BaseRichEntity['gallery'];
-  sourceLinks?: BaseRichEntity['sourceLinks'];
-}
-
-export interface Artist {
-  id: BaseRichEntity['id'];
-  name: BaseRichEntity['name'];
-  imageUrl?: BaseRichEntity['imageUrl'];
-  description?: BaseRichEntity['description'];
-  likesCount: BaseRichEntity['likesCount'];
-  createdAt: BaseRichEntity['createdAt'];
-  series?: BaseRichEntity['series'];
-  rank?: BaseRichEntity['rank'];
-  isPublic?: BaseRichEntity['isPublic'];
-  alternativeNames?: BaseRichEntity['alternativeNames'];
-  details?: BaseRichEntity['details'];
-  gallery?: BaseRichEntity['gallery'];
-  sourceLinks?: BaseRichEntity['sourceLinks'];
 }
 
 export interface MangaRelation {
@@ -430,7 +392,7 @@ export interface Comment {
   id: string;
   mangaId?: string;
   entityId?: string;
-  entityType?: 'manga' | 'character' | 'author' | 'artist';
+  entityType?: 'manga' | 'character';
   chapterId?: string;
   pageNumber?: number;
   userId: string;
@@ -530,7 +492,7 @@ export interface MangaTag {
 export interface TagVote {
   id: string;
   tagId: string;
-  entityType: 'manga' | 'character' | 'author' | 'artist';
+  entityType: 'manga' | 'character';
   entityId: string;
   userId: string;
   voteType: 'up' | 'down';

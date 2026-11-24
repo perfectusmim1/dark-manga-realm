@@ -104,11 +104,7 @@ const TierLists = lazy(routeModuleLoaders.TierLists);
 const TierListEditor = lazy(routeModuleLoaders.TierListEditor);
 const TierListView = lazy(routeModuleLoaders.TierListView);
 const CharacterDetail = lazy(routeModuleLoaders.CharacterDetail);
-const AuthorDetail = lazy(routeModuleLoaders.AuthorDetail);
-const ArtistDetail = lazy(routeModuleLoaders.ArtistDetail);
 const CharactersBrowse = lazy(routeModuleLoaders.CharactersBrowse);
-const AuthorsBrowse = lazy(routeModuleLoaders.AuthorsBrowse);
-const ArtistsBrowse = lazy(routeModuleLoaders.ArtistsBrowse);
 const AdminLogin = lazy(routeModuleLoaders.AdminLogin);
 const AdminLayout = lazy(routeModuleLoaders.AdminLayout);
 const AdminDashboard = lazy(routeModuleLoaders.AdminDashboard);
@@ -418,11 +414,7 @@ const App = () => (
                     <Route path="/support" element={<Support />} />
                     <Route path="/profile/:userId" element={<Profile />} />
                     <Route path="/character/:id" element={<CharacterDetail />} />
-                    <Route path="/author/:id" element={<AuthorDetail />} />
-                    <Route path="/artist/:id" element={<ArtistDetail />} />
                     <Route path="/characters" element={<CharactersBrowse />} />
-                    <Route path="/authors" element={<AuthorsBrowse />} />
-                    <Route path="/artists" element={<ArtistsBrowse />} />
 
                     {/* Admin Routes */}
                     <Route path="/admin/login" element={<AdminLogin />} />

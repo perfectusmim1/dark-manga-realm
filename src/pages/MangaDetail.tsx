@@ -54,7 +54,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  cleanPlaceholderNamedEntityString,
   getChapterPagesByIds,
   getMangaById,
   getMangaChapters,
@@ -78,6 +77,11 @@ import {
   getMangaDetailMeta,
   getMangaReadersList,
   invalidateMangaDetailMetaCache,
+  readCachedMangaDetailMeta,
+  readCachedMangaDetailSnapshot,
+  readSyncAdultModePreference,
+  readSyncAuthUserId,
+  writeCachedMangaDetailSnapshot,
   type MangaDetailMeta,
   type MangaReaderItem,
 } from '@/lib/database';
@@ -322,6 +326,108 @@ const MANGA_DETAIL_TAB_VALUES = [
   'discover',
 ] as const;
 type MangaDetailTabValue = (typeof MANGA_DETAIL_TAB_VALUES)[number];
+
+const MANGA_USER_QUICK_STATE_PREFIX = 'toonparrot:manga-user-state:v1:';
+const MANGA_USER_QUICK_STATE_TTL_MS = 5 * 60_000;
+
+interface MangaUserQuickState {
+  favorite: boolean;
+  isFollowing: boolean;
+  category?: LibraryCategory;
+  userRating?: number;
+}
+
+const readCachedMangaUserQuickState = (
+  userId?: string | null,
+  mangaId?: string | null,
+): MangaUserQuickState | null => {
+  if (typeof window === 'undefined' || !userId || !mangaId) {
+    return null;
+  }
+
+  try {
+    const key = `${MANGA_USER_QUICK_STATE_PREFIX}${userId}:${mangaId}`;
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as {
+      fetchedAt?: unknown;
+      value?: MangaUserQuickState;
+    };
+
+    if (
+      !parsed
+      || typeof parsed.fetchedAt !== 'number'
+      || !parsed.value
+      || Date.now() - parsed.fetchedAt >= MANGA_USER_QUICK_STATE_TTL_MS
+    ) {
+      window.sessionStorage.removeItem(key);
+      return null;
+    }
+
+    return parsed.value;
+  } catch {
+    return null;
+  }
+};
+
+const writeCachedMangaUserQuickState = (
+  userId: string | null | undefined,
+  mangaId: string | null | undefined,
+  value: MangaUserQuickState,
+) => {
+  if (typeof window === 'undefined' || !userId || !mangaId) {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(
+      `${MANGA_USER_QUICK_STATE_PREFIX}${userId}:${mangaId}`,
+      JSON.stringify({
+        fetchedAt: Date.now(),
+        value,
+      }),
+    );
+  } catch {
+    // ignore quota errors
+  }
+};
+
+const scheduleDeferredOfflineMangaCache = (targetManga: Manga): (() => void) => {
+  if (typeof window === 'undefined') {
+    return () => undefined;
+  }
+
+  let cancelled = false;
+  let idleId: number | null = null;
+  const win = window as Window & {
+    requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+    cancelIdleCallback?: (id: number) => void;
+  };
+
+  const timerId = window.setTimeout(() => {
+    if (cancelled) return;
+    if (typeof win.requestIdleCallback === 'function') {
+      idleId = win.requestIdleCallback(() => {
+        if (!cancelled) {
+          void cacheOfflineManga(targetManga);
+        }
+      }, { timeout: 1500 });
+    } else {
+      void cacheOfflineManga(targetManga);
+    }
+  }, 300);
+
+  return () => {
+    cancelled = true;
+    window.clearTimeout(timerId);
+    if (idleId !== null && typeof win.cancelIdleCallback === 'function') {
+      win.cancelIdleCallback(idleId);
+    }
+  };
+};
 
 const isValidMangaDetailTab = (value: string | null | undefined): value is MangaDetailTabValue =>
   Boolean(value && (MANGA_DETAIL_TAB_VALUES as readonly string[]).includes(value));
@@ -665,17 +771,33 @@ const MangaDetail: React.FC = () => {
     'mt-0 min-h-[380px] overflow-x-clip',
     !prefersReducedMotion && (tabDirection === 'left' ? 'animate-tab-slide-left' : 'animate-tab-slide-right'),
   );
-  const [manga, setManga] = useState<Manga | undefined>();
+  const initialDetailSnapshot = useMemo(() => {
+    if (!mangaId) return null;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
+    return readCachedMangaDetailSnapshot(mangaId);
+  }, [mangaId]);
+  const initialSyncUserId = useMemo(() => readSyncAuthUserId(), []);
+  const initialQuickUserState = useMemo(() => {
+    if (!mangaId || !initialSyncUserId) return null;
+    return readCachedMangaUserQuickState(initialSyncUserId, mangaId);
+  }, [initialSyncUserId, mangaId]);
+  const [manga, setManga] = useState<Manga | undefined>(() => initialDetailSnapshot ?? undefined);
   useDocumentTitle(manga ? manga.title : null);
   const { user, isLoading: authLoading } = useAuth();
+  const userIdRef = useRef<string | undefined>(user?.id);
+  userIdRef.current = user?.id;
   const appearancePreferences = useBootstrappedAppearancePreferences({ user, authLoading });
   const { snapshot: offlineSnapshot, isOnline } = useOfflineLibrary();
-  const [favorite, setFavorite] = useState(false);
-  const [isFollowing, setIsFollowing] = useState(false);
-  const [category, setCategory] = useState<LibraryCategory | undefined>();
+  const [favorite, setFavorite] = useState<boolean>(() => initialQuickUserState?.favorite ?? false);
+  const [isFollowing, setIsFollowing] = useState<boolean>(() => initialQuickUserState?.isFollowing ?? false);
+  const [category, setCategory] = useState<LibraryCategory | undefined>(() => initialQuickUserState?.category);
   const [showAllChapters, setShowAllChapters] = useState(false);
-  const [userRating, setUserRating] = useState<number | undefined>();
-  const [averageRating, setAverageRating] = useState({ average: 0, count: 0 });
+  const [userRating, setUserRating] = useState<number | undefined>(() => initialQuickUserState?.userRating);
+  const [averageRating, setAverageRating] = useState(() => (
+    initialDetailSnapshot
+      ? { average: initialDetailSnapshot.averageRating || 0, count: initialDetailSnapshot.reviewCount || 0 }
+      : { average: 0, count: 0 }
+  ));
   const [hoverRating, setHoverRating] = useState(0);
   const [latestProgress, setLatestProgress] = useState<any>(null);
   const [externalRatings, setExternalRatings] = useState<ExternalRatingsCache>({});
@@ -685,7 +807,7 @@ const MangaDetail: React.FC = () => {
   });
   const [isRefreshingExternalRatings, setIsRefreshingExternalRatings] = useState(false);
   const [syncingExternalProvider, setSyncingExternalProvider] = useState<ExternalSyncProvider | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState<boolean>(() => !initialDetailSnapshot);
   const [isListModalOpen, setIsListModalOpen] = useState(false);
   const [chapterSearch, setChapterSearch] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState<string>('all');
@@ -757,13 +879,15 @@ const MangaDetail: React.FC = () => {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [reviewSortMode, setReviewSortMode] = useState<ReviewSortMode>('new');
   const [expandedReviewIds, setExpandedReviewIds] = useState<Record<string, boolean>>({});
-  const [avgBreakdown, setAvgBreakdown] = useState<any>({
-    story: 0,
-    characters: 0,
-    art: 0,
-    progression: 0,
-    engagement: 0
-  });
+  const [avgBreakdown, setAvgBreakdown] = useState<any>(() => (
+    initialDetailSnapshot?.ratingBreakdown ?? {
+      story: 0,
+      characters: 0,
+      art: 0,
+      progression: 0,
+      engagement: 0,
+    }
+  ));
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [userReview, setUserReview] = useState<Partial<Review>>(createDefaultUserReview);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
@@ -776,8 +900,8 @@ const MangaDetail: React.FC = () => {
   const [hasLoadedReviews, setHasLoadedReviews] = useState(false);
   const [hasLoadedCharacters, setHasLoadedCharacters] = useState(false);
   const [hasLoadedSimilar, setHasLoadedSimilar] = useState(false);
-  const [isReviewsLoading, setIsReviewsLoading] = useState(true);
-  const [isCharsLoading, setIsCharsLoading] = useState(true);
+  const [isReviewsLoading, setIsReviewsLoading] = useState(() => !initialDetailSnapshot);
+  const [isCharsLoading, setIsCharsLoading] = useState(() => !initialDetailSnapshot);
   const [visibleCharacterCount, setVisibleCharacterCount] = useState(CHARACTER_BATCH_SIZE);
   const charactersLoadMoreRef = React.useRef<HTMLDivElement | null>(null);
   const overviewLoadMoreRef = React.useRef<HTMLDivElement | null>(null);
@@ -786,9 +910,15 @@ const MangaDetail: React.FC = () => {
   const charactersLoadPromiseRef = React.useRef<Promise<Character[]> | null>(null);
   const similarLoadPromiseRef = React.useRef<Promise<Manga[]> | null>(null);
   const reviewTextareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const prevMangaIdRef = React.useRef<string | undefined>(mangaId);
   const [chapterLikesMap, setChapterLikesMap] = useState<Record<string, ChapterLikeInfo>>({});
   const [togglingChapterLikeId, setTogglingChapterLikeId] = useState<string | null>(null);
-  const [detailMeta, setDetailMeta] = useState<MangaDetailMeta | null>(null);
+  const [detailMeta, setDetailMeta] = useState<MangaDetailMeta | null>(() => {
+    const targetId = initialDetailSnapshot?.id || mangaId;
+    if (!targetId) return null;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return null;
+    return readCachedMangaDetailMeta(targetId, readSyncAdultModePreference(initialSyncUserId));
+  });
   const [isReadersModalOpen, setIsReadersModalOpen] = useState(false);
   const [libraryReaders, setLibraryReaders] = useState<{
     items: MangaReaderItem[];
@@ -811,6 +941,11 @@ const MangaDetail: React.FC = () => {
 
     let cancelled = false;
     const includeAdult = Boolean(user?.preferences?.content?.adult_mode === true);
+    const cachedMeta = readCachedMangaDetailMeta(targetId, includeAdult);
+    if (cachedMeta) {
+      setDetailMeta(cachedMeta);
+    }
+
     void getMangaDetailMeta(targetId, includeAdult)
       .then((meta) => {
         if (!cancelled) {
@@ -818,7 +953,7 @@ const MangaDetail: React.FC = () => {
         }
       })
       .catch(() => {
-        if (!cancelled) {
+        if (!cancelled && !cachedMeta) {
           setDetailMeta(null);
         }
       });
@@ -1878,49 +2013,123 @@ const MangaDetail: React.FC = () => {
 
   useEffect(() => {
     let isCancelled = false;
+    let cancelDeferredOfflineCache: (() => void) | null = null;
 
     const loadMangaData = async () => {
       if (!mangaId) return;
 
-      try {
-        setIsLoading(true);
-        setIsReviewsLoading(true);
-        setIsCharsLoading(true);
-        setIsSeriesReadingTimeLoading(false);
-        setLoadingSimilar(false);
-        setHasLoadedReviews(false);
-        setHasLoadedCharacters(false);
-        setHasLoadedSimilar(false);
-        setVisibleCharacterCount(CHARACTER_BATCH_SIZE);
-        setSimilarMangas([]);
-        setMangaCharacters([]);
-        setReviews([]);
-        setChapterCardImageFallbackUrls({});
-        chapterCardImageRequestIdsRef.current.clear();
-        resetUserScopedState();
+      const routeChanged = prevMangaIdRef.current !== mangaId;
+      prevMangaIdRef.current = mangaId;
+      const warmSnapshot = isOnline ? readCachedMangaDetailSnapshot(mangaId) : null;
 
-        // Wave 1: Fetch the most important thing (Manga Metadata)
-        const mData = isOnline ? await getMangaById(mangaId) : undefined;
+      try {
+        if (routeChanged) {
+          setIsSeriesReadingTimeLoading(false);
+          setLoadingSimilar(false);
+          setHasLoadedReviews(false);
+          setHasLoadedCharacters(false);
+          setHasLoadedSimilar(false);
+          setVisibleCharacterCount(CHARACTER_BATCH_SIZE);
+          setSimilarMangas([]);
+          setMangaCharacters([]);
+          setReviews([]);
+          setChapterCardImageFallbackUrls({});
+          chapterCardImageRequestIdsRef.current.clear();
+
+          const activeUid = userIdRef.current || readSyncAuthUserId();
+          const quickState = activeUid ? readCachedMangaUserQuickState(activeUid, mangaId) : null;
+          if (quickState) {
+            setFavorite(quickState.favorite);
+            setIsFollowing(quickState.isFollowing);
+            setCategory(quickState.category);
+            setUserRating(quickState.userRating);
+            setLatestProgress(null);
+            setBlockedUserIds([]);
+            setChapterReadMap({});
+            setSeriesReadingSeconds(0);
+            setSeriesBookmarks([]);
+            setIsSeriesBookmarksLoading(false);
+            setHasLoadedBookmarks(false);
+            setUserReview(createDefaultUserReview());
+          } else {
+            resetUserScopedState();
+          }
+
+          if (warmSnapshot) {
+            setIsOfflineView(false);
+            setManga(warmSnapshot);
+            setAverageRating({ average: warmSnapshot.averageRating || 0, count: warmSnapshot.reviewCount || 0 });
+            setAvgBreakdown(warmSnapshot.ratingBreakdown ?? {
+              story: 0,
+              characters: 0,
+              art: 0,
+              progression: 0,
+              engagement: 0,
+            });
+            setIsLoading(false);
+            setIsCharsLoading(false);
+            setIsReviewsLoading(false);
+          } else {
+            setManga(undefined);
+            setIsLoading(true);
+            setIsReviewsLoading(true);
+            setIsCharsLoading(true);
+          }
+        } else if (warmSnapshot) {
+          setIsLoading(false);
+          setIsCharsLoading(false);
+          setIsReviewsLoading(false);
+        } else {
+          setIsLoading(true);
+          setIsReviewsLoading(true);
+          setIsCharsLoading(true);
+        }
+
+        // Wave 1: Race IDB offline detail (~10ms) with single-RPC network bundle (~100ms) when cold
+        let networkSettled = false;
+        const networkPromise = isOnline ? getMangaById(mangaId) : Promise.resolve(undefined);
+        const offlineRacePromise = (isOnline && !warmSnapshot)
+          ? getOfflineMangaDetail(mangaId)
+            .then((offlineCandidate) => {
+              if (!isCancelled && !networkSettled && offlineCandidate) {
+                setIsOfflineView(false);
+                setManga(offlineCandidate);
+                setIsLoading(false);
+                setIsCharsLoading(false);
+                setIsReviewsLoading(false);
+              }
+              return offlineCandidate;
+            })
+            .catch(() => undefined)
+          : Promise.resolve(undefined);
+
+        const mData = await networkPromise;
+        networkSettled = true;
         if (isCancelled) return;
-        
+
         if (mData) {
           setIsOfflineView(false);
           setManga(mData);
           setAverageRating({ average: mData.averageRating, count: mData.reviewCount });
-          void cacheOfflineManga(mData);
           if (mData.ratingBreakdown) {
             setAvgBreakdown(mData.ratingBreakdown);
           }
-          
+
           // Show page structure immediately after metadata
           setIsLoading(false);
           setIsCharsLoading(false);
           setIsReviewsLoading(false);
 
+          // Deferred IDB cache write so main thread stays silky during initial paint
+          cancelDeferredOfflineCache?.();
+          cancelDeferredOfflineCache = scheduleDeferredOfflineMangaCache(mData);
+
           // Parallel & Non-blocking
           void incrementMangaViews(mangaId);
         } else {
-          const offlineManga = await getOfflineMangaDetail(mangaId);
+          const offlineManga = (isOnline && !warmSnapshot)
+            ? await offlineRacePromise
+            : await getOfflineMangaDetail(mangaId);
           if (isCancelled) return;
 
           if (offlineManga) {
@@ -1991,6 +2200,7 @@ const MangaDetail: React.FC = () => {
 
     return () => {
       isCancelled = true;
+      cancelDeferredOfflineCache?.();
     };
   }, [isOnline, mangaId, resetUserScopedState]);
 
@@ -2147,18 +2357,29 @@ const MangaDetail: React.FC = () => {
 
         if (isCancelled) return;
 
-        setFavorite(Boolean(favorited));
-        setIsFollowing(Boolean(following));
-        setUserRating(rating as number | undefined);
+        const nextFavorite = Boolean(favorited);
+        const nextFollowing = Boolean(following);
+        const nextRating = rating as number | undefined;
+        const favs = userFavorites as Favorite[];
+        const thisFav = favs.find((entry) => entry.mangaId === mangaId);
+        const nextCategory = thisFav?.category;
+
+        setFavorite(nextFavorite);
+        setIsFollowing(nextFollowing);
+        setUserRating(nextRating);
         setLatestProgress(progress);
         setUserReview((uReview as Review | null) ? { ...(uReview as Review) } : createDefaultUserReview());
         setBlockedUserIds((blockedUsersResult as { ids?: string[] })?.ids || []);
         setChapterReadMap((chapterReadProgress as Record<string, { isRead?: boolean; readProgressPercent?: number }>) || {});
         setSeriesReadingSeconds(Number(mangaReadingTime) || 0);
+        setCategory(nextCategory);
 
-        const favs = userFavorites as Favorite[];
-        const thisFav = favs.find((entry) => entry.mangaId === mangaId);
-        setCategory(thisFav?.category);
+        writeCachedMangaUserQuickState(user.id, mangaId, {
+          favorite: nextFavorite,
+          isFollowing: nextFollowing,
+          category: nextCategory,
+          userRating: nextRating,
+        });
       } catch (error) {
         if (isCancelled) return;
 
@@ -2290,6 +2511,12 @@ const MangaDetail: React.FC = () => {
         await removeFavorite(user.id, manga.id);
         setFavorite(false);
         setCategory(undefined);
+        writeCachedMangaUserQuickState(user.id, mangaId, {
+          favorite: false,
+          isFollowing,
+          category: undefined,
+          userRating,
+        });
         if (!isFollowing) {
           adjustLibraryMetaOptimistic(-1);
         }
@@ -2306,6 +2533,12 @@ const MangaDetail: React.FC = () => {
         });
         setFavorite(true);
         setCategory('reading');
+        writeCachedMangaUserQuickState(user.id, mangaId, {
+          favorite: true,
+          isFollowing,
+          category: 'reading',
+          userRating,
+        });
         if (!isFollowing) {
           adjustLibraryMetaOptimistic(1);
         }
@@ -2341,8 +2574,15 @@ const MangaDetail: React.FC = () => {
       const refreshedFavorites = await getFavorites(user.id);
       const refreshedEntry = refreshedFavorites.find((entry) => entry.mangaId === manga.id);
 
+      const resolvedCategory = (refreshedEntry?.category as LibraryCategory | undefined) || newCategory;
       setFavorite(true);
-      setCategory((refreshedEntry?.category as LibraryCategory | undefined) || newCategory);
+      setCategory(resolvedCategory);
+      writeCachedMangaUserQuickState(user.id, mangaId, {
+        favorite: true,
+        isFollowing,
+        category: resolvedCategory,
+        userRating,
+      });
       if (!wasFavorite && !isFollowing) {
         adjustLibraryMetaOptimistic(1);
       }
@@ -2372,6 +2612,12 @@ const MangaDetail: React.FC = () => {
       if (isFollowing) {
         await unfollowManga(user.id, manga!.id);
         setIsFollowing(false);
+        writeCachedMangaUserQuickState(user.id, mangaId, {
+          favorite,
+          isFollowing: false,
+          category,
+          userRating,
+        });
         if (!favorite) {
           adjustLibraryMetaOptimistic(-1);
         }
@@ -2379,6 +2625,12 @@ const MangaDetail: React.FC = () => {
       } else {
         await followManga(user.id, manga!.id);
         setIsFollowing(true);
+        writeCachedMangaUserQuickState(user.id, mangaId, {
+          favorite,
+          isFollowing: true,
+          category,
+          userRating,
+        });
         if (!favorite) {
           adjustLibraryMetaOptimistic(1);
         }
@@ -2823,16 +3075,33 @@ const MangaDetail: React.FC = () => {
     try {
       await rateManga(manga.id, user.id, rating);
       setUserRating(rating);
+      writeCachedMangaUserQuickState(user.id, mangaId, {
+        favorite,
+        isFollowing,
+        category,
+        userRating: rating,
+      });
       const newAvg = await getAverageRating(manga.id);
       setAverageRating(newAvg);
 
-      // Update breakdown as well
-      setAvgBreakdown({
+      const nextBreakdown = {
         story: (newAvg as any).story || 0,
         characters: (newAvg as any).characters || 0,
         art: (newAvg as any).art || 0,
         progression: (newAvg as any).progression || 0,
-        engagement: (newAvg as any).engagement || 0
+        engagement: (newAvg as any).engagement || 0,
+      };
+      setAvgBreakdown(nextBreakdown);
+      setManga((current) => {
+        if (!current) return current;
+        const updated = {
+          ...current,
+          averageRating: newAvg.average,
+          reviewCount: newAvg.count,
+          ratingBreakdown: nextBreakdown,
+        };
+        writeCachedMangaDetailSnapshot(updated);
+        return updated;
       });
 
       await triggerExternalSync('rating').catch((error) => {
@@ -2914,13 +3183,32 @@ const MangaDetail: React.FC = () => {
         userAvatar: user.avatar,
         content: normalizedReviewContent,
       });
-      setUserRating(getReviewAverageScore(ownReview || userReview));
-      setAvgBreakdown({
+      const nextUserRating = getReviewAverageScore(ownReview || userReview);
+      setUserRating(nextUserRating);
+      writeCachedMangaUserQuickState(user.id, mangaId, {
+        favorite,
+        isFollowing,
+        category,
+        userRating: nextUserRating,
+      });
+      const nextBreakdown = {
         story: (newAvg as any).story || 0,
         characters: (newAvg as any).characters || 0,
         art: (newAvg as any).art || 0,
         progression: (newAvg as any).progression || 0,
-        engagement: (newAvg as any).engagement || 0
+        engagement: (newAvg as any).engagement || 0,
+      };
+      setAvgBreakdown(nextBreakdown);
+      setManga((current) => {
+        if (!current) return current;
+        const updated = {
+          ...current,
+          averageRating: newAvg.average,
+          reviewCount: newAvg.count,
+          ratingBreakdown: nextBreakdown,
+        };
+        writeCachedMangaDetailSnapshot(updated);
+        return updated;
       });
 
       await triggerExternalSync('review').catch((error) => {
@@ -2973,17 +3261,35 @@ const MangaDetail: React.FC = () => {
       setAverageRating(newAvg);
       setReviews(newReviews);
       setHasLoadedReviews(true);
-      setAvgBreakdown({
+      const nextBreakdown = {
         story: (newAvg as any).story || 0,
         characters: (newAvg as any).characters || 0,
         art: (newAvg as any).art || 0,
         progression: (newAvg as any).progression || 0,
         engagement: (newAvg as any).engagement || 0,
+      };
+      setAvgBreakdown(nextBreakdown);
+      setManga((current) => {
+        if (!current) return current;
+        const updated = {
+          ...current,
+          averageRating: newAvg.average,
+          reviewCount: newAvg.count,
+          ratingBreakdown: nextBreakdown,
+        };
+        writeCachedMangaDetailSnapshot(updated);
+        return updated;
       });
 
       if (isOwnReview) {
         setUserReview(createDefaultUserReview());
         setUserRating(undefined);
+        writeCachedMangaUserQuickState(user.id, mangaId, {
+          favorite,
+          isFollowing,
+          category,
+          userRating: undefined,
+        });
         setIsReviewModalOpen(false);
       }
 
@@ -3787,65 +4093,6 @@ const MangaDetail: React.FC = () => {
                     )}
                   </div>
                 )}
-
-                <div className="flex flex-wrap items-center justify-center gap-2 text-muted-foreground md:justify-start">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {(() => {
-                      const authorItems = (manga.authorsDetails?.length
-                        ? manga.authorsDetails
-                        : manga.authorDetails
-                          ? [manga.authorDetails]
-                          : []
-                      ).filter((item) => cleanPlaceholderNamedEntityString(item?.name));
-                      const artistItems = (manga.artistsDetails?.length
-                        ? manga.artistsDetails
-                        : manga.artistDetails
-                          ? [manga.artistDetails]
-                          : []
-                      ).filter((item) => cleanPlaceholderNamedEntityString(item?.name));
-                      const displayAuthor = cleanPlaceholderNamedEntityString(manga.author);
-                      const displayArtist = cleanPlaceholderNamedEntityString(manga.artist);
-
-                      return (
-                        <>
-                          {authorItems.length > 0 ? (
-                            <div className="flex flex-wrap items-center gap-1">
-                              {authorItems.map((author, index) => (
-                                <span key={author.id} className="inline-flex items-baseline">
-                                  <Link to={`/author/${author.id}`} className="hover:text-primary transition-colors underline-offset-4 hover:underline">
-                                    {author.name}
-                                  </Link>
-                                  {index < authorItems.length - 1 ? <span>,</span> : null}
-                                </span>
-                              ))}
-                            </div>
-                          ) : displayAuthor ? (
-                            <span>{displayAuthor}</span>
-                          ) : null}
-
-                          {displayAuthor && (artistItems.length > 0 || displayArtist) ? (
-                            <span className="mx-1">•</span>
-                          ) : null}
-
-                          {artistItems.length > 0 ? (
-                            <div className="flex flex-wrap items-center gap-1">
-                              {artistItems.map((artist, index) => (
-                                <span key={artist.id} className="inline-flex items-baseline">
-                                  <Link to={`/artist/${artist.id}`} className="hover:text-primary transition-colors underline-offset-4 hover:underline">
-                                    {artist.name}
-                                  </Link>
-                                  {index < artistItems.length - 1 ? <span>,</span> : null}
-                                </span>
-                              ))}
-                            </div>
-                          ) : displayArtist ? (
-                            <span>{displayArtist}</span>
-                          ) : null}
-                        </>
-                      );
-                    })()}
-                  </div>
-                </div>
 
                 <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-xs sm:text-sm md:justify-start">
                   {averageRating.count > 0 && (
