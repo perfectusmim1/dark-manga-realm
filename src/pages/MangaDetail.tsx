@@ -29,6 +29,10 @@ import {
   ArrowDown,
   ArrowUp,
   X,
+  Bookmark as BookmarkIcon,
+  Users,
+  Images,
+  Compass,
 } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import Header from '@/components/layout/Header';
@@ -650,11 +654,17 @@ const MangaDetail: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { disableHeavyEffects, prefersReducedMotion, isMobile } = useDeviceProfile();
   const reduceMotion = prefersReducedMotion || disableHeavyEffects;
-  const tabContentAnimationClass = prefersReducedMotion
-    ? ''
-    : disableHeavyEffects
-      ? 'animate-route-fade'
-      : 'animate-route-enter';
+  const [tabDirection, setTabDirection] = useState<'left' | 'right'>('right');
+  const tabsListRef = useRef<HTMLDivElement | null>(null);
+  const [tabIndicator, setTabIndicator] = useState<{ left: number; width: number; ready: boolean }>({
+    left: 0,
+    width: 0,
+    ready: false,
+  });
+  const tabContentAnimationClass = cn(
+    'mt-0 min-h-[380px] overflow-x-clip',
+    !prefersReducedMotion && (tabDirection === 'left' ? 'animate-tab-slide-left' : 'animate-tab-slide-right'),
+  );
   const [manga, setManga] = useState<Manga | undefined>();
   useDocumentTitle(manga ? manga.title : null);
   const { user, isLoading: authLoading } = useAuth();
@@ -1523,9 +1533,22 @@ const MangaDetail: React.FC = () => {
 
   const urlTabParam = searchParams.get('tab');
 
+  const updateTabDirection = React.useCallback((fromTab: MangaDetailTabValue, toTab: MangaDetailTabValue) => {
+    const fromIndex = MANGA_DETAIL_TAB_VALUES.indexOf(fromTab);
+    const toIndex = MANGA_DETAIL_TAB_VALUES.indexOf(toTab);
+    if (fromIndex !== -1 && toIndex !== -1 && fromIndex !== toIndex) {
+      setTabDirection(toIndex > fromIndex ? 'right' : 'left');
+    }
+  }, []);
+
   const handleActiveTabChange = React.useCallback((nextTab: string) => {
     const safeNextTab: MangaDetailTabValue = isValidMangaDetailTab(nextTab) ? nextTab : 'overview';
-    setActiveTab(safeNextTab);
+    setActiveTab((current) => {
+      if (current !== safeNextTab) {
+        updateTabDirection(current, safeNextTab);
+      }
+      return safeNextTab;
+    });
 
     setSearchParams(
       (prev) => {
@@ -1555,17 +1578,78 @@ const MangaDetail: React.FC = () => {
     if (safeNextTab === 'bookmarks' && !hasLoadedBookmarks) {
       setIsSeriesBookmarksLoading(true);
     }
-  }, [hasLoadedBookmarks, hasLoadedCharacters, hasLoadedReviews, hasLoadedSimilar, setSearchParams]);
+  }, [hasLoadedBookmarks, hasLoadedCharacters, hasLoadedReviews, hasLoadedSimilar, setSearchParams, updateTabDirection]);
 
   useEffect(() => {
     if (targetCommentId) {
-      setActiveTab((current) => (current === 'overview' ? current : 'overview'));
+      setActiveTab((current) => {
+        if (current !== 'overview') {
+          updateTabDirection(current, 'overview');
+        }
+        return 'overview';
+      });
       return;
     }
 
     const nextTab: MangaDetailTabValue = isValidMangaDetailTab(urlTabParam) ? urlTabParam : 'overview';
-    setActiveTab((current) => (current === nextTab ? current : nextTab));
-  }, [targetCommentId, urlTabParam]);
+    setActiveTab((current) => {
+      if (current !== nextTab) {
+        updateTabDirection(current, nextTab);
+      }
+      return nextTab;
+    });
+  }, [targetCommentId, updateTabDirection, urlTabParam]);
+
+  useLayoutEffect(() => {
+    const listEl = tabsListRef.current;
+    if (!listEl) {
+      return;
+    }
+
+    const measureActiveTab = (shouldCenterHorizontally = false) => {
+      const activeTrigger = listEl.querySelector<HTMLElement>(`[data-tab-value="${activeTab}"]`);
+      if (!activeTrigger) {
+        return;
+      }
+
+      setTabIndicator((prev) => {
+        const nextLeft = activeTrigger.offsetLeft;
+        const nextWidth = activeTrigger.offsetWidth;
+        if (prev.ready && Math.abs(prev.left - nextLeft) < 0.5 && Math.abs(prev.width - nextWidth) < 0.5) {
+          return prev;
+        }
+        return { left: nextLeft, width: nextWidth, ready: true };
+      });
+
+      if (shouldCenterHorizontally && listEl.scrollWidth > listEl.clientWidth + 4) {
+        const triggerLeft = activeTrigger.offsetLeft;
+        const triggerRight = triggerLeft + activeTrigger.offsetWidth;
+        const viewLeft = listEl.scrollLeft;
+        const viewRight = viewLeft + listEl.clientWidth;
+
+        if (triggerLeft < viewLeft + 12 || triggerRight > viewRight - 12) {
+          const targetScrollLeft = Math.max(
+            0,
+            triggerLeft - (listEl.clientWidth - activeTrigger.offsetWidth) / 2,
+          );
+          listEl.scrollTo({
+            left: targetScrollLeft,
+            behavior: prefersReducedMotion ? 'auto' : 'smooth',
+          });
+        }
+      }
+    };
+
+    measureActiveTab(true);
+
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => measureActiveTab(false));
+    observer.observe(listEl);
+    return () => observer.disconnect();
+  }, [activeTab, characterCount, prefersReducedMotion, reviewCount, seriesBookmarks.length, seriesGalleryImages.length]);
 
   useEffect(() => {
     if (!isLoading && manga && activeTab === 'gallery' && seriesGalleryImages.length === 0) {
@@ -4039,79 +4123,112 @@ const MangaDetail: React.FC = () => {
         </div>
 
         {/* Tabs System */}
-        <div className="container py-8">
+        <div className="container overflow-x-clip py-8">
           <Tabs value={activeTab} className="w-full" onValueChange={handleActiveTabChange}>
             <div className="mb-6 sm:mb-8">
-              <TabsList className="flex h-auto w-full justify-start gap-1.5 overflow-x-auto scrollbar-hide rounded-xl border border-border/60 bg-card/70 p-1.5">
+              <TabsList
+                ref={tabsListRef}
+                className="relative flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto horizontal-scroll-smooth scrollbar-hide rounded-none border-b border-border/60 bg-transparent p-0"
+              >
                 <TabsTrigger
                   value="overview"
-                  className="shrink-0 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                  data-tab-value="overview"
+                  className={cn(
+                    'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm md:ml-auto',
+                    !tabIndicator.ready && 'data-[state=active]:border-primary',
+                  )}
                 >
-                  Genel Bakış
+                  <BookOpen className="h-3.5 w-3.5 shrink-0" />
+                  <span>Genel Bakış</span>
                 </TabsTrigger>
                 <TabsTrigger
                   value="preview"
-                  className="shrink-0 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                  data-tab-value="preview"
+                  className={cn(
+                    'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm',
+                    !tabIndicator.ready && 'data-[state=active]:border-primary',
+                  )}
                 >
-                  Önizleme
+                  <Eye className="h-3.5 w-3.5 shrink-0" />
+                  <span>Önizleme</span>
                 </TabsTrigger>
                 <TabsTrigger
                   value="bookmarks"
-                  className="group flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
-                >
-                  Yer İmleri
-                  {seriesBookmarks.length > 0 && (
-                    <Badge variant="secondary" className="h-5 border-none bg-primary/15 px-1.5 text-[10px] text-primary transition-colors group-data-[state=active]:bg-primary-foreground/20 group-data-[state=active]:text-primary-foreground">
-                      {seriesBookmarks.length}
-                    </Badge>
+                  data-tab-value="bookmarks"
+                  className={cn(
+                    'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm',
+                    !tabIndicator.ready && 'data-[state=active]:border-primary',
                   )}
+                >
+                  <BookmarkIcon className="h-3.5 w-3.5 shrink-0" />
+                  <span>{seriesBookmarks.length > 0 ? `Yer İmleri (${seriesBookmarks.length})` : 'Yer İmleri'}</span>
                 </TabsTrigger>
                 <TabsTrigger
                   value="reviews"
-                  className="group flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
-                >
-                  İncelemeler
-                  {reviewCount > 0 && (
-                    <Badge variant="secondary" className="h-5 border-none bg-primary/15 px-1.5 text-[10px] text-primary transition-colors group-data-[state=active]:bg-primary-foreground/20 group-data-[state=active]:text-primary-foreground">
-                      {reviewCount}
-                    </Badge>
+                  data-tab-value="reviews"
+                  className={cn(
+                    'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm',
+                    !tabIndicator.ready && 'data-[state=active]:border-primary',
                   )}
+                >
+                  <Star className="h-3.5 w-3.5 shrink-0" />
+                  <span>{reviewCount > 0 ? `İncelemeler (${reviewCount})` : 'İncelemeler'}</span>
                 </TabsTrigger>
                 <TabsTrigger
                   value="characters"
-                  className="group flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
-                >
-                  Karakterler
-                  {characterCount > 0 && (
-                    <Badge variant="secondary" className="h-5 border-none bg-primary/15 px-1.5 text-[10px] text-primary transition-colors group-data-[state=active]:bg-primary-foreground/20 group-data-[state=active]:text-primary-foreground">
-                      {characterCount}
-                    </Badge>
+                  data-tab-value="characters"
+                  className={cn(
+                    'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm',
+                    !tabIndicator.ready && 'data-[state=active]:border-primary',
                   )}
+                >
+                  <Users className="h-3.5 w-3.5 shrink-0" />
+                  <span>{characterCount > 0 ? `Karakterler (${characterCount})` : 'Karakterler'}</span>
                 </TabsTrigger>
                 {seriesGalleryImages.length > 0 && (
                   <TabsTrigger
                     value="gallery"
-                    className="group flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                    data-tab-value="gallery"
+                    className={cn(
+                      'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm',
+                      !tabIndicator.ready && 'data-[state=active]:border-primary',
+                    )}
                   >
-                    Galeri
-                    <Badge variant="secondary" className="h-5 border-none bg-primary/15 px-1.5 text-[10px] text-primary transition-colors group-data-[state=active]:bg-primary-foreground/20 group-data-[state=active]:text-primary-foreground">
-                      {seriesGalleryImages.length}
-                    </Badge>
+                    <Images className="h-3.5 w-3.5 shrink-0" />
+                    <span>Galeri ({seriesGalleryImages.length})</span>
                   </TabsTrigger>
                 )}
                 <TabsTrigger
                   value="external"
-                  className="group flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                  data-tab-value="external"
+                  className={cn(
+                    'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm',
+                    !tabIndicator.ready && 'data-[state=active]:border-primary',
+                  )}
                 >
                   <Link2 className="h-3.5 w-3.5 shrink-0" />
                   <span>Harici Takip</span>
                 </TabsTrigger>
                 <TabsTrigger
                   value="discover"
-                  className="shrink-0 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                  data-tab-value="discover"
+                  className={cn(
+                    'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm md:mr-auto',
+                    !tabIndicator.ready && 'data-[state=active]:border-primary',
+                  )}
                 >
-                  Keşfet
+                  <Compass className="h-3.5 w-3.5 shrink-0" />
+                  <span>Keşfet</span>
                 </TabsTrigger>
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute bottom-0 left-0 h-[2px] rounded-full bg-primary transition-[transform,width,opacity] duration-200 ease-out-smooth motion-reduce:transition-none"
+                  style={{
+                    width: `${tabIndicator.width}px`,
+                    transform: `translate3d(${tabIndicator.left}px, 0, 0)`,
+                    opacity: tabIndicator.ready ? 1 : 0,
+                  }}
+                />
               </TabsList>
             </div>
 

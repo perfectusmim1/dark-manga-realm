@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
@@ -53,6 +53,71 @@ const Profile: React.FC = () => {
   const [isSubmittingProfileReport, setIsSubmittingProfileReport] = useState(false);
   const [listModalType, setListModalType] = useState<'followers' | 'following' | null>(null);
   const [revealedCommentSpoilers, setRevealedCommentSpoilers] = useState<Record<string, boolean>>({});
+  const [tabDirection, setTabDirection] = useState<'left' | 'right'>('right');
+  const prevTabIndexRef = useRef<number>(0);
+  const tabsListRef = useRef<HTMLDivElement | null>(null);
+  const [tabIndicator, setTabIndicator] = useState<{ left: number; width: number; ready: boolean }>({
+    left: 0,
+    width: 0,
+    ready: false,
+  });
+
+  const profileTabParam = searchParams.get('tab') || 'overview';
+
+  const measureProfileTabIndicator = useCallback((shouldCenterHorizontally = false) => {
+    const listEl = tabsListRef.current;
+    if (!listEl) {
+      return;
+    }
+
+    const activeTrigger = listEl.querySelector<HTMLElement>('[data-state="active"]');
+    if (!activeTrigger) {
+      return;
+    }
+
+    setTabIndicator((prev) => {
+      const nextLeft = activeTrigger.offsetLeft;
+      const nextWidth = activeTrigger.offsetWidth;
+      if (prev.ready && Math.abs(prev.left - nextLeft) < 0.5 && Math.abs(prev.width - nextWidth) < 0.5) {
+        return prev;
+      }
+      return { left: nextLeft, width: nextWidth, ready: true };
+    });
+
+    if (shouldCenterHorizontally && listEl.scrollWidth > listEl.clientWidth + 4) {
+      const triggerLeft = activeTrigger.offsetLeft;
+      const triggerRight = triggerLeft + activeTrigger.offsetWidth;
+      const viewLeft = listEl.scrollLeft;
+      const viewRight = viewLeft + listEl.clientWidth;
+
+      if (triggerLeft < viewLeft + 12 || triggerRight > viewRight - 12) {
+        const targetScrollLeft = Math.max(
+          0,
+          triggerLeft - (listEl.clientWidth - activeTrigger.offsetWidth) / 2,
+        );
+        listEl.scrollTo({
+          left: targetScrollLeft,
+          behavior: 'smooth',
+        });
+      }
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    if (loading || !profileData) {
+      return;
+    }
+
+    measureProfileTabIndicator(true);
+    const listEl = tabsListRef.current;
+    if (!listEl || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => measureProfileTabIndicator(false));
+    observer.observe(listEl);
+    return () => observer.disconnect();
+  }, [loading, measureProfileTabIndicator, profileData, profileTabParam, readingLists.length, tierLists.length]);
   const [heroBannerLoadFailed, setHeroBannerLoadFailed] = useState(false);
   const [isQuickEditOpen, setIsQuickEditOpen] = useState(false);
   const [quickBannerUrl, setQuickBannerUrl] = useState('');
@@ -605,13 +670,38 @@ const Profile: React.FC = () => {
         ) : (
           <Tabs 
             value={activeTab}
-            onValueChange={(value) => setSearchParams({ tab: value })}
+            onValueChange={(value) => {
+              const currentIdx = visibleTabs.indexOf(activeTab);
+              const nextIdx = visibleTabs.indexOf(value);
+              if (currentIdx !== -1 && nextIdx !== -1 && currentIdx !== nextIdx) {
+                setTabDirection(nextIdx > currentIdx ? 'right' : 'left');
+                prevTabIndexRef.current = nextIdx;
+              }
+              setSearchParams(
+                (prev) => {
+                  const next = new URLSearchParams(prev);
+                  if (value === 'overview') {
+                    next.delete('tab');
+                  } else {
+                    next.set('tab', value);
+                  }
+                  return next;
+                },
+                { replace: true },
+              );
+            }}
             className="mt-2 min-w-0 sm:mt-4"
           >
-            <TabsList className="mb-6 flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto scrollbar-hide rounded-none border-b border-border/60 bg-transparent p-0 sm:mb-8">
+            <TabsList
+              ref={tabsListRef}
+              className="relative mb-6 flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto horizontal-scroll-smooth scrollbar-hide rounded-none border-b border-border/60 bg-transparent p-0 sm:mb-8"
+            >
               <TabsTrigger 
                 value="overview" 
-                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm"
+                className={cn(
+                  'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm',
+                  !tabIndicator.ready && 'data-[state=active]:border-primary',
+                )}
               >
                 <BookOpen className="h-3.5 w-3.5 shrink-0" />
                 <span>Genel Bakış</span>
@@ -619,7 +709,10 @@ const Profile: React.FC = () => {
               {canViewAnyLists && (
                 <TabsTrigger 
                   value="tierlists" 
-                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm"
+                  className={cn(
+                    'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm',
+                    !tabIndicator.ready && 'data-[state=active]:border-primary',
+                  )}
                 >
                   <List className="h-3.5 w-3.5 shrink-0" />
                   <span>Listelerim ({listTotalCount})</span>
@@ -628,7 +721,10 @@ const Profile: React.FC = () => {
               {canViewComments && (
                 <TabsTrigger 
                   value="comments" 
-                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm"
+                  className={cn(
+                    'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm',
+                    !tabIndicator.ready && 'data-[state=active]:border-primary',
+                  )}
                 >
                   <MessageSquare className="h-3.5 w-3.5 shrink-0" />
                   <span>Yorumlar ({profileData.stats.totalComments || 0})</span>
@@ -637,7 +733,10 @@ const Profile: React.FC = () => {
               {canViewReviews && (
                 <TabsTrigger 
                   value="reviews" 
-                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm"
+                  className={cn(
+                    'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm',
+                    !tabIndicator.ready && 'data-[state=active]:border-primary',
+                  )}
                 >
                   <Star className="h-3.5 w-3.5 shrink-0" />
                   <span>İncelemeler ({reviewsCount})</span>
@@ -646,15 +745,33 @@ const Profile: React.FC = () => {
               {canViewFollowedManga && (
                 <TabsTrigger 
                   value="following-manga" 
-                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm"
+                  className={cn(
+                    'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm',
+                    !tabIndicator.ready && 'data-[state=active]:border-primary',
+                  )}
                 >
                   <Book className="h-3.5 w-3.5 shrink-0" />
                   <span>Takip Edilenler ({followedMangaCount})</span>
                 </TabsTrigger>
               )}
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute bottom-0 left-0 h-[2px] rounded-full bg-primary transition-[transform,width,opacity] duration-200 ease-out-smooth motion-reduce:transition-none"
+                style={{
+                  width: `${tabIndicator.width}px`,
+                  transform: `translate3d(${tabIndicator.left}px, 0, 0)`,
+                  opacity: tabIndicator.ready ? 1 : 0,
+                }}
+              />
             </TabsList>
             
-            <TabsContent value="overview" className="mt-0 min-w-0 space-y-6 sm:space-y-8 animate-route-enter">
+            <TabsContent
+              value="overview"
+              className={cn(
+                'mt-0 min-h-[360px] min-w-0 space-y-6 overflow-x-clip sm:space-y-8',
+                tabDirection === 'left' ? 'animate-tab-slide-left' : 'animate-tab-slide-right',
+              )}
+            >
               {/* Detailed Stats Grid */}
               <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-4 sm:gap-4">
                 {canViewReadingHistory && (
@@ -781,7 +898,13 @@ const Profile: React.FC = () => {
               )}
             </TabsContent>
             {canViewAnyLists && (
-            <TabsContent value="tierlists" className="mt-0 animate-route-enter">
+            <TabsContent
+              value="tierlists"
+              className={cn(
+                'mt-0 min-h-[360px] overflow-x-clip',
+                tabDirection === 'left' ? 'animate-tab-slide-left' : 'animate-tab-slide-right',
+              )}
+            >
                <div className="space-y-6 sm:space-y-8">
                  {canViewReadingLists && (
                    <div className="rounded-2xl border border-border/60 bg-card/65 p-5 md:p-7">
@@ -876,7 +999,13 @@ const Profile: React.FC = () => {
              </TabsContent>
             )}
             {canViewComments && (
-            <TabsContent value="comments" className="mt-0 animate-route-enter">
+            <TabsContent
+              value="comments"
+              className={cn(
+                'mt-0 min-h-[360px] overflow-x-clip',
+                tabDirection === 'left' ? 'animate-tab-slide-left' : 'animate-tab-slide-right',
+              )}
+            >
                 <div className="rounded-2xl border border-border/60 bg-card/65 p-4 sm:p-6 md:p-7">
                  <div className="mb-4 flex items-center gap-2 sm:mb-5">
                    <MessageSquare className="w-5 h-5 text-primary" />
@@ -1040,7 +1169,13 @@ const Profile: React.FC = () => {
              </TabsContent>
             )}
             {canViewReviews && (
-            <TabsContent value="reviews" className="mt-0 animate-route-enter">
+            <TabsContent
+              value="reviews"
+              className={cn(
+                'mt-0 min-h-[360px] overflow-x-clip',
+                tabDirection === 'left' ? 'animate-tab-slide-left' : 'animate-tab-slide-right',
+              )}
+            >
                 <div className="rounded-2xl border border-border/60 bg-card/65 p-4 sm:p-6 md:p-7">
                  <div className="mb-4 flex items-center gap-2 sm:mb-5">
                    <Star className="w-5 h-5 text-yellow-400" />
@@ -1168,7 +1303,13 @@ const Profile: React.FC = () => {
              </TabsContent>
             )}
             {canViewFollowedManga && (
-            <TabsContent value="following-manga" className="mt-0 animate-route-enter">
+            <TabsContent
+              value="following-manga"
+              className={cn(
+                'mt-0 min-h-[360px] overflow-x-clip',
+                tabDirection === 'left' ? 'animate-tab-slide-left' : 'animate-tab-slide-right',
+              )}
+            >
                 <div className="rounded-2xl border border-border/60 bg-card/65 p-4 sm:p-6 md:p-7">
                  <div className="mb-5 flex items-center gap-2">
                    <BookOpen className="w-5 h-5 text-primary" />

@@ -36,6 +36,10 @@ const Community: React.FC = () => {
 
   const tabParam = searchParams.get('tab');
   const activeTab: CommunityTabId = isValidCommunityTab(tabParam) ? tabParam : 'forum';
+  const prevTabIndexRef = React.useRef<number>(
+    Math.max(0, COMMUNITY_TABS.findIndex((item) => item.id === activeTab)),
+  );
+  const [tabDirection, setTabDirection] = React.useState<'left' | 'right'>('right');
 
   useDocumentTitle('Topluluk');
 
@@ -50,6 +54,12 @@ const Community: React.FC = () => {
   }
 
   const handleSelectTab = (tabId: CommunityTabId) => {
+    const nextIndex = COMMUNITY_TABS.findIndex((item) => item.id === tabId);
+    if (nextIndex !== -1 && nextIndex !== prevTabIndexRef.current) {
+      setTabDirection(nextIndex > prevTabIndexRef.current ? 'right' : 'left');
+      prevTabIndexRef.current = nextIndex;
+    }
+
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -102,7 +112,14 @@ const Community: React.FC = () => {
           </nav>
         </div>
 
-        <section key={activeTab} aria-live="polite" className="min-w-0 animate-route-enter">
+        <section
+          key={activeTab}
+          aria-live="polite"
+          className={cn(
+            'min-w-0 min-h-[360px] overflow-x-clip',
+            tabDirection === 'left' ? 'animate-tab-slide-left' : 'animate-tab-slide-right',
+          )}
+        >
           {activeTab === 'forum' && <ForumTab />}
           {activeTab === 'tier-lists' && <TierListsDiscoveryTab />}
           {activeTab === 'reading-lists' && <ReadingListsDiscoveryTab />}

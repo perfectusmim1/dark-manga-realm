@@ -112,8 +112,14 @@ const ScrollToTop = () => {
         () => `${location.pathname}${location.search}`,
         [location.pathname, location.search],
     );
+    const currentPageParam = useMemo(
+        () => new URLSearchParams(location.search).get('page') || '',
+        [location.search],
+    );
     const isReaderRoute = useMemo(() => isReaderPath(location.pathname), [location.pathname]);
     const previousRouteKeyRef = useRef(routeKey);
+    const previousPathnameRef = useRef(location.pathname);
+    const previousPageParamRef = useRef(currentPageParam);
     const hasMountedRef = useRef(false);
     const initialNavigationTypeRef = useRef<string | null>(
         typeof window === 'undefined' ? null : getInitialNavigationType(),
@@ -182,13 +188,20 @@ const ScrollToTop = () => {
         if (isReaderRoute) {
             isRestoringRef.current = false;
             previousRouteKeyRef.current = routeKey;
+            previousPathnameRef.current = location.pathname;
+            previousPageParamRef.current = currentPageParam;
             return;
         }
 
         const isFirstMount = !hasMountedRef.current;
         hasMountedRef.current = true;
 
+        const isSamePathname = !isFirstMount && previousPathnameRef.current === location.pathname;
+        const isPageParamChanged = previousPageParamRef.current !== currentPageParam;
+
         previousRouteKeyRef.current = routeKey;
+        previousPathnameRef.current = location.pathname;
+        previousPageParamRef.current = currentPageParam;
 
         const shouldForceTop = consumeRouteForceTopFlag(routeKey);
         const savedPosition = getSavedScrollPosition(routeKey);
@@ -203,6 +216,13 @@ const ScrollToTop = () => {
             && navigationType === 'POP'
             && Boolean(savedPosition);
         const shouldRestore = !shouldForceTop && (shouldRestoreInitialScroll || shouldRestoreHistoryScroll);
+
+        // Preserve current scroll position for in-page query updates (tabs, filters, search, etc.)
+        if (isSamePathname && !shouldForceTop && !shouldRestore && !isPageParamChanged) {
+            isRestoringRef.current = false;
+            saveScrollPosition(routeKey);
+            return;
+        }
 
         let timeoutId: number | null = null;
         let cancelled = false;
@@ -271,7 +291,7 @@ const ScrollToTop = () => {
             isRestoringRef.current = false;
             clearPendingRestore();
         };
-    }, [isReaderRoute, routeKey]);
+    }, [currentPageParam, isReaderRoute, location.pathname, navigationType, routeKey]);
 
     return null;
 };
