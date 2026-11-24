@@ -33,6 +33,8 @@ export const resolveChapterPagesOnDemand = async (
         candidateUrls.push(`${cleanBase}/bolum-${chapterNum}/`);
         candidateUrls.push(`${cleanBase}/bolum-${chapterNum}`);
       } else if (primarySource === 'webtoonhatti' || resolvedSourceUrl.includes('webtoonhatti')) {
+        candidateUrls.push(`${cleanBase}/bolum-${chapterNum}/?style=list`);
+        candidateUrls.push(`${cleanBase}/bolum-${chapterNum}/`);
         candidateUrls.push(`${cleanBase}/${chapterNum}-bolum/?style=list`);
         candidateUrls.push(`${cleanBase}/${chapterNum}-bolum/`);
       } else if (primarySource === 'hattorimanga' || resolvedSourceUrl.includes('hattorimanga')) {

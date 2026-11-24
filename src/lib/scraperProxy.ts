@@ -209,14 +209,14 @@ const createProxyAttempt = (provider: ScraperProvider): ProxyAttempt => {
     return {
       label: 'Cloudflare scraper proxy',
       request: async (targetUrl) => {
-        const maxAttempts = Math.max(1, Math.min(configuredCloudflareScraperUrls.length, 3));
+        const maxAttempts = Math.max(1, Math.min(configuredCloudflareScraperUrls.length, 5));
         let lastErr: unknown = null;
         for (let attemptIdx = 0; attemptIdx < maxAttempts; attemptIdx++) {
+          const proxyBase = getNextScraperProxyUrl();
           try {
-            const res = await fetch(getNextScraperProxyUrl(), {
-              method: 'POST',
-              headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-              body: targetUrl,
+            const urlWithQuery = `${proxyBase}/?url=${encodeURIComponent(targetUrl)}`;
+            const res = await fetch(urlWithQuery, {
+              method: 'GET',
               credentials: 'omit',
               signal: AbortSignal.timeout(12000),
             });

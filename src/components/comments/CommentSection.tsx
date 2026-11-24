@@ -2640,7 +2640,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                     draft={newDraft}
                     placeholder={hasReaderPageContext && feedScope === 'page'
                         ? `Sayfa ${activePageNumber} hakkında yorum yazın...`
-                        : 'Bir yorum yazın, başlık ekleyin, spoiler işaretleyin veya görsel bağlantısı bırakın...'}
+                        : ''}
                     submitLabel="Gönder"
                     onDraftChange={setNewDraft}
                     onOpenGifPicker={() => {
