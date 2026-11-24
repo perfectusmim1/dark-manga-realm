@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
@@ -31,20 +32,54 @@ import { UserPlus, UserMinus, ShieldAlert, ShieldCheck, Loader2 } from 'lucide-r
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import useDocumentTitle from '@/hooks/useDocumentTitle';
+import { siteQueryKeys } from '@/lib/cache/queryKeys';
 
 const Profile: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { user: currentUser, updatePreferences } = useAuth();
+  const { user: currentUser, isLoading: authLoading, updatePreferences } = useAuth();
   const { isOnline } = useEffectiveOnlineStatus();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
-  
-  const [profileData, setProfileData] = useState<any>(null);
-  const [activityData, setActivityData] = useState<any[]>([]);
-  const [readingLists, setReadingLists] = useState<any[]>([]);
-  const [tierLists, setTierLists] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  const profileQueryKey = useMemo(
+    () => siteQueryKeys.userProfile(userId || '', currentUser?.id),
+    [userId, currentUser?.id],
+  );
+
+  const profileQuery = useQuery<any>({
+    queryKey: profileQueryKey,
+    queryFn: () => getUserProfile(userId!, currentUser?.id),
+    enabled: isOnline && Boolean(userId) && !authLoading,
+    staleTime: 2 * 60 * 1000,
+  });
+
+  const profileData = profileQuery.data ?? null;
+  const profileVisible = profileData?.sectionAccess?.profile ?? true;
+  const activityData = useMemo(
+    () => (profileVisible && Array.isArray(profileData?.activity) ? profileData.activity : []),
+    [profileData?.activity, profileVisible],
+  );
+  const readingLists = useMemo(
+    () => (profileVisible && Array.isArray(profileData?.readingLists) ? profileData.readingLists : []),
+    [profileData?.readingLists, profileVisible],
+  );
+  const tierLists = useMemo(
+    () => (profileVisible && Array.isArray(profileData?.tierLists) ? profileData.tierLists : []),
+    [profileData?.tierLists, profileVisible],
+  );
+  const loading = isOnline && Boolean(userId) && (authLoading || (profileQuery.isPending && !profileData));
+  const error = !userId
+    ? 'Kullanıcı bulunamadı'
+    : profileQuery.isError
+      ? 'Profil yüklenirken bir hata oluştu veya gizli tutuluyor.'
+      : null;
+
+  const setProfileData = useCallback((updater: any) => {
+    queryClient.setQueryData(profileQueryKey, (prev: any) => (
+      typeof updater === 'function' ? updater(prev) : updater
+    ));
+  }, [profileQueryKey, queryClient]);
   const [isFollowLoading, setIsFollowLoading] = useState(false);
   const [isBlockLoading, setIsBlockLoading] = useState(false);
   const [isProfileReportDialogOpen, setIsProfileReportDialogOpen] = useState(false);
@@ -199,45 +234,9 @@ const Profile: React.FC = () => {
   ];
 
   useEffect(() => {
-    if (!isOnline) {
-      return;
-    }
-
-    const fetchProfile = async () => {
-      try {
-        if (!userId) {
-          setError('Kullanıcı bulunamadı');
-          return;
-        }
-        
-        setLoading(true);
-        setHeroBannerLoadFailed(false);
-        setRevealedCommentSpoilers({});
-        const profile = await getUserProfile(userId, currentUser?.id);
-        const profileVisible = profile.sectionAccess?.profile ?? true;
-
-        if (!profileVisible) {
-          setProfileData(profile);
-          setActivityData([]);
-          setReadingLists([]);
-          setTierLists([]);
-          return;
-        }
-        
-        setProfileData(profile);
-        setActivityData(profile.activity || []);
-        setReadingLists(profile.readingLists || []);
-        setTierLists(profile.tierLists || []);
-      } catch (err) {
-        console.error('Profile fetch error:', err);
-        setError('Profil yüklenirken bir hata oluştu veya gizli tutuluyor.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    fetchProfile();
-  }, [isOnline, userId, currentUser?.id]);
+    setHeroBannerLoadFailed(false);
+    setRevealedCommentSpoilers({});
+  }, [userId]);
 
   if (!isOnline) {
     return (

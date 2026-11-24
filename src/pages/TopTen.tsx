@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ChevronLeft,
@@ -16,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { ADULT_MODE_CHANGED_EVENT, AdultModeChangedDetail } from '@/lib/adultModeEvents';
 import { getTopTenPageData } from '@/lib/database';
+import { dedupeMangasById, siteQueryKeys } from '@/lib/cache/queryKeys';
 import { getManagedArtworkSrcSet } from '@/lib/managedArtwork';
 import { getMangaTypeLabel, isAdultMangaType } from '@/lib/mangaType';
 import { formatGenreDisplayName } from '@/lib/mockData';
@@ -30,19 +32,6 @@ type TopTenAudience = 'safe' | 'adult';
 type TopTenSections = Record<TopTenAudience, Record<TopTenTimeframe, Manga[]>>;
 
 const EMPTY_TOP_TEN_SECTIONS: TopTenSections = {
-  safe: {
-    today: [],
-    week: [],
-    all: [],
-  },
-  adult: {
-    today: [],
-    week: [],
-    all: [],
-  },
-};
-
-const TOP_TEN_PAGE_CACHE: TopTenSections = {
   safe: {
     today: [],
     week: [],
@@ -121,19 +110,6 @@ const TOP_TEN_CARD_INTRINSIC_WIDTH = 480;
 const TOP_TEN_CARD_INTRINSIC_HEIGHT = 640;
 const TOP_TEN_CARD_IMAGE_SIZES = '(max-width: 639px) 152px, (max-width: 1023px) 180px, 200px';
 const TOP_TEN_CARD_WIDTH_CLASS = 'w-[8.5rem] min-[390px]:w-[9.25rem] sm:w-[10.5rem] md:w-[11.25rem] lg:w-[12rem] xl:w-[12.5rem]';
-
-const readCachedTopTenSections = (): TopTenSections => ({
-  safe: {
-    today: TOP_TEN_PAGE_CACHE.safe.today ?? [],
-    week: TOP_TEN_PAGE_CACHE.safe.week ?? [],
-    all: TOP_TEN_PAGE_CACHE.safe.all ?? [],
-  },
-  adult: {
-    today: TOP_TEN_PAGE_CACHE.adult.today ?? [],
-    week: TOP_TEN_PAGE_CACHE.adult.week ?? [],
-    all: TOP_TEN_PAGE_CACHE.adult.all ?? [],
-  },
-});
 
 const TopTenTimeframeTabs: React.FC<{
   audience: TopTenAudience;
@@ -601,11 +577,6 @@ const TopTen: React.FC = () => {
     safe: 'today',
     adult: 'today',
   });
-  const [sections, setSections] = useState<TopTenSections>(() => readCachedTopTenSections());
-  const [isLoading, setIsLoading] = useState(() => {
-    const cached = readCachedTopTenSections();
-    return cached.safe.today.length === 0 && cached.adult.today.length === 0;
-  });
   const [adultModeEnabled, setAdultModeEnabled] = useState(
     () => user?.preferences?.content?.adult_mode === true,
   );
@@ -628,55 +599,30 @@ const TopTen: React.FC = () => {
     };
   }, []);
 
-  useEffect(() => {
-    let active = true;
-
-    if (!isOnline) {
-      setIsLoading(false);
-      return () => {
-        active = false;
+  const topTenQuery = useQuery<TopTenSections>({
+    queryKey: siteQueryKeys.topTenPage(),
+    queryFn: async () => {
+      const nextSections = await getTopTenPageData();
+      return {
+        safe: {
+          today: dedupeMangasById(nextSections.safe.today),
+          week: dedupeMangasById(nextSections.safe.week),
+          all: dedupeMangasById(nextSections.safe.all),
+        },
+        adult: {
+          today: dedupeMangasById(nextSections.adult.today),
+          week: dedupeMangasById(nextSections.adult.week),
+          all: dedupeMangasById(nextSections.adult.all),
+        },
       };
-    }
+    },
+    enabled: isOnline,
+    staleTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
+  });
 
-    const cachedSections = readCachedTopTenSections();
-    const hasCachedCards = cachedSections.safe.today.length > 0 || cachedSections.adult.today.length > 0;
-    setSections(cachedSections);
-    setIsLoading(!hasCachedCards);
-
-    const loadTopTenSections = async () => {
-      try {
-        const nextSections = await getTopTenPageData();
-
-        if (!active) {
-          return;
-        }
-
-        TOP_TEN_PAGE_CACHE.safe.today = nextSections.safe.today;
-        TOP_TEN_PAGE_CACHE.safe.week = nextSections.safe.week;
-        TOP_TEN_PAGE_CACHE.safe.all = nextSections.safe.all;
-        TOP_TEN_PAGE_CACHE.adult.today = nextSections.adult.today;
-        TOP_TEN_PAGE_CACHE.adult.week = nextSections.adult.week;
-        TOP_TEN_PAGE_CACHE.adult.all = nextSections.adult.all;
-
-        setSections(nextSections);
-      } catch (error) {
-        console.error('Top ten page loading error:', error);
-        if (active && !hasCachedCards) {
-          setSections(EMPTY_TOP_TEN_SECTIONS);
-        }
-      } finally {
-        if (active) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    void loadTopTenSections();
-
-    return () => {
-      active = false;
-    };
-  }, [isOnline]);
+  const sections = topTenQuery.data ?? EMPTY_TOP_TEN_SECTIONS;
+  const isLoading = isOnline && topTenQuery.isPending && !topTenQuery.data;
 
   if (!isOnline) {
     return (

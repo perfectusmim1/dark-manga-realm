@@ -1,5 +1,6 @@
 ﻿import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, TrendingUp, Clock, Sparkles, Play, ChevronLeft, ChevronRight, Download, WifiOff, Layers } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import useDocumentTitle from '@/hooks/useDocumentTitle';
@@ -39,18 +40,16 @@ import { readHeaderShellSnapshot } from '@/lib/headerShellCache';
 import { cn } from '@/lib/utils';
 import {
   HOME_SECTIONS_CACHE_TTL_MS,
-  TOP_TEN_WEEK_CACHE_TTL_MS,
   TRENDING_TAGS_CACHE_TTL_MS,
-  isHomeFeedEntryFresh,
   readHomeFeedSeed,
   writeHomeSectionsCache,
-  writeTopTenWeekIdsCache,
   writeTrendingTagsCache,
 } from '@/lib/homeFeedCache';
 import {
-  readHomeCatalogMemoryPage,
   readHomeCatalogSeed,
 } from '@/lib/homeCatalogCache';
+import { useTopTenWeekIds } from '@/hooks/useTopTenWeekIds';
+import { dedupeMangasById, siteQueryKeys } from '@/lib/cache/queryKeys';
 
 interface HorizontalMangaSectionProps {
   title: string;
@@ -179,20 +178,8 @@ const loadReadingHistoryModule = () => {
 };
 
 const HOME_PAGE_CACHE: {
-  sections: HomePageMangaSections | null;
-  sectionsFetchedAt: number;
-  trendingTags: Tag[] | null;
-  trendingTagsFetchedAt: number;
-  topTenWeekIds: ReadonlySet<string> | null;
-  topTenWeekIdsFetchedAt: number;
   continueReadingByUser: Record<string, ContinueReadingCacheEntry[] | undefined>;
 } = {
-  sections: null,
-  sectionsFetchedAt: 0,
-  trendingTags: null,
-  trendingTagsFetchedAt: 0,
-  topTenWeekIds: null,
-  topTenWeekIdsFetchedAt: 0,
   continueReadingByUser: {},
 };
 
@@ -864,16 +851,11 @@ const Index: React.FC = () => {
   const { user, isLoading: authLoading } = useAuth();
   const { snapshot: offlineSnapshot, isOnline } = useOfflineLibrary();
   const { disableHeavyEffects, prefersReducedMotion, isCoarsePointer } = useDeviceProfile();
+  const queryClient = useQueryClient();
   const appearancePreferences = useBootstrappedAppearancePreferences({ user, authLoading });
   const adultModeEnabled = Boolean(user?.id) && user?.preferences?.content?.adult_mode === true;
   const canSeeAdultContent = adultModeEnabled;
-  const homeAudienceKey = canSeeAdultContent ? 'adult' : 'safe';
-  const [homeSections, setHomeSections] = useState<HomePageMangaSections>(() => (
-    readHomeFeedSeed(canSeeAdultContent ? 'adult' : 'safe').sections?.value ?? EMPTY_HOME_PAGE_SECTIONS
-  ));
-  const [topTenWeekIds, setTopTenWeekIds] = useState<ReadonlySet<string> | null>(() => (
-    readHomeFeedSeed(canSeeAdultContent ? 'adult' : 'safe').topTenWeekIds?.value ?? null
-  ));
+  const homeAudienceKey: 'safe' | 'adult' = canSeeAdultContent ? 'adult' : 'safe';
   const [hasPersistedAuthSession, setHasPersistedAuthSession] = useState(() => hasPersistedSupabaseSession());
   const [continueReadingSeed, setContinueReadingSeed] = useState<ContinueReadingCacheEntry[]>(() => (
     initialPersistedContinueReadingCache?.entries ?? []
@@ -881,36 +863,95 @@ const Index: React.FC = () => {
   const [continueReadingLoading, setContinueReadingLoading] = useState(() => (
     hasPersistedSupabaseSession() && !initialPersistedContinueReadingCache
   ));
-  const [trendingTags, setTrendingTags] = useState<Tag[]>(() => (
-    readHomeFeedSeed(canSeeAdultContent ? 'adult' : 'safe').trendingTags?.value ?? []
-  ));
-  const [tagsLoading, setTagsLoading] = useState(() => (
-    readHomeFeedSeed(canSeeAdultContent ? 'adult' : 'safe').trendingTags === null
-  ));
   const [catalogPage, setCatalogPage] = useState(1);
-  const [catalogState, setCatalogState] = useState<{
+  const catalogSectionRef = useRef<HTMLElement | null>(null);
+
+  const initialFeedSeed = useMemo(() => readHomeFeedSeed(homeAudienceKey), [homeAudienceKey]);
+  const initialCatalogSeed = useMemo(
+    () => (catalogPage === 1 ? readHomeCatalogSeed(canSeeAdultContent) : null),
+    [canSeeAdultContent, catalogPage],
+  );
+
+  const homeSectionsQuery = useQuery<HomePageMangaSections>({
+    queryKey: siteQueryKeys.homeSections(homeAudienceKey),
+    queryFn: async () => {
+      const { getHomePageMangaSections } = await loadHomeDataModule();
+      const raw = await getHomePageMangaSections();
+      const deduped: HomePageMangaSections = {
+        newlyAddedSeries: dedupeMangasById(raw.newlyAddedSeries),
+        recentlyUpdated: dedupeMangasById(raw.recentlyUpdated),
+        trendingManga: dedupeMangasById(raw.trendingManga),
+      };
+      writeHomeSectionsCache(deduped, Date.now(), homeAudienceKey);
+      return deduped;
+    },
+    enabled: isOnline,
+    staleTime: HOME_SECTIONS_CACHE_TTL_MS,
+    initialData: initialFeedSeed.sections?.value,
+    initialDataUpdatedAt: initialFeedSeed.sections?.fetchedAt,
+    placeholderData: keepPreviousData,
+  });
+
+  const homeSections = homeSectionsQuery.data ?? EMPTY_HOME_PAGE_SECTIONS;
+  const topTenWeekIds = useTopTenWeekIds(isOnline);
+
+  const trendingTagsQuery = useQuery<Tag[]>({
+    queryKey: siteQueryKeys.trendingTags(20),
+    queryFn: async () => {
+      const { getTrendingTags } = await loadHomeDataModule();
+      const tags = await getTrendingTags(20);
+      writeTrendingTagsCache(tags, Date.now());
+      return tags;
+    },
+    enabled: isOnline,
+    staleTime: TRENDING_TAGS_CACHE_TTL_MS,
+    initialData: initialFeedSeed.trendingTags?.value,
+    initialDataUpdatedAt: initialFeedSeed.trendingTags?.fetchedAt,
+  });
+
+  const trendingTags = isOnline ? (trendingTagsQuery.data ?? []) : [];
+  const tagsLoading = isOnline && trendingTagsQuery.isPending && !trendingTagsQuery.data;
+
+  const catalogQuery = useQuery<{
     items: Manga[];
     totalCount: number;
     totalPages: number;
-    loading: boolean;
-  }>(() => {
-    const seed = readHomeCatalogSeed(canSeeAdultContent);
-    if (seed) {
+  }>({
+    queryKey: siteQueryKeys.homeCatalogPage(homeAudienceKey, catalogPage, 28, 'updated'),
+    queryFn: async () => {
+      const { getFastHomeCatalogPage } = await loadHomeDataModule();
+      const result = await getFastHomeCatalogPage({
+        page: catalogPage,
+        pageSize: 28,
+        sort: 'updated',
+        includeAdult: canSeeAdultContent,
+      });
       return {
-        items: seed.items,
-        totalCount: seed.totalCount,
-        totalPages: seed.totalPages,
-        loading: false,
+        items: dedupeMangasById(result.items),
+        totalCount: result.totalCount,
+        totalPages: Math.max(1, result.totalPages),
       };
-    }
-    return {
-      items: [],
-      totalCount: 0,
-      totalPages: 1,
-      loading: true,
-    };
+    },
+    enabled: isOnline,
+    staleTime: 4 * 60 * 1000,
+    initialData: initialCatalogSeed
+      ? {
+          items: dedupeMangasById(initialCatalogSeed.items),
+          totalCount: initialCatalogSeed.totalCount,
+          totalPages: Math.max(1, initialCatalogSeed.totalPages),
+        }
+      : undefined,
+    initialDataUpdatedAt: initialCatalogSeed?.updatedAt,
+    placeholderData: keepPreviousData,
   });
-  const catalogSectionRef = useRef<HTMLElement | null>(null);
+
+  const catalogState = useMemo(() => ({
+    items: catalogQuery.data?.items ?? [],
+    totalCount: catalogQuery.data?.totalCount ?? 0,
+    totalPages: catalogQuery.data?.totalPages ?? 1,
+    loading: isOnline && catalogQuery.isPending && !catalogQuery.data,
+  }), [catalogQuery.data, catalogQuery.isPending, isOnline]);
+
   const blurAdultArtwork = appearancePreferences.adult_cover_blur && user?.preferences?.content?.adult_mode === true;
   const mangas = useMemo(() => {
     const uniqueMangaById = new Map<string, Manga>();
@@ -970,17 +1011,6 @@ const Index: React.FC = () => {
   ), [offlineSnapshot.series]);
 
   useEffect(() => {
-    const latestHomeFeedSeed = readHomeFeedSeed(homeAudienceKey);
-
-    HOME_PAGE_CACHE.sections = latestHomeFeedSeed.sections?.value ?? null;
-    HOME_PAGE_CACHE.sectionsFetchedAt = latestHomeFeedSeed.sections?.fetchedAt ?? 0;
-    HOME_PAGE_CACHE.trendingTags = latestHomeFeedSeed.trendingTags?.value ?? null;
-    HOME_PAGE_CACHE.trendingTagsFetchedAt = latestHomeFeedSeed.trendingTags?.fetchedAt ?? 0;
-    HOME_PAGE_CACHE.topTenWeekIds = latestHomeFeedSeed.topTenWeekIds?.value ?? null;
-    HOME_PAGE_CACHE.topTenWeekIdsFetchedAt = latestHomeFeedSeed.topTenWeekIds?.fetchedAt ?? 0;
-  }, [homeAudienceKey]);
-
-  useEffect(() => {
     if (!initialContinueReadingUserId || !initialPersistedContinueReadingCache) {
       return;
     }
@@ -990,10 +1020,9 @@ const Index: React.FC = () => {
 
   useEffect(() => {
     const handleAdultModeChanged = () => {
-      HOME_PAGE_CACHE.sections = null;
-      HOME_PAGE_CACHE.sectionsFetchedAt = 0;
-      HOME_PAGE_CACHE.topTenWeekIds = null;
-      HOME_PAGE_CACHE.topTenWeekIdsFetchedAt = 0;
+      void queryClient.invalidateQueries({ queryKey: ['site', 'home-sections'] });
+      void queryClient.invalidateQueries({ queryKey: ['site', 'home-catalog'] });
+      void queryClient.invalidateQueries({ queryKey: ['site', 'top-ten-week-ids'] });
       if (user?.id) {
         delete HOME_PAGE_CACHE.continueReadingByUser[user.id];
       } else {
@@ -1001,8 +1030,6 @@ const Index: React.FC = () => {
       }
 
       clearPersistedContinueReadingCache();
-      setHomeSections(EMPTY_HOME_PAGE_SECTIONS);
-      setTopTenWeekIds(null);
       setContinueReadingSeed([]);
       setContinueReadingLoading(Boolean(user?.id));
       setCatalogPage(1);
@@ -1012,202 +1039,7 @@ const Index: React.FC = () => {
     return () => {
       window.removeEventListener(ADULT_MODE_CHANGED_EVENT, handleAdultModeChanged);
     };
-  }, [user?.id]);
-
-  useEffect(() => {
-    if (!isOnline) {
-      setTopTenWeekIds(null);
-      return;
-    }
-
-    if (HOME_PAGE_CACHE.sections) {
-      setHomeSections(HOME_PAGE_CACHE.sections);
-    }
-
-    if (HOME_PAGE_CACHE.topTenWeekIds) {
-      setTopTenWeekIds(HOME_PAGE_CACHE.topTenWeekIds);
-    }
-
-    let active = true;
-    const homeDataPromise = loadHomeDataModule();
-    const sectionsAreFresh = HOME_PAGE_CACHE.sections !== null
-      && isHomeFeedEntryFresh(HOME_PAGE_CACHE.sectionsFetchedAt, HOME_SECTIONS_CACHE_TTL_MS);
-    const topTenIdsAreFresh = HOME_PAGE_CACHE.topTenWeekIds !== null
-      && isHomeFeedEntryFresh(HOME_PAGE_CACHE.topTenWeekIdsFetchedAt, TOP_TEN_WEEK_CACHE_TTL_MS);
-
-    const loadMainContent = async () => {
-      if (sectionsAreFresh) {
-        return;
-      }
-
-      try {
-        const { getHomePageMangaSections } = await homeDataPromise;
-        const sections = await getHomePageMangaSections({ forceRefresh: HOME_PAGE_CACHE.sections !== null });
-        if (!active) {
-          return;
-        }
-
-        const fetchedAt = Date.now();
-        HOME_PAGE_CACHE.sections = sections;
-        HOME_PAGE_CACHE.sectionsFetchedAt = fetchedAt;
-        writeHomeSectionsCache(sections, fetchedAt, homeAudienceKey);
-        startTransition(() => {
-          setHomeSections(sections);
-        });
-      } catch (err) {
-        console.error('Data loading error:', err);
-      }
-    };
-
-    const loadTopTenWeekIds = async () => {
-      if (topTenIdsAreFresh) {
-        return;
-      }
-
-      try {
-        const { getTopTenMangaIds } = await homeDataPromise;
-        const ids = await getTopTenMangaIds('week');
-        if (active) {
-          const fetchedAt = Date.now();
-          HOME_PAGE_CACHE.topTenWeekIds = ids;
-          HOME_PAGE_CACHE.topTenWeekIdsFetchedAt = fetchedAt;
-          writeTopTenWeekIdsCache(ids, fetchedAt);
-          setTopTenWeekIds(ids);
-        }
-      } catch (err) {
-        if (active) {
-          setTopTenWeekIds(new Set<string>());
-        }
-        console.error('Top ten id loading error:', err);
-      }
-    };
-
-    void loadMainContent();
-    void loadTopTenWeekIds();
-
-    return () => {
-      active = false;
-    };
-  }, [homeAudienceKey, isOnline]);
-
-  useEffect(() => {
-    let active = true;
-    const homeDataPromise = loadHomeDataModule();
-    const tagsAreFresh = HOME_PAGE_CACHE.trendingTags !== null
-      && isHomeFeedEntryFresh(HOME_PAGE_CACHE.trendingTagsFetchedAt, TRENDING_TAGS_CACHE_TTL_MS);
-
-    const loadTrendingTags = async () => {
-      if (!isOnline) {
-        setTrendingTags([]);
-        setTagsLoading(false);
-        return;
-      }
-
-      if (HOME_PAGE_CACHE.trendingTags) {
-        setTrendingTags(HOME_PAGE_CACHE.trendingTags);
-      }
-
-      if (HOME_PAGE_CACHE.trendingTags === null) {
-        setTagsLoading(true);
-      }
-
-      if (tagsAreFresh) {
-        setTagsLoading(false);
-        return;
-      }
-
-      try {
-        const { getTrendingTags } = await homeDataPromise;
-        const tags = await getTrendingTags(20);
-        if (!active) {
-          return;
-        }
-
-        const fetchedAt = Date.now();
-        HOME_PAGE_CACHE.trendingTags = tags;
-        HOME_PAGE_CACHE.trendingTagsFetchedAt = fetchedAt;
-        writeTrendingTagsCache(tags, fetchedAt);
-        setTrendingTags(tags);
-      } catch (err) {
-        console.error('Trending tag loading error:', err);
-      } finally {
-        if (active) {
-          setTagsLoading(false);
-        }
-      }
-    };
-
-    loadTrendingTags();
-
-    return () => {
-      active = false;
-    };
-  }, [isOnline]);
-
-  useEffect(() => {
-    if (!isOnline) {
-      setCatalogState((prev) => ({ ...prev, loading: false }));
-      return;
-    }
-
-    let active = true;
-    const cachedMemoryPage = readHomeCatalogMemoryPage(canSeeAdultContent, catalogPage, 28, 'updated');
-    const cachedSeed = catalogPage === 1 ? readHomeCatalogSeed(canSeeAdultContent) : null;
-    const isSeedFresh = Boolean(cachedSeed && Date.now() - cachedSeed.updatedAt < 4 * 60 * 1000);
-
-    if (cachedMemoryPage) {
-      setCatalogState({
-        items: cachedMemoryPage.items,
-        totalCount: cachedMemoryPage.totalCount,
-        totalPages: cachedMemoryPage.totalPages,
-        loading: false,
-      });
-    } else if (cachedSeed) {
-      setCatalogState({
-        items: cachedSeed.items,
-        totalCount: cachedSeed.totalCount,
-        totalPages: cachedSeed.totalPages,
-        loading: false,
-      });
-    } else {
-      setCatalogState((prev) => ({ ...prev, loading: true }));
-    }
-
-    void loadHomeDataModule()
-      .then(({ getFastHomeCatalogPage }) => (
-        getFastHomeCatalogPage({
-          page: catalogPage,
-          pageSize: 28,
-          sort: 'updated',
-          includeAdult: canSeeAdultContent,
-          forceRefresh: catalogPage === 1 && !cachedMemoryPage && !isSeedFresh,
-        })
-      ))
-      .then((result) => {
-        if (!active) return;
-        const seenIds = new Set<string>();
-        const dedupedItems = result.items.filter((item) => {
-          if (seenIds.has(item.id)) return false;
-          seenIds.add(item.id);
-          return true;
-        });
-        setCatalogState({
-          items: dedupedItems,
-          totalCount: result.totalCount,
-          totalPages: Math.max(1, result.totalPages),
-          loading: false,
-        });
-      })
-      .catch((err) => {
-        if (!active) return;
-        console.error('Home catalog loading error:', err);
-        setCatalogState((prev) => ({ ...prev, loading: false }));
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [canSeeAdultContent, catalogPage, isOnline]);
+  }, [queryClient, user?.id]);
 
   const handleCatalogPageChange = useCallback((nextPage: number) => {
     setCatalogPage(nextPage);

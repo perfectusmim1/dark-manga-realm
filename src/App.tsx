@@ -1,9 +1,9 @@
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { idbPersister } from "@/lib/cache/idbPersister";
+import { queryClient } from "@/lib/cache/queryClient";
 import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
@@ -22,15 +22,6 @@ import NativeAppChrome from "./components/layout/NativeAppChrome";
 import AppErrorBoundary from "./components/common/AppErrorBoundary";
 import { initializeOfflineUserSync } from "@/lib/offline/userSync";
 import { routeModuleLoaders } from "@/lib/routeModules";
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      refetchOnWindowFocus: false,
-      staleTime: 5 * 60 * 1000,
-      gcTime: 24 * 60 * 60 * 1000,
-    },
-  },
-});
 
 // Initialize data on app load
 const AppInitializer = ({ children }: { children: React.ReactNode }) => {

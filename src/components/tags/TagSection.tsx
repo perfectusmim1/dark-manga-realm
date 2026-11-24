@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, Plus, X, Hash, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,19 @@ import OfflineNotice from '@/components/offline/OfflineNotice';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { getTagDisplayName } from '@/lib/tagTranslations';
+import { siteQueryKeys } from '@/lib/cache/queryKeys';
+
+interface EntityTagsQueryData {
+  tags: Tag[];
+  votes: Record<string, { up: number; down: number }>;
+  userVotes: Record<string, 'up' | 'down'>;
+}
+
+const EMPTY_ENTITY_TAGS_DATA: EntityTagsQueryData = {
+  tags: [],
+  votes: {},
+  userVotes: {},
+};
 
 const categoryLabels: Record<TagCategory, string> = {
   theme: 'Tema',
@@ -84,21 +98,62 @@ const canUserRemoveTag = (tag: Tag, userId?: string) => (
 );
 
 const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable = true }) => {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const { isOnline } = useEffectiveOnlineStatus();
-  const [tags, setTags] = useState<Tag[]>([]);
-  const [votes, setVotes] = useState<Record<string, { up: number; down: number }>>({});
-  const [userVotes, setUserVotes] = useState<Record<string, 'up' | 'down'>>({});
+  const queryClient = useQueryClient();
+  const queryKey = useMemo(
+    () => siteQueryKeys.entityTags(entityType, entityId, user?.id),
+    [entityId, entityType, user?.id],
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Tag[]>([]);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
   const [newTagName, setNewTagName] = useState('');
   const [newTagCategory, setNewTagCategory] = useState<TagCategory>('general');
   const [showNewTagForm, setShowNewTagForm] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const searchRequestSeqRef = useRef(0);
+
+  const entityTagsQuery = useQuery<EntityTagsQueryData>({
+    queryKey,
+    queryFn: async () => {
+      const [entityTags, tagVotes, currentUserVotes] = await Promise.all([
+        getTagsForEntity(entityType, entityId),
+        getTagVotes(entityType, entityId),
+        user?.id
+          ? getUserTagVotes(entityType, entityId, user.id)
+          : Promise.resolve({} as Record<string, 'up' | 'down'>),
+      ]);
+      return {
+        tags: entityTags,
+        votes: tagVotes,
+        userVotes: currentUserVotes,
+      };
+    },
+    enabled: isOnline && Boolean(entityId) && !authLoading,
+    staleTime: 3 * 60 * 1000,
+  });
+
+  const { tags, votes, userVotes } = entityTagsQuery.data ?? EMPTY_ENTITY_TAGS_DATA;
+  const isLoading = isOnline && (authLoading || (entityTagsQuery.isPending && !entityTagsQuery.data));
+
+  const setTags = useCallback((updater: (prev: Tag[]) => Tag[]) => {
+    queryClient.setQueryData<EntityTagsQueryData>(queryKey, (current) => {
+      const base = current ?? EMPTY_ENTITY_TAGS_DATA;
+      return {
+        ...base,
+        tags: updater(base.tags),
+      };
+    });
+  }, [queryClient, queryKey]);
+
+  const loadData = useCallback(async () => {
+    if (!isOnline) {
+      return;
+    }
+    await queryClient.invalidateQueries({ queryKey });
+  }, [isOnline, queryClient, queryKey]);
 
   const isStaff = user?.role === 'admin' || user?.role === 'moderator';
   const existingTagIds = useMemo(() => new Set(tags.map((tag) => tag.id)), [tags]);
@@ -123,37 +178,6 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-
-  const loadData = useCallback(async () => {
-    if (!isOnline) {
-      setIsLoading(false);
-      setTags([]);
-      setVotes({});
-      setUserVotes({});
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const [entityTags, tagVotes, currentUserVotes] = await Promise.all([
-        getTagsForEntity(entityType, entityId),
-        getTagVotes(entityType, entityId),
-        user?.id
-          ? getUserTagVotes(entityType, entityId, user.id)
-          : Promise.resolve({} as Record<string, 'up' | 'down'>),
-      ]);
-
-      setTags(entityTags);
-      setVotes(tagVotes);
-      setUserVotes(currentUserVotes);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [entityId, entityType, isOnline, user?.id]);
-
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
 
   const handleSearch = async (query: string) => {
     setSearchQuery(query);

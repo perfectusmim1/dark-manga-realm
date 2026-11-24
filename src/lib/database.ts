@@ -39,6 +39,8 @@ import {
     removePersistedQueryCache,
     writePersistedQueryCache,
 } from './persistedQueryCache';
+import { queryClient } from './cache/queryClient';
+import { siteQueryKeys } from './cache/queryKeys';
 import {
     isStoredMediaUrl,
     materializeChapterPages,
@@ -947,9 +949,13 @@ const invalidateTagCaches = () => {
     tagsListPromises.clear();
     trendingTagsCache.clear();
     trendingTagsPromises.clear();
+    void queryClient.invalidateQueries({ queryKey: ['site', 'trending-tags'] });
+    void queryClient.invalidateQueries({ queryKey: ['site', 'entity-tags'] });
+    void queryClient.invalidateQueries({ queryKey: ['site', 'browse-tag-filter'] });
 };
 
 const clearPersistedCatalogCache = () => {
+    void queryClient.invalidateQueries({ queryKey: siteQueryKeys.all });
     void removePersistedQueryCache([
         getPersistedMangaSummariesKey('safe'),
         getPersistedMangaSummariesKey('adult'),
@@ -4354,9 +4360,36 @@ export const getAverageRating = async (mangaId: string): Promise<{
 
 // ==================== VIEW TRACKING ====================
 
+const MANGA_VIEW_COOLDOWN_MS = 15 * 60 * 1000;
+const MANGA_VIEW_SESSION_PREFIX = 'toonparrot:manga-view:v1:';
+const mangaViewInFlight = new Set<string>();
+
 export const incrementMangaViews = async (mangaId: string): Promise<void> => {
-    // In Supabase, we use an RPC to increment safely
-    await supabase.rpc('increment_manga_views', { manga_id_param: mangaId });
+    const cleanId = mangaId?.trim();
+    if (!cleanId || mangaViewInFlight.has(cleanId)) {
+        return;
+    }
+
+    if (typeof window !== 'undefined') {
+        try {
+            const raw = window.sessionStorage.getItem(`${MANGA_VIEW_SESSION_PREFIX}${cleanId}`);
+            const lastTrackedAt = raw ? Number(raw) : 0;
+            if (Number.isFinite(lastTrackedAt) && Date.now() - lastTrackedAt < MANGA_VIEW_COOLDOWN_MS) {
+                return;
+            }
+            window.sessionStorage.setItem(`${MANGA_VIEW_SESSION_PREFIX}${cleanId}`, String(Date.now()));
+        } catch {
+            // ignore storage errors
+        }
+    }
+
+    mangaViewInFlight.add(cleanId);
+    try {
+        // In Supabase, we use an RPC to increment safely
+        await supabase.rpc('increment_manga_views', { manga_id_param: cleanId });
+    } finally {
+        mangaViewInFlight.delete(cleanId);
+    }
 };
 
 export const incrementChapterViews = async (mangaId: string, chapterId: string): Promise<void> => {

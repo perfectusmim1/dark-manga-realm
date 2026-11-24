@@ -1,6 +1,7 @@
 import useDocumentTitle from '@/hooks/useDocumentTitle';
 import React, { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Activity,
   BookOpen,
@@ -50,6 +51,7 @@ import { ADULT_MODE_CHANGED_EVENT } from '@/lib/adultModeEvents';
 import { getMangaTypeLabel } from '@/lib/mangaType';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
 import { useTopTenWeekIds } from '@/hooks/useTopTenWeekIds';
+import { dedupeMangasById, siteQueryKeys } from '@/lib/cache/queryKeys';
 
 type BrowseAudienceCacheKey = 'safe' | 'adult';
 type BrowseContentFilter = 'all' | 'safe' | 'adult';
@@ -94,8 +96,6 @@ const readInitialBrowseDensity = (): BrowseGridDensity => {
   }
 };
 
-const browsePageCache: Partial<Record<BrowseAudienceCacheKey, Manga[]>> = {};
-let browsePageCacheUserId: string | null | undefined = undefined;
 const ADULT_GENRE_EQUIVALENTS = new Set(['Yetişkin', 'Hentai', 'Webtoon Hentai']);
 
 const normalizeBrowseTypeFilter = (value: string | null): BrowseTypeFilter => {
@@ -179,9 +179,10 @@ const BrowseGridSkeleton: React.FC<{ gridDensity: BrowseGridDensity }> = ({ grid
 
 const Browse: React.FC = () => {
   useDocumentTitle('Keşfet');
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const { isOnline } = useEffectiveOnlineStatus();
   const { disableHeavyEffects, prefersReducedMotion } = useDeviceProfile();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const isAuthenticatedViewer = Boolean(user?.id);
   const canSeeAdultContent = isAuthenticatedViewer && user?.preferences?.content?.adult_mode === true;
@@ -194,7 +195,6 @@ const Browse: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
   const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'popular');
   const [rankFilter, setRankFilter] = useState<BrowseRankFilter>(() => normalizeBrowseRankFilter(searchParams.get('rank')));
-  const [allTimeRankMap, setAllTimeRankMap] = useState<Map<string, number>>(new Map());
   const [typeFilter, setTypeFilter] = useState<BrowseTypeFilter>(() => normalizeBrowseTypeFilter(searchParams.get('type')));
   const [statusFilter, setStatusFilter] = useState('all');
   const [contentFilter, setContentFilter] = useState<BrowseContentFilter>(() => {
@@ -208,18 +208,6 @@ const Browse: React.FC = () => {
     const p = parseInt(searchParams.get('page') || '1', 10);
     return isNaN(p) || p < 1 ? 1 : p;
   });
-  const [mangas, setMangas] = useState<Manga[]>(() => browsePageCache[browseAudienceKey] ?? []);
-  const [tagFilteredMangaIds, setTagFilteredMangaIds] = useState<Set<string> | null>(null);
-  const [isLoading, setIsLoading] = useState(() => !browsePageCache[browseAudienceKey]);
-  const [isHydratingFullCollection, setIsHydratingFullCollection] = useState(() => !browsePageCache[browseAudienceKey]);
-  const topTenWeekIds = useTopTenWeekIds(mangas.length > 0);
-  const deferredSearchQuery = useDeferredValue(searchQuery);
-  const deferredSelectedGenres = useDeferredValue(selectedGenres);
-  const deferredTypeFilter = useDeferredValue(typeFilter);
-  const deferredStatusFilter = useDeferredValue(statusFilter);
-  const deferredContentFilter = useDeferredValue(contentFilter);
-  const deferredSortBy = useDeferredValue(sortBy);
-  const deferredRankFilter = useDeferredValue(rankFilter);
 
   useEffect(() => {
     if (!canSeeAdultContent && contentFilter === 'adult') {
@@ -234,109 +222,83 @@ const Browse: React.FC = () => {
   }, [canSeeAdultContent, typeFilter]);
 
   useEffect(() => {
-    const nextUserKey = user?.id ?? null;
-    if (browsePageCacheUserId !== undefined && browsePageCacheUserId !== nextUserKey) {
-      browsePageCache.safe = undefined;
-      browsePageCache.adult = undefined;
-    }
-    browsePageCacheUserId = nextUserKey;
-  }, [user?.id]);
-
-  useEffect(() => {
     const handleAdultModeChanged = () => {
-      browsePageCache.safe = undefined;
-      browsePageCache.adult = undefined;
-      setMangas([]);
-      setIsLoading(true);
-      setIsHydratingFullCollection(true);
+      void queryClient.invalidateQueries({ queryKey: ['site', 'browse-summaries'] });
+      void queryClient.invalidateQueries({ queryKey: ['site', 'all-time-ranks'] });
     };
 
     window.addEventListener(ADULT_MODE_CHANGED_EVENT, handleAdultModeChanged);
     return () => {
       window.removeEventListener(ADULT_MODE_CHANGED_EVENT, handleAdultModeChanged);
     };
-  }, []);
+  }, [queryClient]);
 
-  useEffect(() => {
-    let active = true;
+  const summariesQuery = useQuery<Manga[]>({
+    queryKey: siteQueryKeys.browseSummaries(browseAudienceKey, user?.id),
+    queryFn: async () => dedupeMangasById(await getMangaSummaries()),
+    enabled: isOnline && !authLoading,
+    staleTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
+  });
 
-    const fetchMangas = async () => {
-      try {
-        const nextUserKey = user?.id ?? null;
-        if (browsePageCacheUserId !== undefined && browsePageCacheUserId !== nextUserKey) {
-          browsePageCache.safe = undefined;
-          browsePageCache.adult = undefined;
-        }
-        browsePageCacheUserId = nextUserKey;
+  const mangas = summariesQuery.data ?? [];
+  const isLoading = isOnline && (authLoading || (summariesQuery.isPending && !summariesQuery.data));
+  const isHydratingFullCollection = isLoading;
 
-        const memoryCache = browsePageCache[browseAudienceKey];
-        if (memoryCache && memoryCache.length > 0) {
-          setMangas(memoryCache);
-          setIsLoading(false);
-          setIsHydratingFullCollection(false);
-          return;
-        }
+  const selectedTagSlugsKey = useMemo(
+    () => [...selectedTagSlugs].sort().join(','),
+    [selectedTagSlugs],
+  );
 
-        setMangas([]);
-        setIsLoading(true);
-        setIsHydratingFullCollection(true);
-
-        // getMangaSummaries, IndexedDB kalıcı önbelleğini kullanır: veri taze ise
-        // ağa çıkmadan anında döner; aksi halde normal akış çalışır.
-        const data = await getMangaSummaries();
-        if (!active) {
-          return;
-        }
-
-        browsePageCache[browseAudienceKey] = data;
-        setMangas(data);
-      } finally {
-        if (active) {
-          setIsLoading(false);
-          setIsHydratingFullCollection(false);
-        }
-      }
-    };
-
-    fetchMangas();
-
-    return () => {
-      active = false;
-    };
-  }, [browseAudienceKey]);
-
-  useEffect(() => {
-    const loadTagFilteredMangas = async () => {
-      if (selectedTagSlugs.length === 0) {
-        setTagFilteredMangaIds(null);
-        return;
-      }
+  const tagFilterQuery = useQuery<string[]>({
+    queryKey: siteQueryKeys.browseTagFilter(selectedTagSlugsKey),
+    queryFn: async () => {
       const results = await getMangasByMultipleTags(selectedTagSlugs);
-      setTagFilteredMangaIds(new Set(results.map(m => m.id)));
-    };
-    loadTagFilteredMangas();
-  }, [selectedTagSlugs]);
+      return Array.from(new Set(results.map((m) => m.id).filter(Boolean)));
+    },
+    enabled: isOnline && selectedTagSlugs.length > 0,
+    staleTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
+  });
 
-  useEffect(() => {
-    if (!isOnline || (sortBy !== 'all_time_rank' && rankFilter === 'all')) {
-      return;
+  const tagFilteredMangaIds = useMemo<Set<string> | null>(() => {
+    if (selectedTagSlugs.length === 0) {
+      return null;
     }
+    if (!tagFilterQuery.data) {
+      return null;
+    }
+    return new Set(tagFilterQuery.data);
+  }, [selectedTagSlugs.length, tagFilterQuery.data]);
 
-    let cancelled = false;
-    void getAllTimeMangaRanks(canSeeAdultContent)
-      .then((res) => {
-        if (!cancelled) {
-          setAllTimeRankMap(res.rankById);
-        }
-      })
-      .catch(() => {
-        // ignore transient rank lookup errors
-      });
+  const allTimeRankQuery = useQuery<string[]>({
+    queryKey: siteQueryKeys.allTimeRanks(browseAudienceKey),
+    queryFn: async () => {
+      const res = await getAllTimeMangaRanks(canSeeAdultContent);
+      return res.orderedIds;
+    },
+    enabled: isOnline && (sortBy === 'all_time_rank' || rankFilter !== 'all'),
+    staleTime: 10 * 60 * 1000,
+    placeholderData: keepPreviousData,
+  });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [canSeeAdultContent, isOnline, rankFilter, sortBy]);
+  const allTimeRankMap = useMemo<Map<string, number>>(() => {
+    const map = new Map<string, number>();
+    const ids = allTimeRankQuery.data || [];
+    for (let i = 0; i < ids.length; i += 1) {
+      map.set(ids[i], i + 1);
+    }
+    return map;
+  }, [allTimeRankQuery.data]);
+
+  const topTenWeekIds = useTopTenWeekIds(mangas.length > 0);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const deferredSelectedGenres = useDeferredValue(selectedGenres);
+  const deferredTypeFilter = useDeferredValue(typeFilter);
+  const deferredStatusFilter = useDeferredValue(statusFilter);
+  const deferredContentFilter = useDeferredValue(contentFilter);
+  const deferredSortBy = useDeferredValue(sortBy);
+  const deferredRankFilter = useDeferredValue(rankFilter);
 
   useEffect(() => {
     const nextParams = new URLSearchParams();
