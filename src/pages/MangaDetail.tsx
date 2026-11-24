@@ -76,6 +76,7 @@ import {
   ChapterLikeInfo,
   getMangaDetailMeta,
   getMangaReadersList,
+  getMangaUserState,
   invalidateMangaDetailMetaCache,
   readCachedMangaDetailMeta,
   readCachedMangaDetailSnapshot,
@@ -100,6 +101,8 @@ import {
   isFavorite,
   getChapterReadProgressMap,
   getLatestProgress,
+  getLocalChapterReadProgressEntry,
+  mergeLocalChapterReadEntriesForManga,
   updateFavoriteCategory,
   followManga,
   unfollowManga,
@@ -944,22 +947,29 @@ const MangaDetail: React.FC = () => {
     const cachedMeta = readCachedMangaDetailMeta(targetId, includeAdult);
     if (cachedMeta) {
       setDetailMeta(cachedMeta);
+      return () => {
+        cancelled = true;
+      };
     }
 
-    void getMangaDetailMeta(targetId, includeAdult)
-      .then((meta) => {
-        if (!cancelled) {
-          setDetailMeta(meta);
-        }
-      })
-      .catch(() => {
-        if (!cancelled && !cachedMeta) {
-          setDetailMeta(null);
-        }
-      });
+    const timerId = window.setTimeout(() => {
+      if (cancelled) return;
+      void getMangaDetailMeta(targetId, includeAdult)
+        .then((meta) => {
+          if (!cancelled) {
+            setDetailMeta(meta);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setDetailMeta(null);
+          }
+        });
+    }, 200);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timerId);
     };
   }, [manga?.id, isOnline, isOfflineView, user?.preferences?.content?.adult_mode]);
 
@@ -1085,25 +1095,29 @@ const MangaDetail: React.FC = () => {
 
   useEffect(() => {
     const targetId = manga?.id;
-    if (!targetId || !isOnline) {
+    if (!targetId || !isOnline || authLoading) {
       return;
     }
 
     let cancelled = false;
-    void getChapterLikesSummary(targetId)
-      .then((chapterLikes) => {
-        if (!cancelled) {
-          setChapterLikesMap(chapterLikes);
-        }
-      })
-      .catch(() => {
-        // ignore chapter likes lookup errors
-      });
+    const timerId = window.setTimeout(() => {
+      if (cancelled) return;
+      void getChapterLikesSummary(targetId, user?.id)
+        .then((chapterLikes) => {
+          if (!cancelled) {
+            setChapterLikesMap(chapterLikes);
+          }
+        })
+        .catch(() => {
+          // ignore chapter likes lookup errors
+        });
+    }, 200);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timerId);
     };
-  }, [manga?.id, isOnline, user?.id]);
+  }, [manga?.id, isOnline, authLoading, user?.id]);
 
   const handleToggleChapterLike = async (targetChapterId: string, e: React.MouseEvent) => {
     e.preventDefault();
@@ -1837,14 +1851,23 @@ const MangaDetail: React.FC = () => {
     };
   }, [hasSupportedExternalProviders, isOnline, manga?.id]);
 
+  const externalStatusesLoadedUserRef = useRef<string | null>(null);
+
   useEffect(() => {
     let isCancelled = false;
 
     if (!user?.id || !isOnline) {
+      externalStatusesLoadedUserRef.current = null;
       setExternalProviderStatuses({
         myanimelist: { connected: false, lastError: null },
         anilist: { connected: false, lastError: null },
       });
+      return () => {
+        isCancelled = true;
+      };
+    }
+
+    if (activeTab !== 'external' || externalStatusesLoadedUserRef.current === user.id) {
       return () => {
         isCancelled = true;
       };
@@ -1870,6 +1893,7 @@ const MangaDetail: React.FC = () => {
           }
         }
 
+        externalStatusesLoadedUserRef.current = user.id;
         setExternalProviderStatuses(nextStatuses);
       })
       .catch((error) => {
@@ -1879,7 +1903,7 @@ const MangaDetail: React.FC = () => {
     return () => {
       isCancelled = true;
     };
-  }, [isOnline, user?.id]);
+  }, [activeTab, isOnline, user?.id]);
 
   useEffect(() => {
     if (!alternativeTitlesText) {
@@ -2086,12 +2110,19 @@ const MangaDetail: React.FC = () => {
         }
 
         // Wave 1: Race IDB offline detail (~10ms) with single-RPC network bundle (~100ms) when cold
+        // Only pre-paint offlineCandidate if it actually has chapters (prevents flashing "Henüz bölüm eklenmemiş")
         let networkSettled = false;
         const networkPromise = isOnline ? getMangaById(mangaId) : Promise.resolve(undefined);
         const offlineRacePromise = (isOnline && !warmSnapshot)
           ? getOfflineMangaDetail(mangaId)
             .then((offlineCandidate) => {
-              if (!isCancelled && !networkSettled && offlineCandidate) {
+              if (
+                !isCancelled
+                && !networkSettled
+                && offlineCandidate
+                && Array.isArray(offlineCandidate.chapters)
+                && offlineCandidate.chapters.length > 0
+              ) {
                 setIsOfflineView(false);
                 setManga(offlineCandidate);
                 setIsLoading(false);
@@ -2331,8 +2362,70 @@ const MangaDetail: React.FC = () => {
       try {
         setIsSeriesReadingTimeLoading(true);
 
+        if (isOnline) {
+          // Run pending offline reader sync in the background without blocking series paint
+          void flushPendingReaderSync().catch(() => {});
+
+          const rpcState = await getMangaUserState(mangaId);
+          if (isCancelled) return;
+
+          if (rpcState) {
+            const mergedReadMap = mergeLocalChapterReadEntriesForManga(
+              user.id,
+              mangaId,
+              rpcState.chapterReadMap,
+            );
+
+            let resolvedProgress = rpcState.latestProgress;
+            if (resolvedProgress) {
+              const localEntry = getLocalChapterReadProgressEntry(user.id, resolvedProgress.chapterId);
+              if (localEntry && localEntry.page === resolvedProgress.page) {
+                resolvedProgress = {
+                  ...resolvedProgress,
+                  pageOffsetRatio: localEntry.pageOffsetRatio,
+                  progressPercent: localEntry.currentProgressPercent ?? localEntry.readProgressPercent,
+                };
+              }
+            } else {
+              const latestMerged = Object.values(mergedReadMap).sort(
+                (a, b) => new Date(b.lastRead).getTime() - new Date(a.lastRead).getTime(),
+              )[0];
+              if (latestMerged) {
+                const localEntry = getLocalChapterReadProgressEntry(user.id, latestMerged.chapterId);
+                resolvedProgress = {
+                  userId: user.id,
+                  mangaId,
+                  chapterId: latestMerged.chapterId,
+                  chapterNumber: latestMerged.chapterNumber,
+                  page: localEntry?.page ?? latestMerged.page,
+                  pageOffsetRatio: localEntry?.pageOffsetRatio ?? latestMerged.pageOffsetRatio,
+                  progressPercent: localEntry?.currentProgressPercent ?? latestMerged.readProgressPercent,
+                  lastRead: latestMerged.lastRead,
+                };
+              }
+            }
+
+            setFavorite(rpcState.favorite);
+            setIsFollowing(rpcState.isFollowing);
+            setUserRating(rpcState.userRating);
+            setLatestProgress(resolvedProgress);
+            setUserReview(rpcState.userReview ? { ...rpcState.userReview } : createDefaultUserReview());
+            setBlockedUserIds(rpcState.blockedUserIds);
+            setChapterReadMap(mergedReadMap);
+            setSeriesReadingSeconds(rpcState.seriesReadingSeconds);
+            setCategory(rpcState.category);
+
+            writeCachedMangaUserQuickState(user.id, mangaId, {
+              favorite: rpcState.favorite,
+              isFollowing: rpcState.isFollowing,
+              category: rpcState.category,
+              userRating: rpcState.userRating,
+            });
+            return;
+          }
+        }
+
         const [
-          ,
           favorited,
           following,
           rating,
@@ -2343,7 +2436,6 @@ const MangaDetail: React.FC = () => {
           chapterReadProgress,
           mangaReadingTime,
         ] = await Promise.all([
-          isOnline ? flushPendingReaderSync() : Promise.resolve(),
           isFavorite(user.id, mangaId),
           isFollowingManga(user.id, mangaId),
           isOnline ? getUserRating(mangaId, user.id) : Promise.resolve(undefined),

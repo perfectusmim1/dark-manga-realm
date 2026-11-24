@@ -723,6 +723,26 @@ const mergeChapterReadEntries = (
     return merged;
 };
 
+export const mergeLocalChapterReadEntriesForManga = (
+    userId: string,
+    mangaId: string,
+    remoteEntries: Record<string, ChapterReadProgressEntry>,
+): Record<string, ChapterReadProgressEntry> => {
+    if (!userId || !mangaId) {
+        return remoteEntries;
+    }
+
+    const localEntries = getLocalChapterReadEntries(userId)
+        .filter((entry) => entry.mangaId === mangaId);
+
+    if (localEntries.length === 0) {
+        return remoteEntries;
+    }
+
+    triggerBackgroundChapterReadFallbackSync(userId);
+    return mergeChapterReadEntries(remoteEntries, localEntries);
+};
+
 const getLocalCompletedChapterReadCount = (userId: string) =>
     getLocalChapterReadEntries(userId).filter((entry) => entry.isRead || entry.readProgressPercent >= 60).length;
 

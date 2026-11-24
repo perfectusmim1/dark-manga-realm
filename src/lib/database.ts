@@ -23,6 +23,8 @@ import {
     EntityMetadata,
     ExternalSourceLink,
     EntityGalleryImage,
+    LibraryCategory,
+    ReadingProgress,
 } from './types';
 import {
     CHAPTER_CARD_ADMIN_DIALOG_IMAGE_TRANSFORM,
@@ -610,6 +612,11 @@ const fetchAllMangaRowsPaginated = async (
 
     return uniqueRows;
 };
+
+const mapMangaVisibilityFields = (row: any) => ({
+    isPublic: row?.is_public ?? true,
+    isAdult: row?.is_adult ?? false,
+});
 
 const mapMangaBaseFields = (row: any) => ({
     alternativeTitles: row?.alternative_titles || row?.alternativeTitles || [],
@@ -3334,7 +3341,8 @@ export const getMangaById = async (
                     return undefined;
                 }
             }
-        } catch {
+        } catch (fastPathError) {
+            console.warn('get_manga_detail_bundle fast path failed, falling back:', fastPathError);
             // Fall through to multi-query fallback
         }
     }
@@ -9193,31 +9201,261 @@ export const getAllTimeMangaRanks = async (
     return requestPromise;
 };
 
-export const getChapterLikesSummary = async (
+export interface MangaUserChapterReadEntry {
+    userId: string;
+    mangaId: string;
+    chapterId: string;
+    chapterNumber: number;
+    page: number;
+    pageCount: number;
+    maxPage: number;
+    readProgressPercent: number;
+    isRead: boolean;
+    lastRead: string;
+}
+
+export interface MangaUserState {
+    favorite: boolean;
+    category?: LibraryCategory;
+    isFollowing: boolean;
+    userRating?: number;
+    latestProgress: ReadingProgress | null;
+    userReview: Review | null;
+    blockedUserIds: string[];
+    chapterReadMap: Record<string, MangaUserChapterReadEntry>;
+    seriesReadingSeconds: number;
+}
+
+const mangaUserStateInFlight = new Map<string, Promise<MangaUserState | null>>();
+
+export const getMangaUserState = async (
     mangaId: string,
-): Promise<Record<string, ChapterLikeInfo>> => {
-    if (!mangaId?.trim()) {
-        return {};
+): Promise<MangaUserState | null> => {
+    const cleanId = mangaId?.trim();
+    if (!cleanId) {
+        return null;
     }
 
-    const { data, error } = await supabase.rpc('get_chapter_likes_summary', {
-        p_manga_id: mangaId,
+    const existing = mangaUserStateInFlight.get(cleanId);
+    if (existing) {
+        return existing;
+    }
+
+    const requestPromise = (async (): Promise<MangaUserState | null> => {
+        try {
+            const { data, error } = await callUntypedRpc<Record<string, any>>(
+                'get_manga_user_state',
+                { p_manga_id: cleanId },
+            );
+
+            if (error || !data || typeof data !== 'object') {
+                return null;
+            }
+
+            const rawCategory = typeof data.category === 'string' && data.category.trim().length > 0
+                ? (data.category.trim() as LibraryCategory)
+                : undefined;
+            const rawRating = data.userRating !== null && data.userRating !== undefined
+                ? Number(data.userRating)
+                : NaN;
+            const rawProgress = data.latestProgress && typeof data.latestProgress === 'object'
+                ? (data.latestProgress as Record<string, any>)
+                : null;
+            const latestProgress: ReadingProgress | null = rawProgress && rawProgress.chapterId
+                ? {
+                    userId: String(rawProgress.userId || ''),
+                    mangaId: String(rawProgress.mangaId || cleanId),
+                    chapterId: String(rawProgress.chapterId),
+                    chapterNumber: Number(rawProgress.chapterNumber) || 0,
+                    page: Number(rawProgress.page) || 1,
+                    lastRead: String(rawProgress.lastRead || new Date().toISOString()),
+                }
+                : null;
+
+            const rawReview = data.userReview && typeof data.userReview === 'object'
+                ? (data.userReview as Record<string, any>)
+                : null;
+            const userReview: Review | null = rawReview && rawReview.id
+                ? {
+                    id: String(rawReview.id),
+                    mangaId: String(rawReview.mangaId || cleanId),
+                    userId: String(rawReview.userId || ''),
+                    username: String(rawReview.username || ''),
+                    content: String(rawReview.content || ''),
+                    rating_story: Number(rawReview.rating_story) || 0,
+                    rating_characters: Number(rawReview.rating_characters) || 0,
+                    rating_art: Number(rawReview.rating_art) || 0,
+                    rating_progression: Number(rawReview.rating_progression) || 0,
+                    rating_engagement: Number(rawReview.rating_engagement) || 0,
+                    createdAt: String(rawReview.createdAt || ''),
+                    updatedAt: rawReview.updatedAt ? String(rawReview.updatedAt) : undefined,
+                    likes: Number(rawReview.likes) || 0,
+                    dislikes: Number(rawReview.dislikes) || 0,
+                    likedBy: Array.isArray(rawReview.likedBy) ? rawReview.likedBy : [],
+                    dislikedBy: Array.isArray(rawReview.dislikedBy) ? rawReview.dislikedBy : [],
+                }
+                : null;
+
+            const blockedUserIds = Array.isArray(data.blockedUserIds)
+                ? data.blockedUserIds.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+                : [];
+
+            const rawReadMap = data.chapterReadMap && typeof data.chapterReadMap === 'object'
+                ? (data.chapterReadMap as Record<string, any>)
+                : {};
+            const chapterReadMap: Record<string, MangaUserChapterReadEntry> = {};
+            for (const [chapterId, entry] of Object.entries(rawReadMap)) {
+                if (!chapterId || !entry || typeof entry !== 'object') continue;
+                chapterReadMap[chapterId] = {
+                    userId: String(entry.userId || ''),
+                    mangaId: String(entry.mangaId || cleanId),
+                    chapterId: String(entry.chapterId || chapterId),
+                    chapterNumber: Number(entry.chapterNumber) || 0,
+                    page: Number(entry.page) || 1,
+                    pageCount: Number(entry.pageCount) || 0,
+                    maxPage: Number(entry.maxPage) || 0,
+                    readProgressPercent: Number(entry.readProgressPercent) || 0,
+                    isRead: Boolean(entry.isRead),
+                    lastRead: String(entry.lastRead || new Date().toISOString()),
+                };
+            }
+
+            return {
+                favorite: Boolean(data.favorite),
+                category: rawCategory,
+                isFollowing: Boolean(data.isFollowing),
+                userRating: Number.isFinite(rawRating) && rawRating > 0 ? rawRating : undefined,
+                latestProgress,
+                userReview,
+                blockedUserIds,
+                chapterReadMap,
+                seriesReadingSeconds: Math.max(0, Number(data.seriesReadingSeconds) || 0),
+            };
+        } catch (err) {
+            console.warn('get_manga_user_state RPC failed, falling back:', err);
+            return null;
+        }
+    })().finally(() => {
+        mangaUserStateInFlight.delete(cleanId);
     });
 
-    if (error || !Array.isArray(data)) {
+    mangaUserStateInFlight.set(cleanId, requestPromise);
+    return requestPromise;
+};
+
+const CHAPTER_LIKES_CACHE_TTL_MS = 2 * 60 * 1000;
+const CHAPTER_LIKES_SESSION_PREFIX = 'toonparrot:chapter-likes:v1:';
+const chapterLikesCache = new Map<string, { fetchedAt: number; value: Record<string, ChapterLikeInfo> }>();
+const chapterLikesInFlight = new Map<string, Promise<Record<string, ChapterLikeInfo>>>();
+
+const readCachedChapterLikes = (cacheKey: string): Record<string, ChapterLikeInfo> | null => {
+    const inMemory = chapterLikesCache.get(cacheKey);
+    if (inMemory && Date.now() - inMemory.fetchedAt < CHAPTER_LIKES_CACHE_TTL_MS) {
+        return inMemory.value;
+    }
+
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    try {
+        const raw = window.sessionStorage.getItem(`${CHAPTER_LIKES_SESSION_PREFIX}${cacheKey}`);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { fetchedAt?: number; value?: Record<string, ChapterLikeInfo> };
+        if (
+            typeof parsed?.fetchedAt !== 'number'
+            || Date.now() - parsed.fetchedAt >= CHAPTER_LIKES_CACHE_TTL_MS
+            || !parsed.value
+            || typeof parsed.value !== 'object'
+        ) {
+            return null;
+        }
+        chapterLikesCache.set(cacheKey, { fetchedAt: parsed.fetchedAt, value: parsed.value });
+        return parsed.value;
+    } catch {
+        return null;
+    }
+};
+
+const writeCachedChapterLikes = (cacheKey: string, value: Record<string, ChapterLikeInfo>) => {
+    const entry = { fetchedAt: Date.now(), value };
+    chapterLikesCache.set(cacheKey, entry);
+    if (typeof window === 'undefined') return;
+    try {
+        window.sessionStorage.setItem(`${CHAPTER_LIKES_SESSION_PREFIX}${cacheKey}`, JSON.stringify(entry));
+    } catch {
+        // ignore quota errors
+    }
+};
+
+const invalidateChapterLikesCache = (mangaId: string) => {
+    const cleanId = mangaId?.trim();
+    if (!cleanId) return;
+    for (const key of chapterLikesCache.keys()) {
+        if (key === cleanId || key.startsWith(`${cleanId}:`)) {
+            chapterLikesCache.delete(key);
+        }
+    }
+    if (typeof window === 'undefined') return;
+    try {
+        const prefix = `${CHAPTER_LIKES_SESSION_PREFIX}${cleanId}`;
+        for (let i = window.sessionStorage.length - 1; i >= 0; i -= 1) {
+            const k = window.sessionStorage.key(i);
+            if (k && k.startsWith(prefix)) {
+                window.sessionStorage.removeItem(k);
+            }
+        }
+    } catch {
+        // ignore storage errors
+    }
+};
+
+export const getChapterLikesSummary = async (
+    mangaId: string,
+    viewerScope?: string,
+): Promise<Record<string, ChapterLikeInfo>> => {
+    const cleanId = mangaId?.trim();
+    if (!cleanId) {
         return {};
     }
 
-    const map: Record<string, ChapterLikeInfo> = {};
-    for (const row of data as any[]) {
-        const chapterId = typeof row?.chapter_id === 'string' ? row.chapter_id : '';
-        if (!chapterId) continue;
-        map[chapterId] = {
-            likeCount: Number(row.like_count ?? 0) || 0,
-            viewerLiked: Boolean(row.viewer_liked),
-        };
+    const cacheKey = `${cleanId}:${viewerScope || 'anon'}`;
+    const cached = readCachedChapterLikes(cacheKey);
+    if (cached) {
+        return cached;
     }
-    return map;
+
+    const existing = chapterLikesInFlight.get(cacheKey);
+    if (existing) {
+        return existing;
+    }
+
+    const requestPromise = (async (): Promise<Record<string, ChapterLikeInfo>> => {
+        const { data, error } = await supabase.rpc('get_chapter_likes_summary', {
+            p_manga_id: cleanId,
+        });
+
+        if (error || !Array.isArray(data)) {
+            return {};
+        }
+
+        const map: Record<string, ChapterLikeInfo> = {};
+        for (const row of data as any[]) {
+            const chapterId = typeof row?.chapter_id === 'string' ? row.chapter_id : '';
+            if (!chapterId) continue;
+            map[chapterId] = {
+                likeCount: Number(row.like_count ?? 0) || 0,
+                viewerLiked: Boolean(row.viewer_liked),
+            };
+        }
+        writeCachedChapterLikes(cacheKey, map);
+        return map;
+    })().finally(() => {
+        chapterLikesInFlight.delete(cacheKey);
+    });
+
+    chapterLikesInFlight.set(cacheKey, requestPromise);
+    return requestPromise;
 };
 
 export const toggleChapterLike = async (
@@ -9233,6 +9471,7 @@ export const toggleChapterLike = async (
         throw error;
     }
 
+    invalidateChapterLikesCache(mangaId);
     const payload = (data && typeof data === 'object' ? data : {}) as Record<string, any>;
     return {
         liked: Boolean(payload.liked),
