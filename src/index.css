@@ -487,6 +487,12 @@
     }
   }
 
+  .horizontal-scroll-smooth {
+    touch-action: pan-x pan-y;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .scrollbar-hide,
   .no-scrollbar {
     -ms-overflow-style: none;

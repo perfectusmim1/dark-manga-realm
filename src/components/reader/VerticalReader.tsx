@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ReaderSettings, ResolvedReaderPage } from '@/lib/types';
 import { PageTranslationState } from '@/lib/translation/types';
 import ProtectedImage from '@/components/security/ProtectedImage';
-import { PageTranslateButton, TranslationOverlay } from '@/components/reader/TranslationOverlay';
+import { TranslationOverlay } from '@/components/reader/TranslationOverlay';
 import { UpscaleLayer } from '@/components/reader/UpscaleLayer';
 import { ReaderTranslationApi } from '@/hooks/useChapterTranslation';
 import type { UpscaleMode } from '@/lib/upscale/types';
@@ -25,12 +25,9 @@ interface ReaderPageProps {
   fitWidth: boolean;
   priority: boolean;
   hasTranslationApi: boolean;
-  translationEnabled: boolean;
-  autoTranslate: boolean;
   overlayVisible: boolean;
   targetLang: string;
   pageState?: PageTranslationState;
-  onTranslatePage?: (pageIndex: number, options?: { force?: boolean }) => void;
   upscaleMode: UpscaleMode;
   upscaleHighRes: boolean;
   upscaleCompare: boolean;
@@ -43,67 +40,25 @@ const ReaderPage: React.FC<ReaderPageProps> = React.memo(({
   fitWidth,
   priority,
   hasTranslationApi,
-  translationEnabled,
-  autoTranslate,
   overlayVisible,
   targetLang,
   pageState,
-  onTranslatePage,
   upscaleMode,
   upscaleHighRes,
   upscaleCompare,
 }) => {
-  const [pageOverlayShown, setPageOverlayShown] = useState(true);
   const showOverlay = Boolean(
     hasTranslationApi
     && pageState?.status === 'done'
     && pageState.blocks
-    && overlayVisible
-    && pageOverlayShown,
+    && overlayVisible,
   );
 
-  const handleTranslate = useCallback(() => {
-    onTranslatePage?.(index);
-  }, [index, onTranslatePage]);
-
-  const handleRetranslate = useCallback(() => {
-    onTranslatePage?.(index, { force: true });
-  }, [index, onTranslatePage]);
-
-  const handleToggleOverlay = useCallback(() => {
-    setPageOverlayShown((prev) => !prev);
-  }, []);
-
   const overlayNode = useMemo(() => (
-    hasTranslationApi ? (
-      <>
-        {showOverlay && pageState?.blocks && pageState.blocks.length > 0 && (
-          <TranslationOverlay blocks={pageState.blocks} targetLang={targetLang} />
-        )}
-        <PageTranslateButton
-          state={pageState}
-          canRequestTranslation={translationEnabled}
-          showIdleButton={!autoTranslate}
-          overlayShown={overlayVisible && pageOverlayShown}
-          onTranslate={handleTranslate}
-          onRetranslate={handleRetranslate}
-          onToggleOverlay={handleToggleOverlay}
-        />
-      </>
+    showOverlay && pageState?.blocks && pageState.blocks.length > 0 ? (
+      <TranslationOverlay blocks={pageState.blocks} targetLang={targetLang} />
     ) : undefined
-  ), [
-    autoTranslate,
-    handleRetranslate,
-    handleToggleOverlay,
-    handleTranslate,
-    hasTranslationApi,
-    overlayVisible,
-    pageOverlayShown,
-    pageState,
-    showOverlay,
-    targetLang,
-    translationEnabled,
-  ]);
+  ), [pageState?.blocks, showOverlay, targetLang]);
 
   const combinedOverlay = useMemo(() => {
     if (upscaleMode === 'off') {
@@ -303,11 +258,8 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
   }, [initialPage]);
 
   const hasTranslationApi = Boolean(translation);
-  const translationEnabled = Boolean(translation?.enabled);
-  const autoTranslate = Boolean(translation?.settings.autoTranslate);
   const overlayVisible = Boolean(translation?.settings.overlayVisible);
   const targetLang = translation?.settings.targetLang || 'tr';
-  const translatePage = translation?.translatePage;
 
   return (
     <div ref={containerRef} className="block w-full max-w-full overflow-x-clip pb-10 pt-14 leading-[0] sm:pb-14 sm:pt-16">
@@ -320,12 +272,9 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
           fitWidth={settings.fitWidth}
           priority={index <= initialPage + 1}
           hasTranslationApi={hasTranslationApi}
-          translationEnabled={translationEnabled}
-          autoTranslate={autoTranslate}
           overlayVisible={overlayVisible}
           targetLang={targetLang}
           pageState={translation?.pageStates[index]}
-          onTranslatePage={translatePage}
           upscaleMode={settings.upscaleMode}
           upscaleHighRes={settings.upscaleHighRes}
           upscaleCompare={upscaleCompare}

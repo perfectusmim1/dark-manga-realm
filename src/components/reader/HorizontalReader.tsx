@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ReaderSettings, ResolvedReaderPage } from '@/lib/types';
-import { PageTranslateButton, TranslationOverlay } from '@/components/reader/TranslationOverlay';
+import { TranslationOverlay } from '@/components/reader/TranslationOverlay';
 import { UpscaleLayer } from '@/components/reader/UpscaleLayer';
 import { ReaderTranslationApi } from '@/hooks/useChapterTranslation';
 import ProtectedImage from '@/components/security/ProtectedImage';
@@ -25,7 +25,6 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
   upscaleCompare = false,
 }) => {
   const [isMobileViewport, setIsMobileViewport] = useState(() => window.innerWidth < 640);
-  const [pageOverlayShown, setPageOverlayShown] = useState(true);
   const effectiveZoom = isMobileViewport && settings.fitWidth
     ? Math.max(settings.zoom, 100)
     : settings.zoom;
@@ -36,30 +35,13 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
     translation
     && translationState?.status === 'done'
     && translationState.blocks
-    && translation.settings.overlayVisible
-    && pageOverlayShown,
+    && translation.settings.overlayVisible,
   );
 
-  useEffect(() => {
-    setPageOverlayShown(true);
-  }, [currentPage]);
-
-  const translationOverlayNode = translation ? (
-    <>
-      {showTranslationOverlay && translationState?.blocks && translationState.blocks.length > 0 && (
-        <TranslationOverlay blocks={translationState.blocks} targetLang={translation.settings.targetLang} />
-      )}
-      <PageTranslateButton
-        state={translationState}
-        canRequestTranslation={translation.enabled}
-        showIdleButton={!translation.settings.autoTranslate}
-        overlayShown={translation.settings.overlayVisible && pageOverlayShown}
-        onTranslate={() => translation.translatePage(pageIndex)}
-        onRetranslate={() => translation.translatePage(pageIndex, { force: true })}
-        onToggleOverlay={() => setPageOverlayShown((prev) => !prev)}
-      />
-    </>
-  ) : undefined;
+  const translationOverlayNode =
+    showTranslationOverlay && translationState?.blocks && translationState.blocks.length > 0 ? (
+      <TranslationOverlay blocks={translationState.blocks} targetLang={translation.settings.targetLang} />
+    ) : undefined;
 
   useEffect(() => {
     const handleResize = () => setIsMobileViewport(window.innerWidth < 640);

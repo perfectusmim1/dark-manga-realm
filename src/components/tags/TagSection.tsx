@@ -33,6 +33,22 @@ const categoryLabels: Record<TagCategory, string> = {
 
 const SMART_TAG_ACCEPT_UPVOTES = 5;
 const SMART_TAG_REMOVE_DOWNVOTES = 5;
+const USER_SERIES_TAG_LIMIT = 5;
+
+const getTagErrorMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof Error && error.message?.trim()) {
+    return error.message;
+  }
+
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const msg = String((error as { message?: unknown }).message || '').trim();
+    if (msg) {
+      return msg;
+    }
+  }
+
+  return fallback;
+};
 
 const getTagModerationState = (
   tag: Tag,
@@ -82,6 +98,21 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
   const [newTagCategory, setNewTagCategory] = useState<TagCategory>('general');
   const [showNewTagForm, setShowNewTagForm] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
+  const searchRequestSeqRef = useRef(0);
+
+  const isStaff = user?.role === 'admin' || user?.role === 'moderator';
+  const existingTagIds = useMemo(() => new Set(tags.map((tag) => tag.id)), [tags]);
+  const userAddedTagsCount = useMemo(
+    () => (user?.id ? tags.filter((tag) => tag.relationAddedBy === user.id).length : 0),
+    [tags, user?.id],
+  );
+  const hasReachedUserSeriesLimit = !isStaff && Boolean(user) && userAddedTagsCount >= USER_SERIES_TAG_LIMIT;
+
+  useEffect(() => {
+    if (hasReachedUserSeriesLimit && showNewTagForm) {
+      setShowNewTagForm(false);
+    }
+  }, [hasReachedUserSeriesLimit, showNewTagForm]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -126,43 +157,88 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
 
   const handleSearch = async (query: string) => {
     setSearchQuery(query);
-    if (query.length < 2) {
+    const trimmed = query.trim();
+    const requestSeq = ++searchRequestSeqRef.current;
+    if (trimmed.length < 2) {
       setSearchResults([]);
       return;
     }
 
-    const results = await searchTags(query);
-    const existingTagIds = new Set(tags.map(t => t.id));
-    setSearchResults(results.filter(r => !existingTagIds.has(r.id)));
+    const results = await searchTags(trimmed);
+    if (requestSeq !== searchRequestSeqRef.current) {
+      return;
+    }
+    setSearchResults(results);
   };
 
-  const handleAddTag = async (tag: Tag, options?: { discoverable?: boolean }) => {
+  const handleAddTag = async (tag: Tag, options?: { discoverable?: boolean }): Promise<boolean> => {
     if (!user) {
       toast.error('Etiket eklemek için giriş yapmalısınız');
-      return;
+      return false;
     }
 
     if (!isOnline) {
       toast.error('Etiket işlemleri için internete bağlanın');
-      return;
+      return false;
+    }
+
+    const isAttached = existingTagIds.has(tag.id);
+    if (!isAttached && hasReachedUserSeriesLimit) {
+      toast.error(`Bu seriye en fazla ${USER_SERIES_TAG_LIMIT} etiket ekleyebilirsiniz.`);
+      return false;
+    }
+
+    const displayName = getTagDisplayName(tag.slug, tag.name) || tag.name;
+
+    if (isAttached && userVotes[tag.id] === 'up') {
+      toast.info(`"${displayName}" etiketi seride zaten var ve onay oyun kayıtlı.`);
+      return false;
     }
 
     setIsAdding(true);
     try {
-      const success = await addTagToEntity(entityType, entityId, tag.id, user.id, options);
-      if (success) {
-        setTags(prev => [...prev, tag]);
-        setSearchQuery('');
-        setSearchResults([]);
-        setIsSearchOpen(false);
-        if (options?.discoverable) {
-          toast.success(`"${tag.name}" etiketi bu sayfada görünür oldu`);
-        } else {
-          toast.success(`"${tag.name}" etiketi eklendi. Keşfette görünmesi için topluluk oyu bekleniyor`);
-        }
+      const result = await addTagToEntity(entityType, entityId, tag.id, user.id, options);
+      if (!result.success) {
+        toast.error(result.error || 'Etiket eklenemedi');
+        return false;
       }
-    } catch {
-      toast.error('Etiket eklenemedi');
+
+      setSearchQuery('');
+      setSearchResults([]);
+      setIsSearchOpen(false);
+
+      if (result.alreadyExists) {
+        await loadData();
+        if (result.voted) {
+          toast.success(`"${displayName}" etiketi seride zaten var, onay oyun eklendi.`);
+        } else {
+          toast.info(`"${displayName}" etiketi seride zaten var ve onay oyun kayıtlı.`);
+        }
+        return true;
+      }
+
+      setTags((prev) => (
+        prev.some((existing) => existing.id === tag.id)
+          ? prev
+          : [
+              ...prev,
+              {
+                ...tag,
+                relationAddedBy: user.id,
+                isDiscoverable: options?.discoverable ?? false,
+              },
+            ]
+      ));
+
+      if (options?.discoverable) {
+        toast.success(`"${displayName}" etiketi bu sayfada görünür oldu`);
+      } else {
+        toast.success(`"${displayName}" etiketi eklendi. Keşfette görünmesi için topluluk oyu bekleniyor`);
+      }
+      return true;
+    } catch (error) {
+      toast.error(getTagErrorMessage(error, 'Etiket eklenemedi'));
+      return false;
     } finally {
       setIsAdding(false);
     }
@@ -203,9 +279,17 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
     }
 
     const targetTag = tags.find((tag) => tag.id === tagId);
+    const displayName = targetTag ? (getTagDisplayName(targetTag.slug, targetTag.name) || targetTag.name) : '';
     const previousState = targetTag ? getTagModerationState(targetTag, votes[tagId]) : null;
 
-    const moderationResult = await voteOnTag(tagId, entityType, entityId, user.id, voteType);
+    let moderationResult = null;
+    try {
+      moderationResult = await voteOnTag(tagId, entityType, entityId, user.id, voteType);
+    } catch (error) {
+      toast.error(getTagErrorMessage(error, 'Oy verilemedi'));
+      return;
+    }
+
     await loadData();
 
     if (!targetTag) {
@@ -213,7 +297,7 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
     }
 
     if (moderationResult?.tagDeleted) {
-      toast.error(`"${targetTag.name}" etiketi topluluk oyuyla sistemden kaldırıldı`);
+      toast.error(`"${displayName}" etiketi topluluk oyuyla sistemden kaldırıldı`);
       return;
     }
 
@@ -230,15 +314,15 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
     );
 
     if (!previousState?.isAccepted && moderationResult?.communityApproved && !targetTag.isOfficial) {
-      toast.success(`"${targetTag.name}" etiketi topluluk tarafından kabul edildi`);
+      toast.success(`"${displayName}" etiketi topluluk tarafından kabul edildi`);
     }
 
     if (!previousState?.isDiscoverable && moderationResult?.relationDiscoverable) {
-      toast.success(`"${targetTag.name}" etiketi bu manga için de onaylandı`);
+      toast.success(`"${displayName}" etiketi bu manga için de onaylandı`);
     }
 
     if (moderationResult?.relationDeleted || nextState.isRejected) {
-      toast.error(`"${targetTag.name}" etiketi bu sayfadan kaldırıldı`);
+      toast.error(`"${displayName}" etiketi bu sayfadan kaldırıldı`);
     }
   };
 
@@ -249,16 +333,25 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
       return;
     }
 
+    if (hasReachedUserSeriesLimit) {
+      toast.error(`Bu seriye en fazla ${USER_SERIES_TAG_LIMIT} etiket ekleyebilirsiniz.`);
+      return;
+    }
+
     setIsAdding(true);
     try {
       const created = await createTag(newTagName.trim(), newTagCategory, undefined, user.id);
       if (created) {
-        await handleAddTag(created);
-        setNewTagName('');
-        setShowNewTagForm(false);
+        const added = await handleAddTag(created);
+        if (added) {
+          setNewTagName('');
+          setShowNewTagForm(false);
+        }
+      } else {
+        toast.error('Geçerli bir etiket adı girin');
       }
-    } catch {
-      toast.error('Etiket oluşturulamadı');
+    } catch (error) {
+      toast.error(getTagErrorMessage(error, 'Etiket oluşturulamadı'));
     } finally {
       setIsAdding(false);
     }
@@ -349,6 +442,7 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
             <Button
               variant="outline"
               size="sm"
+              disabled={hasReachedUserSeriesLimit}
               onClick={() => setShowNewTagForm(!showNewTagForm)}
               className="h-8 w-full text-xs sm:w-auto"
             >
@@ -435,47 +529,87 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
           {isSearchOpen && searchResults.length > 0 && (
             <div className="absolute z-50 mt-1 w-full rounded-lg border border-border bg-card shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
               <div className="max-h-60 overflow-y-auto p-1">
-                {searchResults.map(tag => (
-                  <button
-                    key={tag.id}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-secondary/50 transition-colors text-left"
-                    onClick={() => handleAddTag(tag)}
-                    disabled={isAdding}
-                  >
-                    <TagBadge tag={tag} size="sm" />
-                    {tag.usageCount > 0 && (
-                      <span className="text-[10px] text-muted-foreground ml-auto">
-                        {tag.usageCount}x
-                      </span>
-                    )}
-                  </button>
-                ))}
+                {searchResults.map((tag) => {
+                  const isAttached = existingTagIds.has(tag.id);
+                  const userVote = userVotes[tag.id];
+                  const isBlockedBySeriesLimit = !isAttached && hasReachedUserSeriesLimit;
+
+                  return (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      className={cn(
+                        'w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors text-left',
+                        isBlockedBySeriesLimit
+                          ? 'opacity-60 cursor-not-allowed'
+                          : 'hover:bg-secondary/50',
+                      )}
+                      onClick={() => void handleAddTag(tag)}
+                      disabled={isAdding || isBlockedBySeriesLimit}
+                    >
+                      <TagBadge
+                        tag={tag}
+                        accepted={!tag.isOfficial && Boolean(tag.communityApproved)}
+                        size="sm"
+                      />
+                      {isAttached ? (
+                        userVote === 'up' ? (
+                          <span className="ml-auto shrink-0 text-[11px] font-medium text-emerald-400">
+                            Eklendi
+                          </span>
+                        ) : (
+                          <span className="ml-auto shrink-0 text-[11px] font-medium text-primary">
+                            +1 Oy Ver
+                          </span>
+                        )
+                      ) : (
+                        tag.usageCount > 0 && (
+                          <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
+                            {tag.usageCount}x
+                          </span>
+                        )
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
 
-          {isSearchOpen && searchQuery.length >= 2 && searchResults.length === 0 && (
+          {isSearchOpen && searchQuery.trim().length >= 2 && searchResults.length === 0 && (
             <div className="absolute z-50 mt-1 w-full rounded-lg border border-border bg-card shadow-xl p-3 text-center animate-in fade-in slide-in-from-top-2 duration-200">
               <p className="text-sm text-muted-foreground">Sonuç bulunamadı</p>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="mt-1 text-xs text-primary"
-                onClick={() => {
-                  setNewTagName(searchQuery);
-                  setShowNewTagForm(true);
-                  setIsSearchOpen(false);
-                }}
-              >
-                <Plus className="h-3 w-3 mr-1" />
-                "{searchQuery}" olarak oluştur
-              </Button>
+              {hasReachedUserSeriesLimit ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Bu seriye en fazla {USER_SERIES_TAG_LIMIT} etiket ekleyebilirsiniz.
+                </p>
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-1 text-xs text-primary"
+                  onClick={() => {
+                    setNewTagName(searchQuery.trim());
+                    setShowNewTagForm(true);
+                    setIsSearchOpen(false);
+                  }}
+                >
+                  <Plus className="h-3 w-3 mr-1" />
+                  "{searchQuery.trim()}" olarak oluştur
+                </Button>
+              )}
             </div>
+          )}
+
+          {hasReachedUserSeriesLimit && (
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Bu seriye en fazla {USER_SERIES_TAG_LIMIT} etiket ekleyebilirsiniz ({userAddedTagsCount}/{USER_SERIES_TAG_LIMIT}). Mevcut etiketlere oy verebilirsiniz.
+            </p>
           )}
         </div>
       )}
 
-      {showNewTagForm && user && (
+      {showNewTagForm && user && !hasReachedUserSeriesLimit && (
         <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-semibold">Yeni Etiket Oluştur</h4>

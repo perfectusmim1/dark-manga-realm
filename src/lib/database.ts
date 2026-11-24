@@ -47,6 +47,13 @@ import {
 } from './mediaStorage';
 import { normalizeGenres } from './mockData';
 import { slugifyCatalogTagName, type OfficialTagSeed } from './officialTagCatalog';
+import {
+    findExactTagSlugByDisplayName,
+    findExactTagSlugsByDisplayName,
+    findMatchingTagSlugs,
+    getTagDisplayName,
+    normalizeTagSearchText,
+} from './tagTranslations';
 import { sortChapterBatchItems } from './chapterBatchOrdering';
 import { cacheOfflineManga, getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
 import { sanitizeChapterPageUrls } from '@/lib/scraper/scrapeSources';
@@ -93,6 +100,28 @@ import { getSeriesLanguage, resolveChapterLanguageCode } from '@/lib/seriesLangu
 
 const normalizeNamedEntityValue = (value?: string | null) =>
     value?.trim().replace(/\s+/g, ' ') || '';
+
+const toReadableDatabaseError = (error: unknown, fallbackMessage: string): Error => {
+    if (error instanceof Error && error.message?.trim()) {
+        return error;
+    }
+
+    const rawMessage = typeof error === 'object' && error !== null && 'message' in error
+        ? String((error as { message?: unknown }).message || '').trim()
+        : typeof error === 'string'
+            ? error.trim()
+            : '';
+
+    const normalizedError = new Error(rawMessage || fallbackMessage);
+    if (error && typeof error === 'object') {
+        Object.assign(normalizedError, {
+            code: (error as { code?: unknown }).code,
+            details: (error as { details?: unknown }).details,
+            hint: (error as { hint?: unknown }).hint,
+        });
+    }
+    return normalizedError;
+};
 
 const normalizeNamedEntityKey = (value?: string | null) =>
     normalizeComparableText(normalizeNamedEntityValue(value));
@@ -638,6 +667,7 @@ const mapMangaBaseFields = (row: any) => ({
     alternativeTitles: row?.alternative_titles || row?.alternativeTitles || [],
     ...mapMangaVisibilityFields(row),
     lastUpdated: row?.last_updated || row?.lastUpdated,
+    latestChapterAt: row?.latest_chapter_at || row?.latestChapterAt || undefined,
     createdAt: row?.created_at || row?.createdAt,
     releaseYear: row?.release_year ?? row?.releaseYear,
     description: sanitizeMangaDescription(row?.description || row?.description_tr || row?.descriptionTr || row?.details?.descriptionTr),
@@ -1025,10 +1055,10 @@ const clearPersistedCatalogCache = () => {
         'named-entities-v1:artists:public',
     ]);
 };
-const MANGA_SUMMARY_BASE_SELECT_COLUMNS = 'id, title, alternative_titles, cover, banner, author, artist, status, genres, views, last_updated, created_at, type, release_year, chapter_count, latest_chapters';
+const MANGA_SUMMARY_BASE_SELECT_COLUMNS = 'id, title, alternative_titles, cover, banner, author, artist, status, genres, views, last_updated, latest_chapter_at, created_at, type, release_year, chapter_count, latest_chapters';
 // Liste/picker sorgularÄ± iÃ§in hafif kolon seti: description/details/source_links gibi aÄŸÄ±r
 // alanlar Ã§ekilmez (bkz. performans raporu: select('*') payload'Ä± 1.8 KB/satÄ±r).
-const MANGA_LIST_BASE_SELECT_COLUMNS = 'id, title, alternative_titles, cover, banner, author, artist, status, genres, views, last_updated, created_at, type, release_year, chapter_count, latest_chapters';
+const MANGA_LIST_BASE_SELECT_COLUMNS = 'id, title, alternative_titles, cover, banner, author, artist, status, genres, views, last_updated, latest_chapter_at, created_at, type, release_year, chapter_count, latest_chapters';
 const HOME_PAGE_SECTION_LIMITS = Object.freeze({
     trending: 8,
     newlyAdded: 8,
@@ -1585,15 +1615,78 @@ const buildChapterCountByMangaId = (chapters: any[] = []) => {
     return chapterCountByMangaId;
 };
 
+interface PrecomputedChapterRowLike {
+    id?: unknown;
+    number?: unknown;
+    chapterNumber?: unknown;
+    title?: unknown;
+    created_at?: unknown;
+    createdAt?: unknown;
+    added_at?: unknown;
+    addedAt?: unknown;
+    release_date?: unknown;
+    releaseDate?: unknown;
+    views?: unknown;
+    language?: unknown;
+}
+
+const mapPrecomputedLatestChapters = (rawChapters: unknown, maxCount?: number): Chapter[] => {
+    if (!Array.isArray(rawChapters)) {
+        return [];
+    }
+
+    const sliced = typeof maxCount === 'number' ? rawChapters.slice(0, maxCount) : rawChapters;
+
+    return sliced
+        .map((rawItem) => {
+            const ch = (rawItem && typeof rawItem === 'object' ? rawItem : null) as PrecomputedChapterRowLike | null;
+            const id = String(ch?.id || '').trim();
+            if (!id) {
+                return null;
+            }
+
+            const rawNumber = ch?.number ?? ch?.chapterNumber;
+            const parsedNumber = rawNumber !== undefined && rawNumber !== null ? Number(rawNumber) : Number.NaN;
+            const createdAt = String(
+                ch?.created_at || ch?.createdAt || ch?.added_at || ch?.addedAt || ch?.release_date || ch?.releaseDate || '',
+            ).trim() || undefined;
+            const releaseDate = String(
+                ch?.release_date || ch?.releaseDate || ch?.created_at || ch?.createdAt || ch?.added_at || ch?.addedAt || '',
+            ).trim();
+
+            return {
+                id,
+                number: Number.isFinite(parsedNumber) ? parsedNumber : 1,
+                title: typeof ch?.title === 'string' ? ch.title : '',
+                pages: [],
+                releaseDate,
+                ...(createdAt ? { createdAt } : {}),
+                views: Number(ch?.views) || 0,
+                ...(ch?.language ? { language: String(ch.language).toLowerCase() } : {}),
+            } satisfies Chapter;
+        })
+        .filter((ch): ch is Chapter => ch !== null);
+};
+
 const buildLatestChapterPreviewsByMangaId = (chapters: any[] = []) => {
-    const latestChapterPreviewsByMangaId = new Map<string, { id: string; number: number }[]>();
+    const latestChapterPreviewsByMangaId = new Map<string, Chapter[]>();
 
     for (const chapter of chapters) {
         const mangaId = chapter.manga_id;
         const existing = latestChapterPreviewsByMangaId.get(mangaId) || [];
 
         if (!existing.some((item) => item.id === chapter.id)) {
-            existing.push({ id: chapter.id, number: chapter.number });
+            const createdAt = chapter.created_at || chapter.createdAt || chapter.added_at || chapter.release_date || chapter.releaseDate || undefined;
+            const releaseDate = chapter.release_date || chapter.releaseDate || chapter.created_at || chapter.createdAt || chapter.added_at || '';
+            existing.push({
+                id: chapter.id,
+                number: chapter.number,
+                title: typeof chapter.title === 'string' ? chapter.title : '',
+                pages: [],
+                releaseDate,
+                ...(createdAt ? { createdAt } : {}),
+                views: Number(chapter.views) || 0,
+            });
             existing.sort((left, right) => right.number - left.number);
 
             if (existing.length > 2) {
@@ -1761,11 +1854,7 @@ const mapSummaryRowToManga = (
     reviewStats?: { average: number; reviewCount: number },
     includeSimplifiedRatings: boolean = false,
 ): Manga => {
-    const precomputedChapters = Array.isArray(manga.latest_chapters)
-        ? manga.latest_chapters
-            .map((ch: any) => ({ id: String(ch?.id || ''), number: Number(ch?.number) || 1 }))
-            .filter((ch: any) => ch.id)
-        : [];
+    const precomputedChapters = mapPrecomputedLatestChapters(manga.latest_chapters);
     const average = reviewStats?.average ?? (Number(manga.average_rating ?? manga.averageRating) || 0);
     const reviewCount = reviewStats?.reviewCount ?? (Number(manga.review_count ?? manga.reviewCount) || 0);
 
@@ -2292,11 +2381,7 @@ export const getHomePageMangaSections = async (
                 continue;
             }
             seen.add(id);
-            const precomputedChapters = Array.isArray(manga.latest_chapters)
-                ? manga.latest_chapters
-                    .map((ch: any) => ({ id: String(ch?.id || ''), number: Number(ch?.number) || 1 }))
-                    .filter((ch: any) => ch.id)
-                : [];
+            const precomputedChapters = mapPrecomputedLatestChapters(manga.latest_chapters);
             list.push({
                 ...manga,
                 author: cleanPlaceholderNamedEntityString(manga.author) || manga.author,
@@ -2490,6 +2575,8 @@ const mapChapterRowToChapter = (row: any, options?: { includePages?: boolean }):
     const includePages = options?.includePages === true;
     const pages = includePages ? sanitizeChapterPageUrls(row.pages || []) : [];
     const sourceUrl = row.source_url || row.sourceUrl || row._sourceLink || undefined;
+    const createdAt = row.created_at || row.createdAt || row.added_at || row.addedAt || row.release_date || row.releaseDate || undefined;
+    const releaseDate = row.release_date || row.releaseDate || row.created_at || row.createdAt || row.added_at || '';
 
     return {
         id: row.id,
@@ -2497,7 +2584,8 @@ const mapChapterRowToChapter = (row: any, options?: { includePages?: boolean }):
         title: row.title || '',
         pages,
         pageCount: includePages ? pages.length : (typeof row.pageCount === 'number' ? row.pageCount : undefined),
-        releaseDate: row.release_date || row.releaseDate || '',
+        releaseDate,
+        ...(createdAt ? { createdAt } : {}),
         views: Number(row.views) || 0,
         language: row.language ? String(row.language).toLowerCase() : undefined,
         sourceUrl,
@@ -2576,20 +2664,7 @@ const mapR2ShardRowToMangaSummary = (raw: any): Manga | null => {
     }
     r2ShardSeriesByIdOrSlug.set(String(raw.id), raw);
 
-    const precomputedChapters = Array.isArray(raw.latest_chapters || raw.chapters)
-        ? (raw.latest_chapters || raw.chapters)
-            .slice(0, 2)
-            .map((ch: any) => ({
-                id: String(ch?.id || ''),
-                number: Number(ch?.number ?? ch?.chapterNumber) || 1,
-                title: String(ch?.title || ''),
-                pages: [],
-                releaseDate: String(ch?.release_date || ch?.releaseDate || ''),
-                views: 0,
-                language: ch?.language ? String(ch.language).toLowerCase() : undefined,
-            }))
-            .filter((ch: any) => ch.id)
-        : [];
+    const precomputedChapters = mapPrecomputedLatestChapters(raw.latest_chapters || raw.chapters, 2);
 
     const chapterCount = Number(raw.chapter_count ?? raw.chapterCount ?? raw.chapters?.length ?? precomputedChapters.length) || 0;
     if (chapterCount <= 0) return null;
@@ -2631,7 +2706,7 @@ export const getChapterById = async (chapterId: string): Promise<{ chapter: Chap
 
         const { data, error } = await supabase
             .from('chapters')
-            .select('id, manga_id, number, title, pages, release_date, views')
+            .select('id, manga_id, number, title, pages, release_date, created_at, views')
             .eq('id', chapterId)
             .maybeSingle();
 
@@ -2655,8 +2730,8 @@ export const getMangaChapters = async (
 ): Promise<Chapter[]> => {
     const includePages = options?.includePages === true;
     const selectColumns = includePages
-        ? 'id, manga_id, number, title, pages, release_date, views'
-        : 'id, manga_id, number, title, release_date, views';
+        ? 'id, manga_id, number, title, pages, release_date, created_at, views'
+        : 'id, manga_id, number, title, release_date, created_at, views';
 
     // PostgREST max-rows=1000: 1000+ bölümlü serilerde (ör. Martial Peak 3.842)
     // bölüm listesi sessizce kırpılmasın diye sayfalı çekilir.
@@ -3269,7 +3344,7 @@ export const saveManga = async (manga: Manga): Promise<void> => {
         error = retryResult.error;
     }
 
-    if (error) throw error;
+    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
     invalidateAllMangasCache();
 
     // Sync chapters as well
@@ -3301,7 +3376,7 @@ export const deleteManga = async (mangaId: string): Promise<void> => {
         .delete()
         .eq('id', mangaId);
 
-    if (error) throw error;
+    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
     invalidateAllMangasCache();
 };
 
@@ -3361,7 +3436,7 @@ export const updateMangaMediaUrls = async (
         .update(payload)
         .eq('id', mangaId);
 
-    if (error) throw error;
+    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
     invalidateAllMangasCache();
 };
 
@@ -3702,7 +3777,7 @@ export const getTotalLatestChaptersCount = async (): Promise<number> => {
 
 export const rateManga = async (mangaId: string, userId: string, rating: number): Promise<boolean> => {
     // For backward compatibility, still update ratings table
-    await supabase
+    const { error: ratingError } = await supabase
         .from('ratings')
         .upsert({
             manga_id: mangaId,
@@ -3710,6 +3785,10 @@ export const rateManga = async (mangaId: string, userId: string, rating: number)
             rating,
             created_at: new Date().toISOString()
         }, { onConflict: 'manga_id,user_id' });
+
+    if (ratingError) {
+        throw toReadableDatabaseError(ratingError, 'Puan kaydedilemedi');
+    }
 
     // Also update/create a basic review if it doesn't exist
     const { data: existingReview } = await supabase
@@ -3720,7 +3799,7 @@ export const rateManga = async (mangaId: string, userId: string, rating: number)
         .maybeSingle();
 
     if (!existingReview) {
-        await supabase.from('reviews').insert({
+        const { error: reviewError } = await supabase.from('reviews').insert({
             manga_id: mangaId,
             user_id: userId,
             content: 'Puan verildi',
@@ -3730,6 +3809,10 @@ export const rateManga = async (mangaId: string, userId: string, rating: number)
             rating_progression: rating,
             rating_engagement: rating,
         });
+
+        if (reviewError) {
+            throw toReadableDatabaseError(reviewError, 'İnceleme oluşturulamadı');
+        }
     }
 
     return true;
@@ -3750,7 +3833,9 @@ export const addReview = async (
         updated_at: new Date().toISOString()
     }, { onConflict: 'manga_id,user_id' });
 
-    if (error) throw error;
+    if (error) {
+        throw toReadableDatabaseError(error, 'İnceleme gönderilemedi');
+    }
 };
 
 export const deleteReview = async (reviewId: string): Promise<void> => {
@@ -3759,7 +3844,7 @@ export const deleteReview = async (reviewId: string): Promise<void> => {
         .delete()
         .eq('id', reviewId);
 
-    if (error) throw error;
+    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
 };
 
 export const getReviewsForManga = async (mangaId: string): Promise<Review[]> => {
@@ -4206,7 +4291,7 @@ export const saveUser = async (user: User): Promise<void> => {
         role: user.role,
         created_at: user.createdAt
     });
-    if (error) throw error;
+    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
 };
 
 export const deleteUser = async (userId: string): Promise<void> => {
@@ -4456,11 +4541,7 @@ export const getRecentAdminMangas = async (limit = 5): Promise<Manga[]> => {
     }
 
     return (data || []).map((m: any) => {
-        const precomputedChapters = Array.isArray(m.latest_chapters)
-            ? m.latest_chapters
-                .map((ch: any) => ({ id: String(ch?.id || ''), number: Number(ch?.number) || 1 }))
-                .filter((ch: any) => ch.id)
-            : [];
+        const precomputedChapters = mapPrecomputedLatestChapters(m.latest_chapters);
         return {
             ...m,
             author: cleanPlaceholderNamedEntityString(m.author) || m.author,
@@ -4773,7 +4854,7 @@ export const addCommentV2 = async (comment: Omit<Comment, 'id' | 'likes' | 'like
             .single());
     }
 
-    if (error) throw error;
+    if (error) throw toReadableDatabaseError(error, 'Yorum gönderilemedi');
 
     if (shouldIncludePageNumber && mangaCommentPageNumberFeatureState === 'unknown') {
         mangaCommentPageNumberFeatureState = 'available';
@@ -4820,13 +4901,13 @@ export const updateComment = async (
         .single();
 
     if (existingCommentError) {
-        console.error('Yorum dÃ¼zenleme Ã¶n kontrol hatasÄ±:', existingCommentError);
-        throw existingCommentError;
+        console.error('Yorum düzenleme ön kontrol hatası:', existingCommentError);
+        throw toReadableDatabaseError(existingCommentError, 'Yorum düzenlenemedi');
     }
 
     const editDeadline = new Date(existingComment.created_at).getTime() + (24 * 60 * 60 * 1000);
     if (Date.now() > editDeadline) {
-        throw new Error('Yorumlar yalnÄ±zca ilk 24 saat iÃ§inde dÃ¼zenlenebilir');
+        throw new Error('Yorumlar yalnızca ilk 24 saat içinde düzenlenebilir');
     }
 
     const { error } = await supabase.from(tableName as any).update({
@@ -4843,8 +4924,8 @@ export const updateComment = async (
     }).eq('id', id);
 
     if (error) {
-        console.error('Yorum gÃ¼ncelleme hatasÄ±:', error);
-        throw error;
+        console.error('Yorum güncelleme hatası:', error);
+        throw toReadableDatabaseError(error, 'Yorum güncellenemedi');
     }
 };
 
@@ -5156,7 +5237,7 @@ export const createMangaReport = async (payload: {
 
     if (error) {
         console.error('Manga report create error:', error);
-        throw error;
+        throw toReadableDatabaseError(error, 'Seri bildirimi gönderilemedi');
     }
 };
 
@@ -5187,7 +5268,7 @@ export const createCommentReport = async (payload: {
 
     if (error) {
         console.error('Comment report create error:', error);
-        throw error;
+        throw toReadableDatabaseError(error, 'Yorum bildirimi gönderilemedi');
     }
 };
 
@@ -5205,11 +5286,11 @@ export const createReviewReport = async (payload: {
 
     if (reviewError) {
         console.error('Review report validation error:', reviewError);
-        throw reviewError;
+        throw toReadableDatabaseError(reviewError, 'İnceleme doğrulanamadı');
     }
 
     if (!review) {
-        throw new Error('Ä°nceleme bulunamadÄ±');
+        throw new Error('İnceleme bulunamadı');
     }
 
     if (review.user_id === payload.reporterId) {
@@ -5231,10 +5312,10 @@ export const createReviewReport = async (payload: {
 
     if (error) {
         if (isMissingTableInSchemaCache(error, 'review_reports')) {
-            throw new Error('Ä°nceleme bildirme sistemi birkaÃ§ saniye iÃ§inde aktif olacak. SayfayÄ± yenileyip tekrar deneyin.');
+            throw new Error('İnceleme bildirme sistemi birkaç saniye içinde aktif olacak. Sayfayı yenileyip tekrar deneyin.');
         }
         console.error('Review report create error:', error);
-        throw error;
+        throw toReadableDatabaseError(error, 'İnceleme bildirimi gönderilemedi');
     }
 };
 
@@ -5262,7 +5343,7 @@ export const createProfileReport = async (payload: {
             throw new Error('Profil bildirme sistemi birkaç saniye içinde aktif olacak. Sayfayı yenileyip tekrar deneyin.');
         }
         console.error('Profile report create error:', error);
-        throw error;
+        throw toReadableDatabaseError(error, 'Profil bildirimi gönderilemedi');
     }
 };
 
@@ -6337,7 +6418,7 @@ export const addEntityReactionV2 = async (entityType: CommentEntityType, entityI
         .from(tableName as any)
         .upsert(insertData, { onConflict: onConflictCols.join(',') });
 
-    if (error) throw error;
+    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
 };
 
 // ==================== SIMILAR MANGA RECOMMENDATIONS ====================
@@ -6581,7 +6662,7 @@ export const saveCharacter = async (character: Partial<Character>): Promise<stri
             .from('characters')
             .update(dataWithoutMedia)
             .eq('id', character.id);
-        if (error) throw error;
+        if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
         if ('imageUrl' in character || 'gallery' in character) {
             await updateCharacterMedia(character.id, {
                 imageUrl: character.imageUrl,
@@ -6597,7 +6678,7 @@ export const saveCharacter = async (character: Partial<Character>): Promise<stri
         .select('id')
         .single();
 
-    if (error) throw error;
+    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
     if ('imageUrl' in character || 'gallery' in character) {
         await updateCharacterMedia(inserted.id, {
             imageUrl: character.imageUrl,
@@ -6638,7 +6719,7 @@ export const updateCharacterMedia = async (
         .update(payload)
         .eq('id', characterId);
 
-    if (error) throw error;
+    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
 };
 
 export const ensureCharacterByName = async (name: string): Promise<Character | null> => {
@@ -6670,7 +6751,7 @@ export const ensureCharacterByName = async (name: string): Promise<Character | n
 
 export const deleteCharacter = async (id: string): Promise<void> => {
     const { error } = await supabase.from('characters').delete().eq('id', id);
-    if (error) throw error;
+    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
 };
 
 export const linkMangaToCharacter = async (
@@ -6950,7 +7031,7 @@ export const saveAuthor = async (author: Partial<Author>) => {
     const { image_url: _imageUrl, gallery: _gallery, ...dataWithoutMedia } = data;
     if (author.id) {
         const { error } = await supabase.from('authors').update(dataWithoutMedia).eq('id', author.id);
-        if (error) throw error;
+        if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
         if ('imageUrl' in author || 'gallery' in author) {
             await updateAuthorMedia(author.id, {
                 imageUrl: author.imageUrl,
@@ -6965,7 +7046,7 @@ export const saveAuthor = async (author: Partial<Author>) => {
         .insert(dataWithoutMedia)
         .select('id')
         .single();
-    if (error) throw error;
+    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
     if ('imageUrl' in author || 'gallery' in author) {
         await updateAuthorMedia(inserted.id, {
             imageUrl: author.imageUrl,
@@ -7006,12 +7087,12 @@ export const updateAuthorMedia = async (
         .update(payload)
         .eq('id', authorId);
 
-    if (error) throw error;
+    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
 };
 
 export const deleteAuthor = async (id: string): Promise<void> => {
     const { error } = await supabase.from('authors').delete().eq('id', id);
-    if (error) throw error;
+    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
 };
 
 export const saveArtist = async (artist: Partial<Artist>) => {
@@ -7027,7 +7108,7 @@ export const saveArtist = async (artist: Partial<Artist>) => {
     const { image_url: _imageUrl, gallery: _gallery, ...dataWithoutMedia } = data;
     if (artist.id) {
         const { error } = await supabase.from('artists').update(dataWithoutMedia).eq('id', artist.id);
-        if (error) throw error;
+        if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
         if ('imageUrl' in artist || 'gallery' in artist) {
             await updateArtistMedia(artist.id, {
                 imageUrl: artist.imageUrl,
@@ -7042,7 +7123,7 @@ export const saveArtist = async (artist: Partial<Artist>) => {
         .insert(dataWithoutMedia)
         .select('id')
         .single();
-    if (error) throw error;
+    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
     if ('imageUrl' in artist || 'gallery' in artist) {
         await updateArtistMedia(inserted.id, {
             imageUrl: artist.imageUrl,
@@ -7083,12 +7164,12 @@ export const updateArtistMedia = async (
         .update(payload)
         .eq('id', artistId);
 
-    if (error) throw error;
+    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
 };
 
 export const deleteArtist = async (id: string): Promise<void> => {
     const { error } = await supabase.from('artists').delete().eq('id', id);
-    if (error) throw error;
+    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
 };
 
 export const ensureAuthorByName = async (name: string): Promise<Author | null> => {
@@ -7360,7 +7441,7 @@ const buildMangaSummariesForRows = async (
         fetchReviewsForIds(mangaIds),
         hasPrecomputedChapters
             ? Promise.resolve([] as any[])
-            : fetchAllChapterMetaRows('id, manga_id, number', {
+            : fetchAllChapterMetaRows('id, manga_id, number, created_at, release_date', {
                 mangaIds,
                 orderByNumberAscending: false,
             }).catch((chapterError) => {
@@ -7389,11 +7470,7 @@ const buildMangaSummariesForRows = async (
         const reviewStats = reviewStatsByMangaId.get(manga.id);
         const authorsDetails = nextAuthorsByMangaId.get(manga.id) || [];
         const artistsDetails = nextArtistsByMangaId.get(manga.id) || [];
-        const precomputedChapters = Array.isArray(manga.latest_chapters)
-            ? manga.latest_chapters
-                .map((ch: any) => ({ id: String(ch?.id || ''), number: Number(ch?.number) || 1 }))
-                .filter((ch: any) => ch.id)
-            : [];
+        const precomputedChapters = mapPrecomputedLatestChapters(manga.latest_chapters);
         const finalChapters = precomputedChapters.length > 0
             ? precomputedChapters
             : (latestChapterPreviewsByMangaId.get(manga.id) || []);
@@ -7702,25 +7779,146 @@ export const getTagsByCategory = async (
     return filterGloballyAvailableTagRows(data || [], options?.includePending).map((tag) => mapTagRow(tag));
 };
 
+interface TagRowLike {
+    id: string;
+    name: string;
+    slug: string;
+    category: string;
+    description?: string | null;
+    usage_count?: number | null;
+    is_official?: boolean | null;
+    community_approved?: boolean | null;
+    created_by?: string | null;
+    created_at?: string;
+}
+
 export const searchTags = async (
     query: string,
     options?: { includePending?: boolean }
 ): Promise<Tag[]> => {
-    let searchQuery = supabase
-        .from('tags')
-        .select('*')
-        .ilike('name', `%${query}%`)
-        .order('usage_count', { ascending: false })
-        .limit(20);
-
-    if (!options?.includePending) {
-        searchQuery = searchQuery.or(COMMUNITY_VISIBLE_TAG_FILTER);
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+        return [];
     }
 
-    const { data, error } = await searchQuery;
+    const includePending = options?.includePending !== false;
+    const escapedLike = trimmedQuery.replace(/[\\%_]/g, (char) => `\\${char}`);
+    const slugPattern = slugifyTagName(trimmedQuery);
+    const matchingSlugs = findMatchingTagSlugs(trimmedQuery, 80);
 
-    if (error) return [];
-    return filterGloballyAvailableTagRows(data || [], options?.includePending).map((tag) => mapTagRow(tag));
+    const buildBaseQuery = () => {
+        let baseQuery = supabase
+            .from('tags')
+            .select('*')
+            .order('usage_count', { ascending: false });
+
+        if (!includePending) {
+            baseQuery = baseQuery.or(COMMUNITY_VISIBLE_TAG_FILTER);
+        }
+
+        return baseQuery;
+    };
+
+    const requests: Array<PromiseLike<{ data: TagRowLike[] | null; error: unknown }>> = [
+        buildBaseQuery().ilike('name', `%${escapedLike}%`).limit(25),
+    ];
+
+    if (slugPattern) {
+        requests.push(buildBaseQuery().ilike('slug', `%${slugPattern}%`).limit(25));
+    }
+
+    if (matchingSlugs.length > 0) {
+        requests.push(buildBaseQuery().in('slug', matchingSlugs).limit(40));
+    }
+
+    const responses = await Promise.all(requests);
+    const mergedRowsById = new Map<string, TagRowLike>();
+
+    for (const response of responses) {
+        if (response.error || !Array.isArray(response.data)) {
+            continue;
+        }
+        for (const row of response.data) {
+            if (row?.id && !mergedRowsById.has(row.id)) {
+                mergedRowsById.set(row.id, row);
+            }
+        }
+    }
+
+    const normalizedQuery = normalizeTagSearchText(trimmedQuery);
+    const mappedTags = filterGloballyAvailableTagRows(Array.from(mergedRowsById.values()), includePending)
+        .map((tag) => mapTagRow(tag));
+
+    const getMatchMeta = (tag: Tag) => {
+        const displayName = getTagDisplayName(tag.slug, tag.name);
+        const normalizedDisplay = normalizeTagSearchText(displayName);
+        const normalizedName = normalizeTagSearchText(tag.name);
+        const normalizedSlug = normalizeTagSearchText(tag.slug);
+        const isExact = Boolean(normalizedQuery) && (
+            normalizedDisplay === normalizedQuery
+            || normalizedName === normalizedQuery
+            || normalizedSlug === normalizedQuery
+            || (Boolean(slugPattern) && tag.slug === slugPattern)
+        );
+        const isPrefix = Boolean(normalizedQuery) && (
+            normalizedDisplay.startsWith(normalizedQuery)
+            || normalizedName.startsWith(normalizedQuery)
+            || normalizedSlug.startsWith(normalizedQuery)
+            || (Boolean(slugPattern) && tag.slug.startsWith(slugPattern))
+        );
+        const isApproved = Boolean(tag.isOfficial || tag.communityApproved);
+        return {
+            displayName,
+            isExact,
+            isPrefix,
+            isApproved,
+        };
+    };
+
+    mappedTags.sort((left, right) => {
+        const leftMeta = getMatchMeta(left);
+        const rightMeta = getMatchMeta(right);
+
+        if (leftMeta.isExact !== rightMeta.isExact) {
+            return Number(rightMeta.isExact) - Number(leftMeta.isExact);
+        }
+
+        if (leftMeta.isApproved !== rightMeta.isApproved) {
+            return Number(rightMeta.isApproved) - Number(leftMeta.isApproved);
+        }
+
+        if ((right.usageCount || 0) !== (left.usageCount || 0)) {
+            return (right.usageCount || 0) - (left.usageCount || 0);
+        }
+
+        if (leftMeta.isPrefix !== rightMeta.isPrefix) {
+            return Number(rightMeta.isPrefix) - Number(leftMeta.isPrefix);
+        }
+
+        if (left.isOfficial !== right.isOfficial) {
+            return Number(right.isOfficial) - Number(left.isOfficial);
+        }
+
+        return leftMeta.displayName.localeCompare(rightMeta.displayName, 'tr');
+    });
+
+    return mappedTags.slice(0, 25);
+};
+
+const pickPreferredTagRow = (rows: TagRowLike[]): TagRowLike | null => {
+    if (!Array.isArray(rows) || rows.length === 0) {
+        return null;
+    }
+
+    return [...rows].sort((left, right) => {
+        if (Boolean(left?.is_official) !== Boolean(right?.is_official)) {
+            return Number(Boolean(right?.is_official)) - Number(Boolean(left?.is_official));
+        }
+        if (Boolean(left?.community_approved) !== Boolean(right?.community_approved)) {
+            return Number(Boolean(right?.community_approved)) - Number(Boolean(left?.community_approved));
+        }
+        return (Number(right?.usage_count) || 0) - (Number(left?.usage_count) || 0);
+    })[0] ?? null;
 };
 
 export const createTag = async (
@@ -7729,51 +7927,84 @@ export const createTag = async (
     description?: string,
     userId?: string
 ): Promise<Tag | null> => {
-    const slug = slugifyTagName(name);
+    const trimmedName = name.trim();
+    const slug = slugifyTagName(trimmedName);
     const resolvedUserId = userId || (await supabase.auth.getSession()).data.session?.user?.id;
+    const translatedSlug = findExactTagSlugByDisplayName(trimmedName);
+    const exactAliasSlugs = findExactTagSlugsByDisplayName(trimmedName);
+    const candidateSlugs = Array.from(
+        new Set([slug, translatedSlug, ...exactAliasSlugs].filter((value): value is string => Boolean(value))),
+    );
 
-    if (!slug) {
+    if (candidateSlugs.length === 0) {
         return null;
     }
 
-    const { data: existingTag, error: existingTagError } = await supabase
+    const { data: existingBySlugs, error: existingBySlugsError } = await supabase
         .from('tags')
         .select('*')
-        .eq('slug', slug)
-        .maybeSingle();
+        .in('slug', candidateSlugs);
 
-    if (existingTagError) {
-        console.error('Find existing tag error:', existingTagError);
-        return null;
+    if (existingBySlugsError) {
+        console.error('Find existing tag error:', existingBySlugsError);
+        throw toReadableDatabaseError(existingBySlugsError, 'Mevcut etiket kontrol edilemedi');
     }
 
-    if (existingTag) {
-        return mapTagRow(existingTag);
+    const bestExistingBySlug = pickPreferredTagRow((existingBySlugs || []) as TagRowLike[]);
+    if (bestExistingBySlug) {
+        return mapTagRow(bestExistingBySlug);
     }
 
+    const escapedExactName = trimmedName.replace(/[\\%_]/g, (char) => `\\${char}`);
+    const { data: existingByName } = await supabase
+        .from('tags')
+        .select('*')
+        .ilike('name', escapedExactName)
+        .limit(5);
+
+    const normalizedTargetName = normalizeTagSearchText(trimmedName);
+    const exactNameMatch = pickPreferredTagRow(
+        ((existingByName || []) as TagRowLike[]).filter((row) => (
+            normalizeTagSearchText(row?.name) === normalizedTargetName
+            || normalizeTagSearchText(getTagDisplayName(row?.slug, row?.name)) === normalizedTargetName
+        )),
+    );
+    if (exactNameMatch) {
+        return mapTagRow(exactNameMatch);
+    }
+
+    const targetSlug = slug || candidateSlugs[0];
     const { data, error } = await supabase
         .from('tags')
-        .upsert({
-            name,
-            slug,
+        .insert({
+            name: trimmedName,
+            slug: targetSlug,
             category,
             description,
             created_by: resolvedUserId,
-            is_official: false
-        }, { onConflict: 'slug' })
+            is_official: false,
+        })
         .select()
         .single();
 
     if (error) {
+        if (error.code === '23505') {
+            const { data: conflictRows } = await supabase
+                .from('tags')
+                .select('*')
+                .in('slug', candidateSlugs);
+            const conflictMatch = pickPreferredTagRow((conflictRows || []) as TagRowLike[]);
+            if (conflictMatch) {
+                return mapTagRow(conflictMatch);
+            }
+        }
         console.error('Create tag error:', error);
-        return null;
+        throw toReadableDatabaseError(error, 'Etiket oluşturulamadı');
     }
 
     invalidateTagCaches();
 
-    return {
-        ...mapTagRow(data),
-    };
+    return mapTagRow(data);
 };
 
 export const upsertOfficialTags = async (
@@ -7887,13 +8118,13 @@ export const updateTag = async (tagId: string, updates: Partial<{ name: string; 
     if (updates.isOfficial !== undefined) updateData.is_official = updates.isOfficial;
 
     const { error } = await supabase.from('tags').update(updateData).eq('id', tagId);
-    if (error) throw error;
+    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
     invalidateTagCaches();
 };
 
 export const deleteTag = async (tagId: string): Promise<void> => {
     const { error } = await supabase.from('tags').delete().eq('id', tagId);
-    if (error) throw error;
+    if (error) throw toReadableDatabaseError(error, 'Veritabanı işlemi başarısız');
     invalidateTagCaches();
 };
 
@@ -7921,6 +8152,66 @@ export const getTagsForEntity = async (
         .map(d => mapTagRow(d.tag, d));
 };
 
+export interface AddTagToEntityResult {
+    success: boolean;
+    alreadyExists: boolean;
+    voted?: boolean;
+    alreadyVoted?: boolean;
+    moderationResult?: TagModerationSyncResult | null;
+    error?: string;
+}
+
+const upvoteExistingTagRelation = async (
+    entityType: CommentEntityType,
+    entityId: string,
+    tagId: string,
+    userId: string,
+): Promise<AddTagToEntityResult> => {
+    const { data: existingVote, error: existingVoteError } = await supabase
+        .from('tag_votes')
+        .select('id, vote_type')
+        .eq('tag_id', tagId)
+        .eq('entity_type', entityType)
+        .eq('entity_id', entityId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (existingVoteError) {
+        const readableErr = toReadableDatabaseError(existingVoteError, 'Mevcut etiket oyu kontrol edilemedi');
+        return {
+            success: false,
+            alreadyExists: true,
+            error: readableErr.message,
+        };
+    }
+
+    if (existingVote?.vote_type === 'up') {
+        return {
+            success: true,
+            alreadyExists: true,
+            voted: false,
+            alreadyVoted: true,
+        };
+    }
+
+    try {
+        const moderationResult = await voteOnTag(tagId, entityType, entityId, userId, 'up');
+        return {
+            success: true,
+            alreadyExists: true,
+            voted: true,
+            moderationResult,
+        };
+    } catch (error) {
+        const readableErr = toReadableDatabaseError(error, 'Onay oyu eklenemedi');
+        return {
+            success: false,
+            alreadyExists: true,
+            error: readableErr.message,
+        };
+    }
+};
+
 export const addTagToEntity = async (
     entityType: CommentEntityType,
     entityId: string,
@@ -7929,7 +8220,7 @@ export const addTagToEntity = async (
     options?: {
         discoverable?: boolean;
     }
-): Promise<boolean> => {
+): Promise<AddTagToEntityResult> => {
     const tableName = `${entityType}_tags`;
     const colName = `${entityType}_id`;
     const resolvedUserId = userId || (await supabase.auth.getSession()).data.session?.user?.id;
@@ -7938,23 +8229,51 @@ export const addTagToEntity = async (
 
     if (!resolvedUserId) {
         console.error('Add tag to entity error: authenticated user required');
-        return false;
+        return {
+            success: false,
+            alreadyExists: false,
+            error: 'Etiket eklemek için giriş yapmalısınız',
+        };
+    }
+
+    const { data: existingRelation, error: existingCheckError } = await supabase
+        .from(tableName as any)
+        .select('tag_id')
+        .eq(colName, entityId)
+        .eq('tag_id', tagId)
+        .maybeSingle();
+
+    if (!existingCheckError && existingRelation) {
+        return upvoteExistingTagRelation(entityType, entityId, tagId, resolvedUserId);
     }
 
     const { error } = await supabase
         .from(tableName as any)
-        .upsert({
+        .insert({
             [colName]: entityId,
             tag_id: tagId,
             added_by: resolvedUserId,
-            is_discoverable: discoverable ?? false,
+            is_discoverable: discoverable,
         });
 
     if (error) {
-        console.error('Add tag to entity error:', error);
-        return false;
+        if (error.code === '23505') {
+            return upvoteExistingTagRelation(entityType, entityId, tagId, resolvedUserId);
+        }
+        const readableErr = toReadableDatabaseError(error, 'Etiket eklenemedi');
+        console.error('Add tag to entity error:', readableErr);
+        return {
+            success: false,
+            alreadyExists: false,
+            error: readableErr.message,
+        };
     }
-    return true;
+
+    return {
+        success: true,
+        alreadyExists: false,
+        voted: false,
+    };
 };
 
 export const removeTagFromEntity = async (
@@ -7981,7 +8300,7 @@ export const voteOnTag = async (
     userId: string,
     voteType: 'up' | 'down'
 ): Promise<TagModerationSyncResult | null> => {
-    const { data: existing } = await supabase
+    const { data: existing, error: existingError } = await supabase
         .from('tag_votes')
         .select('id, vote_type')
         .eq('tag_id', tagId)
@@ -7990,20 +8309,33 @@ export const voteOnTag = async (
         .eq('user_id', userId)
         .maybeSingle();
 
+    if (existingError) {
+        throw toReadableDatabaseError(existingError, 'Mevcut oy kontrol edilemedi');
+    }
+
     if (existing) {
         if (existing.vote_type === voteType) {
-            await supabase.from('tag_votes').delete().eq('id', existing.id);
+            const { error: deleteError } = await supabase.from('tag_votes').delete().eq('id', existing.id);
+            if (deleteError) {
+                throw toReadableDatabaseError(deleteError, 'Oy kaldırılamadı');
+            }
         } else {
-            await supabase.from('tag_votes').update({ vote_type: voteType }).eq('id', existing.id);
+            const { error: updateError } = await supabase.from('tag_votes').update({ vote_type: voteType }).eq('id', existing.id);
+            if (updateError) {
+                throw toReadableDatabaseError(updateError, 'Oy güncellenemedi');
+            }
         }
     } else {
-        await supabase.from('tag_votes').insert({
+        const { error: insertError } = await supabase.from('tag_votes').insert({
             tag_id: tagId,
             entity_type: entityType,
             entity_id: entityId,
             user_id: userId,
             vote_type: voteType
         });
+        if (insertError) {
+            throw toReadableDatabaseError(insertError, 'Oy verilemedi');
+        }
     }
 
     const { data, error } = await supabase.rpc('sync_tag_moderation', {
@@ -8014,7 +8346,7 @@ export const voteOnTag = async (
 
     if (error) {
         console.error('Sync tag moderation error:', error);
-        return null;
+        throw toReadableDatabaseError(error, 'Etiket oylaması senkronize edilemedi');
     }
 
     return data as TagModerationSyncResult;
@@ -8677,11 +9009,7 @@ export const getMangaCatalogPage = async (options: {
         }
         seen.add(id);
 
-        const precomputedChapters = Array.isArray(row.latest_chapters)
-            ? row.latest_chapters
-                .map((ch: any) => ({ id: String(ch?.id || ''), number: Number(ch?.number) || 1 }))
-                .filter((ch: any) => ch.id)
-            : [];
+        const precomputedChapters = mapPrecomputedLatestChapters(row.latest_chapters);
 
         items.push({
             ...row,
@@ -9300,11 +9628,7 @@ export const getFastHomeCatalogPage = async (options: {
                     }
 
                     const items: Manga[] = dedupedRows.map((row) => {
-                        const precomputedChapters = Array.isArray(row.latest_chapters)
-                            ? row.latest_chapters
-                                .map((ch: any) => ({ id: String(ch?.id || ''), number: Number(ch?.number) || 1 }))
-                                .filter((ch: any) => ch.id)
-                            : [];
+                        const precomputedChapters = mapPrecomputedLatestChapters(row.latest_chapters);
                         const reviewStats = reviewStatsByMangaId.get(row.id);
 
                         return {

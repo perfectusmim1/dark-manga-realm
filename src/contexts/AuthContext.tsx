@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import type { EmailOtpType, Factor, PostgrestSingleResponse } from '@supabase/supabase-js';
 import { User as SupabaseUser, Session } from '@supabase/supabase-js';
-import { isAuthSessionUnavailableError, isExpectedAccessControlError, supabase, waitForUsableSupabaseSession } from '@/lib/supabase';
+import { isAuthSessionUnavailableError, isExpectedAccessControlError, supabase, supabaseUrl, waitForUsableSupabaseSession } from '@/lib/supabase';
 import { User, UserAccessState } from '@/lib/types';
 import { checkCurrentAccess, clearAccessCheckCache, recoverAccessCheckFailure, type AccessCheckResult } from '@/lib/security/deviceIdentity';
 import { getDeviceIdentity } from '@/lib/security/deviceFingerprint';
@@ -25,6 +25,7 @@ interface AuthContextType {
   session: Session | null;
   isLoading: boolean;
   mfaState: MfaState;
+  requiresTwoFactor: boolean;
   accessState: UserAccessState;
   login: (email: string, password: string) => Promise<{
     success: boolean;
@@ -417,22 +418,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   sessionRef.current = session;
   const [isLoading, setIsLoading] = useState(true);
   const [mfaState, setMfaState] = useState<MfaState>(DEFAULT_MFA_STATE);
+  const mfaStateRef = useRef<MfaState>(mfaState);
+  mfaStateRef.current = mfaState;
+  const [mfaRequiredByServer, setMfaRequiredByServer] = useState(false);
+  const mfaRequiredByServerRef = useRef(false);
+  mfaRequiredByServerRef.current = mfaRequiredByServer;
+  const requiresTwoFactor = mfaState.needsVerification || mfaRequiredByServer;
+  const requiresTwoFactorRef = useRef(false);
+  requiresTwoFactorRef.current = requiresTwoFactor;
   const [accessState, setAccessState] = useState<UserAccessState>(DEFAULT_ACCESS_STATE);
   const accessStateRefreshInFlightRef = useRef(false);
   const accessStateRefreshFailureUntilRef = useRef(0);
 
   useEffect(() => {
-    if (isLoading) {
+    if (isLoading || mfaState.isLoading) {
       return;
     }
 
-    if (user) {
+    if (user && !requiresTwoFactor) {
       writeHeaderShellUser(user);
       return;
     }
 
     clearHeaderShellSnapshot();
-  }, [isLoading, user]);
+  }, [isLoading, mfaState.isLoading, requiresTwoFactor, user]);
 
   const fetchProfile = useCallback(async (id: string): Promise<UserProfileRow | null> => {
     // Add a 5s timeout to prevent infinite hangs on DB calls during initialization
@@ -637,24 +646,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return verifiedFactors[0] || null;
   };
 
-  const refreshMfaState = useCallback(async (): Promise<void> => {
-    const activeSession = (await supabase.auth.getSession()).data.session;
+  const resolveMfaState = useCallback(async (sessionOverride?: Session | null): Promise<MfaState> => {
+    const activeSession = sessionOverride ?? (await supabase.auth.getSession()).data.session;
 
     if (!activeSession?.user) {
-      setMfaState(DEFAULT_MFA_STATE);
-      updateLocalTwoFactorState(false);
-      return;
+      mfaRequiredByServerRef.current = false;
+      setMfaRequiredByServer(false);
+      return {
+        ...DEFAULT_MFA_STATE,
+        isLoading: false,
+      };
     }
 
     if (!isEffectivelyOnline()) {
-      setMfaState((prev) => ({
-        ...prev,
+      return {
+        ...mfaStateRef.current,
         isLoading: false,
-      }));
-      return;
+      };
     }
-
-    setMfaState((prev) => ({ ...prev, isLoading: true }));
 
     try {
       const [{ data: assuranceData, error: assuranceError }, { data: factorData, error: factorError }] = await Promise.all([
@@ -672,27 +681,127 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       const factors = extractTotpFactors(factorData.all as TotpFactorRecord[] | undefined);
       const verifiedFactorCount = factors.filter((factor) => factor.status === 'verified').length;
-      const nextState: MfaState = {
+      const isAal2 = assuranceData.currentLevel === 'aal2';
+
+      if (isAal2 && mfaRequiredByServerRef.current) {
+        mfaRequiredByServerRef.current = false;
+        setMfaRequiredByServer(false);
+      }
+
+      const needsVerification = !isAal2 && (
+        (verifiedFactorCount > 0 && assuranceData.nextLevel === 'aal2')
+        || verifiedFactorCount > 0
+        || mfaRequiredByServerRef.current
+      );
+
+      return {
         isLoading: false,
         currentLevel: assuranceData.currentLevel,
         nextLevel: assuranceData.nextLevel,
-        needsVerification: verifiedFactorCount > 0
-          && assuranceData.nextLevel === 'aal2'
-          && assuranceData.currentLevel !== 'aal2',
+        needsVerification,
         verifiedFactorCount,
         factors,
       };
-
-      setMfaState(nextState);
-      updateLocalTwoFactorState(verifiedFactorCount > 0);
     } catch (error) {
-      console.error('MFA state refresh failed:', error);
-      setMfaState({
+      console.error('MFA state resolution failed:', error);
+      return {
         ...DEFAULT_MFA_STATE,
+        needsVerification: mfaRequiredByServerRef.current,
+        nextLevel: mfaRequiredByServerRef.current ? 'aal2' : null,
         isLoading: false,
-      });
+      };
     }
-  }, [updateLocalTwoFactorState]);
+  }, []);
+
+  const refreshMfaState = useCallback(async (): Promise<void> => {
+    const activeSession = (await supabase.auth.getSession()).data.session;
+
+    if (!activeSession?.user) {
+      mfaRequiredByServerRef.current = false;
+      setMfaRequiredByServer(false);
+      setMfaState(DEFAULT_MFA_STATE);
+      updateLocalTwoFactorState(false);
+      return;
+    }
+
+    if (!isEffectivelyOnline()) {
+      setMfaState((prev) => ({
+        ...prev,
+        isLoading: false,
+      }));
+      return;
+    }
+
+    setMfaState((prev) => ({ ...prev, isLoading: true }));
+
+    const nextState = await resolveMfaState(activeSession);
+    setMfaState(nextState);
+
+    if (nextState.needsVerification) {
+      setUser(null);
+      return;
+    }
+
+    updateLocalTwoFactorState(nextState.verifiedFactorCount > 0);
+  }, [resolveMfaState, updateLocalTwoFactorState]);
+
+  const enforceMfaRequiredLock = useCallback(() => {
+    mfaRequiredByServerRef.current = true;
+    setMfaRequiredByServer(true);
+    setUser(null);
+    setMfaState((prev) => ({
+      ...prev,
+      isLoading: false,
+      currentLevel: prev.currentLevel === 'aal2' ? 'aal1' : prev.currentLevel,
+      nextLevel: 'aal2',
+      verifiedFactorCount: Math.max(prev.verifiedFactorCount, 1),
+      needsVerification: true,
+    }));
+    void refreshMfaState();
+  }, [refreshMfaState]);
+
+  useEffect(() => {
+    if (typeof globalThis.fetch !== 'function') {
+      return;
+    }
+
+    const baseFetch = globalThis.fetch.bind(globalThis);
+    const functionsPrefix = `${supabaseUrl}/functions/v1/`;
+
+    const wrappedFetch: typeof fetch = async (input, init) => {
+      const response = await baseFetch(input, init);
+      const requestUrl = typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+
+      if (response.status === 403 && requestUrl.startsWith(functionsPrefix)) {
+        try {
+          const payload = await response.clone().json() as { code?: unknown; error?: unknown } | null;
+          if (
+            payload
+            && typeof payload === 'object'
+            && (payload.code === 'MFA_REQUIRED' || payload.error === 'MFA_REQUIRED')
+          ) {
+            enforceMfaRequiredLock();
+          }
+        } catch {
+          // Ignore non-JSON 403 bodies
+        }
+      }
+
+      return response;
+    };
+
+    globalThis.fetch = wrappedFetch;
+
+    return () => {
+      if (globalThis.fetch === wrappedFetch) {
+        globalThis.fetch = baseFetch;
+      }
+    };
+  }, [enforceMfaRequiredLock]);
 
   useEffect(() => {
     let mounted = true;
@@ -725,25 +834,34 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
           if (!isEffectivelyOnline()) {
             const fallbackUser = mapSupabaseUserToUser(activeSession.user, null);
-            setSession(prev => JSON.stringify(prev) === JSON.stringify(activeSession) ? prev : activeSession);
+            setSession(prev => prev?.access_token === activeSession.access_token ? prev : activeSession);
             setSupabaseUser(prev => JSON.stringify(prev) === JSON.stringify(activeSession.user) ? prev : activeSession.user);
-            setUser(prev => JSON.stringify(prev) === JSON.stringify(fallbackUser) ? prev : fallbackUser);
+            if (!requiresTwoFactorRef.current) {
+              setUser(prev => JSON.stringify(prev) === JSON.stringify(fallbackUser) ? prev : fallbackUser);
+            }
             setMfaState((prev) => ({ ...prev, isLoading: false }));
             return;
           }
 
+          setMfaState((prev) => ({ ...prev, isLoading: true }));
+
           const currentPath = typeof window !== 'undefined'
             ? `${window.location.pathname}${window.location.search}`
             : '/';
-          // Erişim kontrolü ve profil senkronizasyonunu paralel başlat (oturum açılış waterfall'unu yarıya indirir).
-          const profilePromise = ensureProfile(activeSession.user).catch(() => null);
-          let accessCheck = await checkCurrentAccess(currentPath, {
-            preferredAccessToken: activeSession.access_token,
-          }).catch((error) =>
-            allowAccessOnFailure(error, 'Access gate check failed during auth sync:')
-          );
+
+          // Erişim kontrolü ve MFA doğrulama seviyesini paralel kontrol et;
+          // aal1 (2FA bekleyen) oturumda profil/yan efektler kesinlikle çalıştırılmaz.
+          const [initialAccessCheck, nextMfaState] = await Promise.all([
+            checkCurrentAccess(currentPath, {
+              preferredAccessToken: activeSession.access_token,
+            }).catch((error) =>
+              allowAccessOnFailure(error, 'Access gate check failed during auth sync:')
+            ),
+            resolveMfaState(activeSession),
+          ]);
           if (!mounted) return;
 
+          let accessCheck = initialAccessCheck;
           if (shouldHydrateAccessSnapshot(accessCheck)) {
             try {
               const snapshot = await getCurrentUserAccessSnapshot({
@@ -772,7 +890,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           );
           if (shouldBlockCurrentSession) {
             const blockedUser = mapSupabaseUserToUser(activeSession.user, null);
-            setSession(prev => JSON.stringify(prev) === JSON.stringify(activeSession) ? prev : activeSession);
+            setSession(prev => prev?.access_token === activeSession.access_token ? prev : activeSession);
             setSupabaseUser(prev => JSON.stringify(prev) === JSON.stringify(activeSession.user) ? prev : activeSession.user);
             setUser(prev => JSON.stringify(prev) === JSON.stringify(blockedUser) ? prev : blockedUser);
             setMfaState((prev) => ({ ...prev, isLoading: false }));
@@ -784,58 +902,53 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             || accessCheck.ban?.active
             || accessCheck.reason === 'user_banned'
           );
+
+          if (!shouldBypassProfileFetch && nextMfaState.needsVerification) {
+            setSession(prev => prev?.access_token === activeSession.access_token ? prev : activeSession);
+            setSupabaseUser(prev => JSON.stringify(prev) === JSON.stringify(activeSession.user) ? prev : activeSession.user);
+            setUser(null);
+            setMfaState(nextMfaState);
+            lastSyncedUserId = activeSession.user.id;
+            return;
+          }
+
           const profile = shouldBypassProfileFetch
             ? buildProfileFromAccessCheck(activeSession.user, accessCheck)
-            : await profilePromise;
+            : await ensureProfile(activeSession.user).catch(() => null);
 
           if (!mounted) return;
 
-          setSession(prev => JSON.stringify(prev) === JSON.stringify(activeSession) ? prev : activeSession);
+          setSession(prev => prev?.access_token === activeSession.access_token ? prev : activeSession);
           setSupabaseUser(prev => JSON.stringify(prev) === JSON.stringify(activeSession.user) ? prev : activeSession.user);
           lastSyncedUserId = activeSession.user.id;
 
           if (profile) {
             const newUser = mapSupabaseUserToUser(activeSession.user, profile);
             setUser(prev => JSON.stringify(prev) === JSON.stringify(newUser) ? prev : newUser);
-            if (
-              !accessCheck.supportOnly
-              && !accessCheck.ban?.active
-              && accessCheck.reason !== 'user_banned'
-            ) {
+            if (!shouldBypassProfileFetch) {
               void syncLocalChapterReadFallbackToRemote(activeSession.user.id);
             }
           } else {
-            if (
-              !accessCheck.supportOnly
-              && !accessCheck.ban?.active
-              && accessCheck.reason !== 'user_banned'
-            ) {
+            if (!shouldBypassProfileFetch) {
               console.error('Critical: Could not establish a user profile.');
             }
             const fallbackUser = mapSupabaseUserToUser(activeSession.user, null);
             setUser(prev => JSON.stringify(prev) === JSON.stringify(fallbackUser) ? prev : fallbackUser);
-            if (
-              !accessCheck.supportOnly
-              && !accessCheck.ban?.active
-              && accessCheck.reason !== 'user_banned'
-            ) {
+            if (!shouldBypassProfileFetch) {
               void syncLocalChapterReadFallbackToRemote(activeSession.user.id);
             }
           }
 
-          if (
-            accessCheck.supportOnly
-            || accessCheck.ban?.active
-            || accessCheck.reason === 'user_banned'
-          ) {
+          if (shouldBypassProfileFetch) {
             setMfaState((prev) => ({ ...prev, isLoading: false }));
           } else {
-            // NOT: MFA durumu kritik render yolunu bloklamasın; arka planda çözülür.
-            // (MfaGate mfaState.isLoading / needsVerification'a göre yönlendirmeyi yapar.)
-            void refreshMfaState();
+            setMfaState(nextMfaState);
+            updateLocalTwoFactorState(nextMfaState.verifiedFactorCount > 0);
           }
         } else {
           lastSyncedUserId = null;
+          mfaRequiredByServerRef.current = false;
+          setMfaRequiredByServer(false);
           setSession(null);
           setSupabaseUser(null);
           setUser(null);
@@ -852,7 +965,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     const pushPresenceHeartbeat = async () => {
-      if (!isEffectivelyOnline() || !isDocumentVisible()) {
+      if (!isEffectivelyOnline() || !isDocumentVisible() || requiresTwoFactorRef.current) {
         return;
       }
 
@@ -921,7 +1034,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         sessionRef.current = currentSession;
         if (event === 'TOKEN_REFRESHED') {
           if (currentSession) {
-            setSession(prev => prev?.user?.id === currentSession.user?.id ? prev : currentSession);
+            setSession(prev => prev?.access_token === currentSession.access_token ? prev : currentSession);
           }
           return;
         }
@@ -949,9 +1062,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           event === 'SIGNED_IN'
           && currentSession?.user?.id
           && lastSyncedUserId === currentSession.user.id
+          && !requiresTwoFactorRef.current
         ) {
           persistAuthScopeKey(currentSession.user.id);
-          setSession(prev => prev?.user?.id === currentSession.user?.id ? prev : currentSession);
+          setSession(prev => prev?.access_token === currentSession.access_token ? prev : currentSession);
           return;
         }
         // We only trigger re-sync for significant events to avoid loops
@@ -997,12 +1111,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       subscription.unsubscribe();
       window.clearInterval(presenceInterval);
     };
-  }, [ensureProfile, refreshMfaState]);
+  }, [ensureProfile, resolveMfaState, updateLocalTwoFactorState]);
 
   const hasAccessToken = Boolean(session?.access_token);
 
   useEffect(() => {
-    if (!supabaseUser?.id || !hasAccessToken || isLoading || !isEffectivelyOnline()) {
+    if (
+      !supabaseUser?.id
+      || !user?.id
+      || !hasAccessToken
+      || isLoading
+      || mfaState.isLoading
+      || requiresTwoFactor
+      || !isEffectivelyOnline()
+    ) {
       return;
     }
 
@@ -1020,7 +1142,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       window.clearTimeout(bootstrapRetryTimeoutId);
       window.clearInterval(intervalId);
     };
-  }, [hasAccessToken, isLoading, refreshAccessState, supabaseUser?.id]);
+  }, [hasAccessToken, isLoading, mfaState.isLoading, refreshAccessState, requiresTwoFactor, supabaseUser?.id, user?.id]);
 
   const login = async (email: string, password: string): Promise<{
     success: boolean;
@@ -1151,19 +1273,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         };
       }
 
-      const profile = (
-        accessCheck.supportOnly
-        || accessCheck.ban?.active
-        || accessCheck.reason === 'user_banned'
-      )
-        ? buildProfileFromAccessCheck(activeSession.user, accessCheck)
-        : await ensureProfile(activeSession.user);
-
-      setSession(activeSession);
-      setSupabaseUser(activeSession.user);
-      setUser(mapSupabaseUserToUser(activeSession.user, profile));
-
       if (accessCheck.ban?.active || accessCheck.reason === 'user_banned' || accessCheck.supportOnly) {
+        const restrictedProfile = buildProfileFromAccessCheck(activeSession.user, accessCheck);
+        setSession(activeSession);
+        setSupabaseUser(activeSession.user);
+        setUser(mapSupabaseUserToUser(activeSession.user, restrictedProfile));
         setMfaState((prev) => ({ ...prev, isLoading: false }));
         return {
           success: true,
@@ -1173,17 +1287,33 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         };
       }
 
-      const { data: assuranceData, error: assuranceError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-      if (assuranceError) {
-        throw assuranceError;
+      const nextMfaState = await resolveMfaState(activeSession);
+      if (nextMfaState.needsVerification) {
+        setSession(activeSession);
+        setSupabaseUser(activeSession.user);
+        setUser(null);
+        setMfaState(nextMfaState);
+        return {
+          success: true,
+          email: sessionData.user.email || undefined,
+          requiresTwoFactor: true,
+          accessRestricted: false,
+        };
       }
 
-      await refreshMfaState();
+      mfaRequiredByServerRef.current = false;
+      setMfaRequiredByServer(false);
+      const profile = await ensureProfile(activeSession.user);
+      setSession(activeSession);
+      setSupabaseUser(activeSession.user);
+      setUser(mapSupabaseUserToUser(activeSession.user, profile));
+      setMfaState(nextMfaState);
+      updateLocalTwoFactorState(nextMfaState.verifiedFactorCount > 0);
 
       return {
         success: true,
         email: sessionData.user.email || undefined,
-        requiresTwoFactor: assuranceData.nextLevel === 'aal2' && assuranceData.currentLevel !== 'aal2',
+        requiresTwoFactor: false,
         accessRestricted: false,
       };
     } catch (error: unknown) {
@@ -1261,11 +1391,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const logout = async () => {
     try {
       await supabase.auth.signOut({ scope: 'local' });
+      mfaRequiredByServerRef.current = false;
+      setMfaRequiredByServer(false);
       setUser(null);
       setSupabaseUser(null);
       setSession(null);
       setMfaState(DEFAULT_MFA_STATE);
       setAccessState(DEFAULT_ACCESS_STATE);
+      clearHeaderShellSnapshot();
       clearAccessCheckCache();
       void import('@/lib/database').then(({ invalidateMangaVisibilityCaches }) => {
         invalidateMangaVisibilityCaches();
@@ -1548,9 +1681,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (data.session) {
         setSession(data.session);
         setSupabaseUser(data.session.user);
-        const profile = await ensureProfile(data.session.user);
-        setUser(mapSupabaseUserToUser(data.session.user, profile));
-        await refreshMfaState();
+        const nextMfaState = await resolveMfaState(data.session);
+        setMfaState(nextMfaState);
+        if (nextMfaState.needsVerification) {
+          setUser(null);
+        } else {
+          const profile = await ensureProfile(data.session.user);
+          setUser(mapSupabaseUserToUser(data.session.user, profile));
+        }
       }
       return { success: true };
     } catch (error: unknown) {
@@ -1674,6 +1812,36 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const formatMfaChallengeError = (error: unknown): string => {
+    const rawMessage = getErrorMessage(error, 'Doğrulama başarısız oldu');
+    const normalized = rawMessage.toLowerCase();
+    const status = typeof error === 'object' && error !== null && 'status' in error
+      ? Number((error as { status?: unknown }).status)
+      : null;
+
+    if (
+      status === 429
+      || normalized.includes('rate limit')
+      || normalized.includes('too many')
+      || normalized.includes('over_request_rate_limit')
+    ) {
+      return 'Çok fazla hatalı doğrulama denemesi yaptınız. Lütfen biraz bekleyip tekrar deneyin.';
+    }
+
+    if (
+      normalized.includes('invalid')
+      || normalized.includes('expired')
+      || normalized.includes('totp')
+      || normalized.includes('otp')
+      || normalized.includes('token')
+      || normalized.includes('code')
+    ) {
+      return 'Doğrulama kodu hatalı veya süresi dolmuş.';
+    }
+
+    return rawMessage;
+  };
+
   const challengeTwoFactor = async (code: string, factorId?: string): Promise<{ success: boolean; error?: string }> => {
     try {
       const verificationCode = code.trim();
@@ -1695,19 +1863,29 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         throw verify.error;
       }
 
-      const activeSession = (await supabase.auth.getSession()).data.session;
+      mfaRequiredByServerRef.current = false;
+      setMfaRequiredByServer(false);
+
+      const currentSession = (await supabase.auth.getSession()).data.session;
+      const stabilizedSession = await waitForUsableSupabaseSession({
+        preferredSession: currentSession,
+        required: false,
+      }).catch(() => currentSession);
+      const activeSession = stabilizedSession?.user ? stabilizedSession : currentSession;
+
       if (activeSession?.user) {
         const profile = await ensureProfile(activeSession.user);
         setSession(activeSession);
         setSupabaseUser(activeSession.user);
         setUser(mapSupabaseUserToUser(activeSession.user, profile));
+        void syncLocalChapterReadFallbackToRemote(activeSession.user.id);
       }
 
       await refreshMfaState();
       return { success: true };
     } catch (error: unknown) {
       console.error('2FA challenge error:', error);
-      return { success: false, error: getErrorMessage(error, 'Doğrulama başarısız oldu') };
+      return { success: false, error: formatMfaChallengeError(error) };
     }
   };
 
@@ -1793,6 +1971,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       session,
       isLoading,
       mfaState,
+      requiresTwoFactor,
       accessState,
       login,
       register,

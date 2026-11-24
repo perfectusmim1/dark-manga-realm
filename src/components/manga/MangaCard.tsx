@@ -1,5 +1,7 @@
 import React, { memo, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { formatDistanceToNow } from 'date-fns';
+import { tr } from 'date-fns/locale';
 import { Star, Eye, BookOpen, Trophy } from 'lucide-react';
 import { Manga } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
@@ -43,6 +45,88 @@ export const MANGA_CARD_SIZES = '(max-width: 389px) 46vw, (max-width: 639px) 31v
 
 const TOP_TEN_CORNER_CLIP_PATH = 'polygon(100% 0, 100% 100%, 0 0)';
 const TOP_TEN_CORNER_SIZE = 'clamp(2.35rem, 24%, 3.35rem)';
+
+interface CompactRelativeTimeResult {
+  label: string;
+  title: string;
+}
+
+const formatCompactRelativeTime = (dateInput?: string | number | Date | null): string | null => {
+  if (dateInput === null || dateInput === undefined || dateInput === '') {
+    return null;
+  }
+
+  const parsed = dateInput instanceof Date ? dateInput : new Date(dateInput);
+  const timestamp = parsed.getTime();
+  if (!Number.isFinite(timestamp)) {
+    return null;
+  }
+
+  const diffMs = Math.max(0, Date.now() - timestamp);
+  const diffMinutes = Math.floor(diffMs / 60_000);
+  if (diffMinutes < 1) {
+    return 'Az önce';
+  }
+  if (diffMinutes < 60) {
+    return `${diffMinutes}dk`;
+  }
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) {
+    return `${diffHours}sa`;
+  }
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) {
+    return `${diffDays}g`;
+  }
+  if (diffDays < 30) {
+    return `${Math.max(1, Math.floor(diffDays / 7))}hf`;
+  }
+  if (diffDays < 365) {
+    return `${Math.max(1, Math.floor(diffDays / 30))}ay`;
+  }
+
+  return `${Math.max(1, Math.floor(diffDays / 365))}y`;
+};
+
+const buildRelativeTimeMeta = (dateInput?: string | number | Date | null): CompactRelativeTimeResult | null => {
+  const label = formatCompactRelativeTime(dateInput);
+  if (!label || dateInput === null || dateInput === undefined) {
+    return null;
+  }
+
+  const timestamp = dateInput instanceof Date ? dateInput.getTime() : new Date(dateInput).getTime();
+  const safeDate = new Date(Math.min(timestamp, Date.now()));
+  const title = label === 'Az önce'
+    ? 'Az önce'
+    : formatDistanceToNow(safeDate, { addSuffix: true, locale: tr });
+
+  return { label, title };
+};
+
+const getChapterRelativeTime = (
+  chapter: Manga['chapters'][number],
+  chapterIndex: number,
+  manga: Manga,
+): CompactRelativeTimeResult | null => {
+  const directResult =
+    buildRelativeTimeMeta(chapter.createdAt)
+    || buildRelativeTimeMeta(chapter.releaseDate);
+
+  if (directResult) {
+    return directResult;
+  }
+
+  if (chapterIndex === 0) {
+    return (
+      buildRelativeTimeMeta(manga.latestChapterAt)
+      || buildRelativeTimeMeta(manga.lastUpdated)
+    );
+  }
+
+  return null;
+};
 
 const getLatestChapterLinks = (chapters: Manga['chapters']) => {
   if (!chapters.length) return [];
@@ -337,15 +421,26 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
         <div className="mt-1.5 space-y-1">
           {latestChapterLinks.length > 0 ? (
             <div className="pointer-events-auto relative z-20 space-y-1">
-              {latestChapterLinks.map((chapter) => (
-                <Link
-                  key={chapter.id}
-                  to={`/manga/${manga.id}/chapter/${chapter.id}`}
-                  className="relative z-10 flex min-h-6 w-full items-center justify-center rounded-md bg-secondary/45 px-1.5 py-0.5 text-[10px] font-medium text-foreground/90 transition-colors hover:bg-primary/[0.12] hover:text-primary focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 sm:text-[11px]"
-                >
-                  <span className="truncate">Bölüm {formatChapterNumberLabel(chapter.number)}</span>
-                </Link>
-              ))}
+              {latestChapterLinks.map((chapter, chapterIndex) => {
+                const relativeTime = getChapterRelativeTime(chapter, chapterIndex, manga);
+                return (
+                  <Link
+                    key={chapter.id}
+                    to={`/manga/${manga.id}/chapter/${chapter.id}`}
+                    className="relative z-10 flex min-h-6 w-full items-center justify-between gap-1.5 rounded-md bg-secondary/45 px-1.5 py-0.5 text-[10px] font-medium text-foreground/90 transition-colors hover:bg-primary/[0.12] hover:text-primary focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 sm:px-2 sm:text-[11px]"
+                  >
+                    <span className="min-w-0 truncate">Bölüm {formatChapterNumberLabel(chapter.number)}</span>
+                    {relativeTime ? (
+                      <span
+                        title={relativeTime.title}
+                        className="shrink-0 text-[10px] text-muted-foreground/80 tabular-nums sm:text-[11px]"
+                      >
+                        {relativeTime.label}
+                      </span>
+                    ) : null}
+                  </Link>
+                );
+              })}
             </div>
           ) : (
             <div className="flex min-h-6 w-full items-center justify-center rounded-md border border-border/50 bg-secondary/35 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:text-[11px]">

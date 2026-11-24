@@ -60,6 +60,7 @@ import TranslationPanel from '@/components/reader/TranslationPanel';
 import UpscalePanel from '@/components/reader/UpscalePanel';
 import { ReaderTranslationApi } from '@/hooks/useChapterTranslation';
 import { useUpscaleStatus } from '@/hooks/useUpscaleSupport';
+import type { PageTranslationState } from '@/lib/translation/types';
 
 const READER_TOP_SAFE_AREA = 'calc(env(safe-area-inset-top) + 0px)';
 const READER_BOTTOM_SAFE_AREA = 'calc(env(safe-area-inset-bottom) + 0px)';
@@ -92,6 +93,8 @@ interface ReaderControlsProps {
   forceOfflineRead?: boolean;
   onBeforeChapterChange?: (chapter?: Chapter) => Promise<void> | void;
   translation: ReaderTranslationApi;
+  currentPageTranslationState?: PageTranslationState;
+  onTranslatePage?: (pageIndex: number, options?: { force?: boolean }) => void;
   onQueueOfflineChapter?: () => Promise<void>;
   commentCount?: number;
   onOpenComments?: () => void;
@@ -133,6 +136,8 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   forceOfflineRead = false,
   onBeforeChapterChange,
   translation,
+  currentPageTranslationState,
+  onTranslatePage,
   onQueueOfflineChapter,
   commentCount = 0,
   onOpenComments,
@@ -531,7 +536,11 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
               )}
             >
               <span className="inline-flex items-center gap-1.5">
-                <LanguageFlag code={entry.info.language} label={entry.info.label} className="h-3 w-4" />
+                {entry.info.language === 'tr' ? (
+                  <span>{entry.info.label}</span>
+                ) : (
+                  <LanguageFlag code={entry.info.language} label={entry.info.label} className="h-3 w-4" />
+                )}
                 <span>({entry.count})</span>
               </span>
             </button>
@@ -610,6 +619,9 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                     </p>
                     {variants.map((variant) => {
                       const langInfo = getChapterLanguageInfo(variant, fallbackLangCode);
+                      if (langInfo.language === 'tr') {
+                        return null;
+                      }
                       const isActiveVariant = variant.id === currentChapter.id;
                       return (
                         <span
@@ -668,6 +680,9 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
       mangaTitle={mangaTitle}
       chapterNumber={currentChapter.number}
       pages={pages}
+      currentPage={currentPage}
+      currentPageState={currentPageTranslationState ?? translation.pageStates[Math.max(0, currentPage - 1)]}
+      onTranslatePage={onTranslatePage ?? translation.translatePage}
       translation={translation}
       isOnline={isOnline}
       isOfflineMode={forceOfflineRead}

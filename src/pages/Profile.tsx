@@ -367,17 +367,17 @@ const Profile: React.FC = () => {
                 className={cn(
                   'pointer-events-none absolute inset-0 h-full w-full object-cover object-center select-none transition-opacity duration-300',
                   hasCustomBanner
-                    ? 'opacity-80 brightness-[0.82]'
-                    : 'scale-105 opacity-25 blur-[2px] brightness-75'
+                    ? 'opacity-95 brightness-95'
+                    : 'scale-105 opacity-45 blur-[1px] brightness-90'
                 )}
               />
               <div
                 aria-hidden
-                className="pointer-events-none absolute inset-0 bg-gradient-to-r from-background/95 via-background/60 to-background/20"
+                className="pointer-events-none absolute inset-0 bg-gradient-to-t from-background via-background/35 to-transparent"
               />
               <div
                 aria-hidden
-                className="pointer-events-none absolute inset-0 bg-gradient-to-t from-background via-background/65 to-background/25"
+                className="pointer-events-none absolute inset-0 bg-[radial-gradient(95%_65%_at_15%_100%,hsl(var(--background)/0.55)_0%,transparent_70%)]"
               />
             </>
           ) : (
@@ -387,7 +387,7 @@ const Profile: React.FC = () => {
             />
           )}
 
-          <div className="container relative z-10 flex min-h-[210px] flex-col justify-end pt-8 pb-5 sm:min-h-[250px] sm:pt-12 sm:pb-6">
+          <div className="container relative z-10 flex min-h-[260px] flex-col justify-end pt-10 pb-5 sm:min-h-[320px] sm:pt-14 sm:pb-6 md:min-h-[360px]">
             <div className="flex flex-col items-center gap-5 md:flex-row md:items-end md:gap-7">
               <Avatar className="h-24 w-24 shrink-0 rounded-2xl border-2 border-white/15 bg-secondary shadow-2xl sm:h-28 sm:w-28">
                 <AvatarImage
@@ -405,7 +405,7 @@ const Profile: React.FC = () => {
                     <div className="flex flex-wrap items-center justify-center gap-2.5 md:justify-start">
                       <h1
                         className={cn(
-                          'truncate text-2xl font-extrabold tracking-tight sm:text-3xl md:text-4xl',
+                          'truncate text-2xl font-extrabold tracking-tight drop-shadow-[0_1px_8px_rgba(0,0,0,0.65)] sm:text-3xl md:text-4xl',
                           profileData.role ? getStaffTextClassName(profileData.role, false) : ''
                         )}
                       >
@@ -437,7 +437,7 @@ const Profile: React.FC = () => {
                     </div>
 
                     {profileData.bio && (
-                      <p className="max-w-2xl text-sm leading-relaxed text-foreground/85">
+                      <p className="max-w-2xl text-sm leading-relaxed text-foreground/90 drop-shadow-[0_1px_6px_rgba(0,0,0,0.65)]">
                         {profileData.bio}
                       </p>
                     )}

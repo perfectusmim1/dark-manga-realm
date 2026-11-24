@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { ThumbsUp, ThumbsDown, Shield, CheckCircle2 } from 'lucide-react';
 import { Tag, TagCategory } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -18,6 +18,7 @@ interface TagBadgeProps {
   tag: Tag;
   accepted?: boolean;
   selected?: boolean;
+  excluded?: boolean;
   showVotes?: boolean;
   votes?: { up: number; down: number };
   userVote?: 'up' | 'down' | null;
@@ -33,6 +34,7 @@ const TagBadge: React.FC<TagBadgeProps> = ({
   tag,
   accepted = false,
   selected,
+  excluded = false,
   showVotes,
   votes,
   userVote,
@@ -58,6 +60,7 @@ const TagBadge: React.FC<TagBadgeProps> = ({
     <div
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
+      aria-pressed={onClick && (selected !== undefined || excluded) ? Boolean(selected) : undefined}
       onKeyDown={
         onClick
           ? (e) => {
@@ -69,46 +72,51 @@ const TagBadge: React.FC<TagBadgeProps> = ({
           : undefined
       }
       className={cn(
-        'group inline-flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-full border transition-all duration-200',
-        size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-3 py-1 text-sm',
+        'group inline-flex max-w-full min-w-0 select-none items-center gap-1.5 overflow-hidden rounded-full border transition-colors duration-150',
+        size === 'sm' ? 'min-h-7 px-2.5 py-1 text-xs' : 'min-h-8 px-3 py-1 text-sm',
         selected
-          ? 'bg-primary/20 border-primary/40 text-primary shadow-[0_0_8px_rgba(var(--primary),0.15)] hover:bg-primary/30 hover:text-primary'
-          : accepted && !tag.isOfficial
-            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
-            : `${config.bg} ${config.border} ${config.text}`,
-        onClick && 'cursor-pointer hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background transition-colors',
-        tag.isOfficial && 'ring-1 ring-primary/10'
+          ? 'border-primary/60 bg-primary/20 font-semibold text-primary hover:border-primary hover:bg-primary/25 hover:text-primary'
+          : excluded
+            ? 'border-destructive/55 bg-destructive/15 font-medium text-destructive hover:border-destructive hover:bg-destructive/20'
+            : accepted && !tag.isOfficial
+              ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300'
+              : `${config.bg} ${config.border} ${config.text}`,
+        onClick && 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+        onClick && !selected && !excluded && 'hover:border-primary/50 hover:bg-secondary/70',
+        tag.isOfficial && !selected && !excluded && 'ring-1 ring-inset ring-primary/15'
       )}
       onClick={onClick}
     >
-      <span className="shrink-0 text-[10px]">{config.icon}</span>
+      <span className="shrink-0 text-[10px] leading-none">{config.icon}</span>
       <span className="truncate font-medium">{displayName}</span>
       
       {tag.isOfficial && (
-        <Shield className="h-3 w-3 shrink-0 opacity-50" />
+        <Shield className="h-3 w-3 shrink-0 opacity-60" />
       )}
       {!tag.isOfficial && accepted && (
-        <CheckCircle2 className="h-3 w-3 shrink-0 opacity-70" />
+        <CheckCircle2 className="h-3 w-3 shrink-0 opacity-75" />
       )}
       
       {showVotes && votes && (
         <div className="ml-1 flex shrink-0 items-center gap-1 border-l border-current/20 pl-1.5">
           <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); onVoteUp?.(); }}
             className={cn(
-              'p-0.5 rounded transition-colors',
+              'p-0.5 rounded transition-colors duration-150',
               userVote === 'up' ? 'text-green-400' : 'opacity-50 hover:opacity-100 hover:text-green-400'
             )}
           >
             <ThumbsUp className="h-3 w-3" />
           </button>
-          <span className="text-[10px] font-mono min-w-[16px] text-center">
+          <span className="text-[10px] font-mono min-w-[16px] text-center tabular-nums">
             {votes.up - votes.down}
           </span>
           <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); onVoteDown?.(); }}
             className={cn(
-              'p-0.5 rounded transition-colors',
+              'p-0.5 rounded transition-colors duration-150',
               userVote === 'down' ? 'text-red-400' : 'opacity-50 hover:opacity-100 hover:text-red-400'
             )}
           >
@@ -119,8 +127,9 @@ const TagBadge: React.FC<TagBadgeProps> = ({
 
       {removable && (
         <button
+          type="button"
           onClick={(e) => { e.stopPropagation(); onRemove?.(); }}
-          className="ml-0.5 shrink-0 text-current opacity-100 transition-opacity hover:text-destructive md:opacity-0 md:group-hover:opacity-100"
+          className="ml-0.5 shrink-0 text-current opacity-100 transition-opacity duration-150 hover:text-destructive md:opacity-0 md:group-hover:opacity-100"
         >
           ×
         </button>
@@ -129,4 +138,4 @@ const TagBadge: React.FC<TagBadgeProps> = ({
   );
 };
 
-export default TagBadge;
+export default memo(TagBadge);

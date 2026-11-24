@@ -496,6 +496,132 @@ const decodeBasicHtmlEntities = (value: string): string =>
 const TAG_DISPLAY_CACHE_MAX_SIZE = 4096;
 const tagDisplayNameCache = new Map<string, string>();
 
+export const normalizeTagSearchText = (value?: string | null): string => (
+  decodeBasicHtmlEntities(`${value ?? ''}`)
+    .replace(/\u0130/g, 'i')
+    .replace(/\u0131/g, 'i')
+    .replace(/İ/g, 'i')
+    .replace(/I/g, 'i')
+    .replace(/ı/g, 'i')
+    .toLocaleLowerCase('tr-TR')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s-]+/g, ' ')
+    .replace(/[-_\s]+/g, ' ')
+    .trim()
+);
+
+interface TagTranslationSearchEntry {
+  slug: string;
+  displayName: string;
+  normalizedSlug: string;
+  normalizedDisplayName: string;
+  compactSlug: string;
+  compactDisplayName: string;
+}
+
+const TAG_TRANSLATION_SEARCH_INDEX: TagTranslationSearchEntry[] = Object.entries(EN_TO_TR).map(
+  ([slug, displayName]) => {
+    const normalizedSlug = normalizeTagSearchText(slug);
+    const normalizedDisplayName = normalizeTagSearchText(displayName);
+    return {
+      slug,
+      displayName,
+      normalizedSlug,
+      normalizedDisplayName,
+      compactSlug: normalizedSlug.replace(/\s+/g, ''),
+      compactDisplayName: normalizedDisplayName.replace(/\s+/g, ''),
+    };
+  },
+);
+
+export const findMatchingTagSlugs = (query: string, limit: number = 80): string[] => {
+  const normalizedQuery = normalizeTagSearchText(query);
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  const compactQuery = normalizedQuery.replace(/\s+/g, '');
+  const allowCompact = compactQuery.length >= 3;
+  const scored: Array<{ slug: string; score: number }> = [];
+
+  for (const entry of TAG_TRANSLATION_SEARCH_INDEX) {
+    let score = -1;
+
+    if (
+      entry.normalizedDisplayName === normalizedQuery
+      || entry.normalizedSlug === normalizedQuery
+      || (allowCompact && (entry.compactDisplayName === compactQuery || entry.compactSlug === compactQuery))
+    ) {
+      score = 0;
+    } else if (
+      entry.normalizedDisplayName.startsWith(normalizedQuery)
+      || entry.normalizedSlug.startsWith(normalizedQuery)
+    ) {
+      score = 1;
+    } else if (
+      entry.normalizedDisplayName.includes(` ${normalizedQuery}`)
+      || entry.normalizedSlug.includes(` ${normalizedQuery}`)
+    ) {
+      score = 2;
+    } else if (
+      entry.normalizedDisplayName.includes(normalizedQuery)
+      || entry.normalizedSlug.includes(normalizedQuery)
+      || (allowCompact && (entry.compactDisplayName.includes(compactQuery) || entry.compactSlug.includes(compactQuery)))
+    ) {
+      score = 3;
+    }
+
+    if (score >= 0) {
+      scored.push({ slug: entry.slug, score });
+    }
+  }
+
+  scored.sort((a, b) => a.score - b.score);
+
+  const uniqueSlugs: string[] = [];
+  const seen = new Set<string>();
+  for (const item of scored) {
+    if (!seen.has(item.slug)) {
+      seen.add(item.slug);
+      uniqueSlugs.push(item.slug);
+      if (uniqueSlugs.length >= limit) {
+        break;
+      }
+    }
+  }
+
+  return uniqueSlugs;
+};
+
+export const findExactTagSlugsByDisplayName = (name?: string | null): string[] => {
+  const normalizedName = normalizeTagSearchText(name);
+  if (!normalizedName) {
+    return [];
+  }
+
+  const compactName = normalizedName.replace(/\s+/g, '');
+  const allowCompact = compactName.length >= 3;
+  const matches: string[] = [];
+
+  for (const entry of TAG_TRANSLATION_SEARCH_INDEX) {
+    if (
+      entry.normalizedDisplayName === normalizedName
+      || entry.normalizedSlug === normalizedName
+      || (allowCompact && (entry.compactDisplayName === compactName || entry.compactSlug === compactName))
+    ) {
+      matches.push(entry.slug);
+    }
+  }
+
+  return matches;
+};
+
+export const findExactTagSlugByDisplayName = (name?: string | null): string | null => {
+  const matches = findExactTagSlugsByDisplayName(name);
+  return matches[0] ?? null;
+};
+
 export const getTagDisplayName = (slug?: string | null, fallbackName?: string | null): string => {
   const cacheKey = `${slug ?? ''}\u0001${fallbackName ?? ''}`;
   const cached = tagDisplayNameCache.get(cacheKey);

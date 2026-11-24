@@ -517,16 +517,13 @@ const Downloads: React.FC = () => {
                           return (
                             <div key={chapter.chapterId} className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
                               <div className="min-w-0">
-                                <p className="font-semibold">
+                                <p className={cn('font-semibold', chapter.isRead && 'text-emerald-400')}>
                                   {formatChapterDisplayTitle(chapter.chapterNumber, chapter.title)}
                                 </p>
                                 <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground sm:flex sm:flex-wrap sm:items-center sm:gap-3 sm:text-xs">
                                   <span>{formatBytes(chapter.downloadedBytes || 0)}</span>
                                   <span>{chapter.pageCount} sayfa</span>
                                   <span>{formatDateTime(chapter.downloadedAt || chapter.lastAttemptAt)}</span>
-                                  {chapter.isRead && (
-                                    <Badge variant="secondary">Okundu</Badge>
-                                  )}
                                   <Badge variant="outline">{getOfflineDownloadStatusLabel(chapter.downloadStatus)}</Badge>
                                 </div>
                               </div>

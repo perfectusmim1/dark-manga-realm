@@ -153,7 +153,7 @@ const TopTenTimeframeTabs: React.FC<{
     : 'bg-primary text-primary-foreground shadow-sm';
 
   return (
-    <div className="flex w-full max-w-full min-w-0 items-center gap-1 overflow-x-auto scrollbar-hide rounded-xl border border-border/60 bg-background/60 p-1 sm:inline-flex sm:w-auto">
+    <div className="flex w-full max-w-full min-w-0 items-center gap-1 overflow-x-auto overscroll-x-contain horizontal-scroll-smooth scrollbar-hide rounded-xl border border-border/60 bg-background/60 p-1 sm:inline-flex sm:w-auto">
       {TOP_TEN_TIMEFRAMES.map((timeframe) => {
         const meta = TOP_TEN_TIMEFRAME_META[timeframe];
         const Icon = meta.icon;
@@ -354,6 +354,7 @@ const TopTenAudienceBlock: React.FC<{
   const audienceMeta = TOP_TEN_AUDIENCE_META[audience];
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number | null>(null);
+  const arrowStateRef = useRef({ left: false, right: false });
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(false);
 
@@ -368,23 +369,24 @@ const TopTenAudienceBlock: React.FC<{
 
   const updateArrows = useCallback(() => {
     const scroller = scrollRef.current;
-    if (!scroller) {
-      setShowLeftArrow(false);
-      setShowRightArrow(false);
-      return;
-    }
+    const nextLeft = scroller ? scroller.scrollLeft > 15 : false;
+    const nextRight = scroller
+      ? scroller.scrollWidth > scroller.clientWidth + 15 && scroller.scrollLeft < scroller.scrollWidth - scroller.clientWidth - 15
+      : false;
 
-    const { scrollLeft, scrollWidth, clientWidth } = scroller;
-    setShowLeftArrow(scrollLeft > 15);
-    setShowRightArrow(scrollWidth > clientWidth + 15 && scrollLeft < scrollWidth - clientWidth - 15);
+    if (arrowStateRef.current.left !== nextLeft) {
+      arrowStateRef.current.left = nextLeft;
+      setShowLeftArrow(nextLeft);
+    }
+    if (arrowStateRef.current.right !== nextRight) {
+      arrowStateRef.current.right = nextRight;
+      setShowRightArrow(nextRight);
+    }
   }, []);
 
   const requestArrowUpdate = useCallback(() => {
-    if (typeof window === 'undefined') {
+    if (typeof window === 'undefined' || rafRef.current !== null) {
       return;
-    }
-    if (rafRef.current !== null) {
-      window.cancelAnimationFrame(rafRef.current);
     }
     rafRef.current = window.requestAnimationFrame(() => {
       rafRef.current = null;
@@ -518,7 +520,7 @@ const TopTenAudienceBlock: React.FC<{
             {isLoading ? (
               <div
                 key={`${audience}-${timeframe}-loading`}
-                className="flex w-full max-w-full min-w-0 gap-2.5 overflow-x-auto pb-1.5 scrollbar-hide sm:gap-3.5 sm:pb-2"
+                className="flex w-full max-w-full min-w-0 gap-2.5 overflow-x-auto overscroll-x-contain horizontal-scroll-smooth pb-1.5 scrollbar-hide sm:gap-3.5 sm:pb-2"
               >
                 {Array.from({ length: 6 }).map((_, index) => (
                   <div
@@ -550,15 +552,15 @@ const TopTenAudienceBlock: React.FC<{
                   >
                     <div
                       ref={scrollRef}
-                      onScroll={updateArrows}
-                      className="flex w-full max-w-full min-w-0 snap-x snap-proximity gap-2.5 overflow-x-auto pb-1.5 scrollbar-hide sm:gap-3.5 sm:pb-2 scroll-smooth"
+                      onScroll={requestArrowUpdate}
+                      className="flex w-full max-w-full min-w-0 gap-2.5 overflow-x-auto overscroll-x-contain horizontal-scroll-smooth touch-pan-x touch-pan-y pb-1.5 scrollbar-hide sm:gap-3.5 sm:pb-2"
                       style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch' }}
                     >
                       {uniqueMangas.map((item, index) => (
                         <div
                           key={`${audience}-${item.id}`}
                           data-top-ten-card
-                          className={`shrink-0 snap-start ${TOP_TEN_CARD_WIDTH_CLASS}`}
+                          className={`shrink-0 ${TOP_TEN_CARD_WIDTH_CLASS}`}
                         >
                           <TopTenCard
                             manga={item}

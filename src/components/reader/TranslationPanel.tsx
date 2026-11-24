@@ -9,6 +9,7 @@ import {
   Languages,
   Loader2,
   Plus,
+  RefreshCw,
   Square,
   Trash2,
   X,
@@ -36,6 +37,7 @@ import {
   parseDeepLApiKeysInput,
 } from '@/lib/translation/translationSettings';
 import { ResolvedReaderPage } from '@/lib/types';
+import { PageTranslationState } from '@/lib/translation/types';
 import { cn } from '@/lib/utils';
 
 interface TranslationPanelProps {
@@ -43,6 +45,9 @@ interface TranslationPanelProps {
   mangaTitle: string;
   chapterNumber: number | string;
   pages: ResolvedReaderPage[];
+  currentPage: number;
+  currentPageState?: PageTranslationState;
+  onTranslatePage?: (pageIndex: number, options?: { force?: boolean }) => void;
   translation: ReaderTranslationApi;
   isOnline: boolean;
   isOfflineMode?: boolean;
@@ -62,6 +67,9 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
   mangaTitle,
   chapterNumber,
   pages,
+  currentPage,
+  currentPageState,
+  onTranslatePage,
   translation,
   isOnline,
   isOfflineMode = false,
@@ -147,6 +155,22 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
       commitDraftKeys(true);
     }
     translation.translateAllPages();
+  };
+
+  const activePageIndex = Math.max(0, Math.min(Math.max(0, pages.length - 1), currentPage - 1));
+  const activePageState = currentPageState ?? pageStates[activePageIndex];
+  const isCurrentPageValid = pages.length > 0 && currentPage >= 1 && currentPage <= pages.length;
+  const isCurrentPageBusy =
+    activePageState?.status === 'translating' || activePageState?.status === 'queued';
+  const isCurrentPageDone = activePageState?.status === 'done';
+
+  const handleTranslateCurrentPage = () => {
+    if (!isCurrentPageValid) return;
+    if (draftKeyInput.trim()) {
+      commitDraftKeys(true);
+    }
+    const triggerTranslate = onTranslatePage ?? translation.translatePage;
+    triggerTranslate(activePageIndex, isCurrentPageDone ? { force: true } : undefined);
   };
 
   const refreshStats = useCallback(async () => {
@@ -305,6 +329,36 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
             <span>Tüm Bölümü Çevir</span>
           </Button>
         )}
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={!isOnline || !isCurrentPageValid || isCurrentPageBusy}
+          className="h-8 w-full gap-1.5 rounded-lg border-border/70 bg-background/60 text-xs font-medium hover:border-primary/40"
+          onClick={handleTranslateCurrentPage}
+        >
+          {isCurrentPageBusy ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+              <span>
+                {activePageState?.status === 'translating'
+                  ? `Sayfa ${currentPage} Çevriliyor...`
+                  : `Sayfa ${currentPage} Sırada...`}
+              </span>
+            </>
+          ) : isCurrentPageDone ? (
+            <>
+              <RefreshCw className="h-3.5 w-3.5 text-primary" />
+              <span>Bu Sayfayı Yeniden Çevir</span>
+            </>
+          ) : (
+            <>
+              <Languages className="h-3.5 w-3.5 text-primary" />
+              <span>Bu Sayfayı Çevir</span>
+            </>
+          )}
+        </Button>
 
         <div className={cn('grid gap-1.5', !isOfflineMode && onQueueOfflineChapter ? 'grid-cols-2' : 'grid-cols-1')}>
           <Button

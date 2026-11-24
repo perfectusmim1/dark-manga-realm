@@ -593,6 +593,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const probeRef = useRef<HTMLDivElement>(null);
   const layoutRafRef = useRef<number | null>(null);
+  const arrowStateRef = useRef({ left: false, right: false });
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(false);
   const [itemWidth, setItemWidth] = useState(0);
@@ -619,8 +620,14 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
         ...current,
         viewportWidth: typeof window === 'undefined' ? current.viewportWidth : window.innerWidth,
       }));
-      setShowLeftArrow(false);
-      setShowRightArrow(false);
+      if (arrowStateRef.current.left) {
+        arrowStateRef.current.left = false;
+        setShowLeftArrow(false);
+      }
+      if (arrowStateRef.current.right) {
+        arrowStateRef.current.right = false;
+        setShowRightArrow(false);
+      }
       return;
     }
 
@@ -636,11 +643,20 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
           }
     ));
 
-    setShowLeftArrow(scrollLeft > HOME_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX);
-    setShowRightArrow(
+    const nextLeft = scrollLeft > HOME_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX;
+    const nextRight = (
       scrollWidth > clientWidth + HOME_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX
-        && scrollLeft < scrollWidth - clientWidth - HOME_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX,
+      && scrollLeft < scrollWidth - clientWidth - HOME_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX
     );
+
+    if (arrowStateRef.current.left !== nextLeft) {
+      arrowStateRef.current.left = nextLeft;
+      setShowLeftArrow(nextLeft);
+    }
+    if (arrowStateRef.current.right !== nextRight) {
+      arrowStateRef.current.right = nextRight;
+      setShowRightArrow(nextRight);
+    }
   }, []);
 
   const requestLayoutMetricsUpdate = useCallback(() => {
@@ -817,12 +833,13 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
         <div
           ref={scrollRef}
           onScroll={requestLayoutMetricsUpdate}
-          className="flex snap-x snap-mandatory gap-2.5 overflow-x-auto overscroll-x-contain px-0 py-1.5 -my-1.5 scrollbar-hide sm:gap-3"
+          className="flex gap-2.5 overflow-x-auto overscroll-x-contain horizontal-scroll-smooth touch-pan-x touch-pan-y px-0 py-1.5 -my-1.5 scrollbar-hide sm:gap-3"
+          style={{ WebkitOverflowScrolling: 'touch' }}
         >
           {visibleManga.map((item, index) => (
             <div
               key={item.id}
-              className="w-[9.5rem] shrink-0 snap-start sm:w-[calc((100%-40px)/4.5)] md:w-[calc((100%-50px)/5.5)] lg:w-[calc((100%-60px)/6.5)] xl:w-[calc((100%-72px)/7)]"
+              className="w-[9.5rem] shrink-0 sm:w-[calc((100%-40px)/4.5)] md:w-[calc((100%-50px)/5.5)] lg:w-[calc((100%-60px)/6.5)] xl:w-[calc((100%-72px)/7)]"
             >
               <MangaCard
                 manga={item}

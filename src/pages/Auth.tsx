@@ -15,6 +15,56 @@ const getErrorMessage = (error: unknown, fallback = 'Bir hata oluştu') => (
   error instanceof Error ? error.message : fallback
 );
 
+const MFA_COOLDOWN_STORAGE_KEY = 'toonparrot_mfa_cooldown_v1';
+
+const getMfaCooldownSeconds = (failedAttempts: number): number => {
+  if (failedAttempts >= 6) return 30;
+  if (failedAttempts >= 5) return 15;
+  if (failedAttempts >= 3) return 5;
+  return 0;
+};
+
+const readMfaCooldownState = (userId?: string): { attempts: number; until: number } => {
+  if (typeof window === 'undefined') {
+    return { attempts: 0, until: 0 };
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(MFA_COOLDOWN_STORAGE_KEY);
+    if (!raw) return { attempts: 0, until: 0 };
+    const parsed = JSON.parse(raw) as { userId?: string; attempts?: number; until?: number };
+    if (userId && parsed.userId && parsed.userId !== userId) {
+      return { attempts: 0, until: 0 };
+    }
+    const attempts = Number(parsed.attempts) || 0;
+    const until = Number(parsed.until) || 0;
+    return { attempts, until };
+  } catch {
+    return { attempts: 0, until: 0 };
+  }
+};
+
+const persistMfaCooldownState = (userId: string | undefined, attempts: number, until: number) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(
+      MFA_COOLDOWN_STORAGE_KEY,
+      JSON.stringify({ userId: userId || 'pending', attempts, until }),
+    );
+  } catch {
+    // Ignore storage errors
+  }
+};
+
+const clearMfaCooldownState = () => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(MFA_COOLDOWN_STORAGE_KEY);
+  } catch {
+    // Ignore storage errors
+  }
+};
+
 const Auth: React.FC = () => {
   const [searchParams] = useSearchParams();
   const [view, setView] = useState<AuthView>('login');
@@ -33,8 +83,11 @@ const Auth: React.FC = () => {
 
   const {
     user,
+    supabaseUser,
+    session,
     isLoading: authLoading,
     mfaState,
+    requiresTwoFactor,
     login,
     register,
     resetPassword,
@@ -50,17 +103,54 @@ const Auth: React.FC = () => {
   const oauthProvider = searchParams.get('provider');
   const isOAuthCallback = oauthProvider === 'google';
   const isAuthResolutionPending = authLoading || mfaState.isLoading;
+  const [mfaFailedAttempts, setMfaFailedAttempts] = useState(0);
+  const [mfaCooldownUntil, setMfaCooldownUntil] = useState(0);
+  const [mfaCooldownSeconds, setMfaCooldownSeconds] = useState(0);
+  const [mfaErrorMessage, setMfaErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const stored = readMfaCooldownState(supabaseUser?.id);
+    setMfaFailedAttempts(stored.attempts);
+    setMfaCooldownUntil(stored.until);
+    setMfaCooldownSeconds(
+      stored.until > Date.now() ? Math.max(0, Math.ceil((stored.until - Date.now()) / 1000)) : 0,
+    );
+  }, [supabaseUser?.id]);
+
+  useEffect(() => {
+    if (mfaCooldownUntil <= Date.now()) {
+      setMfaCooldownSeconds(0);
+      return;
+    }
+
+    const updateRemaining = () => {
+      const remaining = Math.max(0, Math.ceil((mfaCooldownUntil - Date.now()) / 1000));
+      setMfaCooldownSeconds(remaining);
+      if (remaining === 0) {
+        setMfaCooldownUntil(0);
+      }
+    };
+
+    updateRemaining();
+    const intervalId = window.setInterval(updateRemaining, 500);
+    return () => window.clearInterval(intervalId);
+  }, [mfaCooldownUntil]);
 
   useEffect(() => {
     const type = searchParams.get('type');
     const step = searchParams.get('step');
+
+    if (requiresTwoFactor || mfaState.needsVerification) {
+      setView('verify-mfa');
+      return;
+    }
 
     if (type === 'recovery') {
       setView('reset-password');
       return;
     }
 
-    if (mfaState.needsVerification || step === 'mfa') {
+    if (step === 'mfa' && (isAuthResolutionPending || Boolean(session))) {
       setView('verify-mfa');
       return;
     }
@@ -70,15 +160,24 @@ const Auth: React.FC = () => {
       return;
     }
 
-    if (!isAuthResolutionPending && user) {
+    if (!isAuthResolutionPending && user && !requiresTwoFactor) {
       navigate('/');
       return;
     }
 
-    if (isOAuthCallback && !isAuthResolutionPending && !user) {
+    if ((isOAuthCallback || step === 'mfa') && !isAuthResolutionPending && !user && !session) {
       setView('login');
     }
-  }, [authLoading, isAuthResolutionPending, isOAuthCallback, mfaState.isLoading, mfaState.needsVerification, navigate, searchParams, user]);
+  }, [
+    isAuthResolutionPending,
+    isOAuthCallback,
+    mfaState.needsVerification,
+    navigate,
+    requiresTwoFactor,
+    searchParams,
+    session,
+    user,
+  ]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,6 +193,7 @@ const Auth: React.FC = () => {
 
       if (result.requiresTwoFactor) {
         setView('verify-mfa');
+        setMfaErrorMessage(null);
         setFormData((prev) => ({ ...prev, mfaCode: '' }));
         toast.info('Girişinizi tamamlamak için Google Authenticator kodunu girin.');
         return;
@@ -166,15 +266,52 @@ const Auth: React.FC = () => {
 
   const handleMfaVerify = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (mfaCooldownSeconds > 0) {
+      const waitMessage = `Çok fazla başarısız deneme yapıldı. Lütfen ${mfaCooldownSeconds} saniye bekleyin.`;
+      setMfaErrorMessage(waitMessage);
+      toast.error(waitMessage);
+      return;
+    }
+
+    const sanitizedCode = formData.mfaCode.trim();
+    if (!/^\d{6}$/.test(sanitizedCode)) {
+      const invalidLengthMessage = 'Lütfen authenticator uygulamasındaki 6 haneli kodu girin.';
+      setMfaErrorMessage(invalidLengthMessage);
+      toast.error(invalidLengthMessage);
+      return;
+    }
+
     setIsLoading(true);
+    setMfaErrorMessage(null);
 
     try {
-      const result = await challengeTwoFactor(formData.mfaCode);
+      const result = await challengeTwoFactor(sanitizedCode);
       if (!result.success) {
-        toast.error(result.error || 'Kod hatalı veya süresi dolmuş');
+        const nextFailures = mfaFailedAttempts + 1;
+        const cooldownSeconds = getMfaCooldownSeconds(nextFailures);
+        const nextCooldownUntil = cooldownSeconds > 0 ? Date.now() + cooldownSeconds * 1000 : 0;
+
+        setMfaFailedAttempts(nextFailures);
+        setMfaCooldownUntil(nextCooldownUntil);
+        setMfaCooldownSeconds(cooldownSeconds);
+        persistMfaCooldownState(supabaseUser?.id, nextFailures, nextCooldownUntil);
+
+        const baseError = result.error || 'Kod hatalı veya süresi dolmuş.';
+        const toastMsg = cooldownSeconds > 0
+          ? `${baseError} Ardışık ${nextFailures} hatalı deneme nedeniyle ${cooldownSeconds} saniye bekleyin.`
+          : baseError;
+
+        setMfaErrorMessage(baseError);
+        toast.error(toastMsg);
         return;
       }
 
+      setMfaFailedAttempts(0);
+      setMfaCooldownUntil(0);
+      setMfaCooldownSeconds(0);
+      setMfaErrorMessage(null);
+      clearMfaCooldownState();
       toast.success('Doğrulama başarılı!');
       navigate('/');
     } finally {
@@ -248,8 +385,8 @@ const Auth: React.FC = () => {
       ? `${submittedEmail} adresine gönderilen hesap onay bağlantısını açın.`
       : `${submittedEmail} adresine gönderilen şifre sıfırlama bağlantısını açın.`,
     'reset-password': 'Hesabınız için yeni ve güçlü bir şifre belirleyin',
-    'verify-mfa': user?.email
-      ? `${user.email} hesabı için authenticator uygulamasındaki 6 haneli kodu girin.`
+    'verify-mfa': (user?.email || supabaseUser?.email)
+      ? `${user?.email || supabaseUser?.email} hesabı için authenticator uygulamasındaki 6 haneli kodu girin.`
       : 'Authenticator uygulamanızdaki 6 haneli kodu girin.',
     'oauth-check': 'Google hesabınız doğrulanıyor. İki adımlı doğrulama gerekiyorsa bir sonraki adımda kod ekranı açılacak.',
   }[view];
@@ -397,14 +534,27 @@ const Auth: React.FC = () => {
                     autoComplete="one-time-code"
                     placeholder="123456"
                     value={formData.mfaCode}
-                    onChange={(e) => setFormData((prev) => ({
-                      ...prev,
-                      mfaCode: e.target.value.replace(/\D/g, '').slice(0, 6),
-                    }))}
+                    onChange={(e) => {
+                      if (mfaErrorMessage) {
+                        setMfaErrorMessage(null);
+                      }
+                      setFormData((prev) => ({
+                        ...prev,
+                        mfaCode: e.target.value.replace(/\D/g, '').slice(0, 6),
+                      }));
+                    }}
                     className="border-white/10 bg-white/5 text-center text-lg tracking-[0.35em]"
                     maxLength={6}
+                    disabled={isLoading}
                     required
                   />
+                  {(mfaCooldownSeconds > 0 || mfaErrorMessage) && (
+                    <p role="alert" className="text-center text-xs font-medium text-destructive">
+                      {mfaCooldownSeconds > 0
+                        ? `Ardışık ${mfaFailedAttempts} hatalı deneme. Tekrar denemek için ${mfaCooldownSeconds} saniye bekleyin.`
+                        : mfaErrorMessage}
+                    </p>
+                  )}
                 </div>
                 <Button
                   variant="ghost"
@@ -412,6 +562,11 @@ const Auth: React.FC = () => {
                   className="w-full text-xs text-muted-foreground hover:bg-white/5 hover:text-white"
                   onClick={async () => {
                     await logout();
+                    setMfaFailedAttempts(0);
+                    setMfaCooldownUntil(0);
+                    setMfaCooldownSeconds(0);
+                    setMfaErrorMessage(null);
+                    clearMfaCooldownState();
                     setFormData((prev) => ({ ...prev, password: '', mfaCode: '' }));
                     setView('login');
                   }}
@@ -504,7 +659,12 @@ const Auth: React.FC = () => {
             )}
 
             {showSubmitButton && (
-              <Button type="submit" variant="glow" className="mt-4 h-11 w-full rounded-xl shadow-lg shadow-primary/20" disabled={isLoading}>
+              <Button
+                type="submit"
+                variant="glow"
+                className="mt-4 h-11 w-full rounded-xl shadow-lg shadow-primary/20"
+                disabled={isLoading || (view === 'verify-mfa' && mfaCooldownSeconds > 0)}
+              >
                 {isLoading ? (
                   <div className="flex items-center gap-2">
                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white" />
@@ -515,7 +675,7 @@ const Auth: React.FC = () => {
                     {view === 'login' && 'Giriş Yap'}
                     {view === 'register' && 'Hesap Oluştur'}
                     {view === 'forgot-password' && 'Şifre Sıfırlama Bağlantısı Gönder'}
-                    {view === 'verify-mfa' && 'Doğrula ve Giriş Yap'}
+                    {view === 'verify-mfa' && (mfaCooldownSeconds > 0 ? `Bekleyin (${mfaCooldownSeconds}s)` : 'Doğrula ve Giriş Yap')}
                     {view === 'reset-password' && 'Şifreyi Güncelle'}
                   </>
                 )}
@@ -578,11 +738,13 @@ const Auth: React.FC = () => {
           )}
         </div>
 
-        <div className="mt-8 text-center">
-          <Link to="/" className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground transition-colors duration-300 hover:text-white">
-            &larr; Ana Sayfaya Dön
-          </Link>
-        </div>
+        {view !== 'verify-mfa' && !requiresTwoFactor && (
+          <div className="mt-8 text-center">
+            <Link to="/" className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground transition-colors duration-300 hover:text-white">
+              &larr; Ana Sayfaya Dön
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );

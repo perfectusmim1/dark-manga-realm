@@ -1,5 +1,5 @@
-import React, { Suspense, lazy, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useParams, Link } from 'react-router-dom';
+import React, { Suspense, lazy, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useParams, useSearchParams, Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import {
@@ -282,6 +282,46 @@ const PREVIEW_GRID_CLASSES: Record<PreviewCardSize, string> = {
   large: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4',
 };
 
+const PREVIEW_WIDTH_BUCKETS = [160, 220, 280, 360, 460, 560, 720] as const;
+
+const PREVIEW_FALLBACK_WIDTH_BY_SIZE: Record<PreviewCardSize, number> = {
+  small: 180,
+  medium: 320,
+  large: 520,
+};
+
+const PREVIEW_QUALITY_BY_SIZE: Record<PreviewCardSize, number> = {
+  small: 68,
+  medium: 74,
+  large: 80,
+};
+
+const resolvePreviewImageBucket = (renderedWidth: number): number => {
+  const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 1.5) : 1;
+  const targetWidth = Math.round(renderedWidth * dpr);
+  for (const bucket of PREVIEW_WIDTH_BUCKETS) {
+    if (targetWidth <= bucket) {
+      return bucket;
+    }
+  }
+  return PREVIEW_WIDTH_BUCKETS[PREVIEW_WIDTH_BUCKETS.length - 1];
+};
+
+const MANGA_DETAIL_TAB_VALUES = [
+  'overview',
+  'preview',
+  'bookmarks',
+  'reviews',
+  'characters',
+  'gallery',
+  'external',
+  'discover',
+] as const;
+type MangaDetailTabValue = (typeof MANGA_DETAIL_TAB_VALUES)[number];
+
+const isValidMangaDetailTab = (value: string | null | undefined): value is MangaDetailTabValue =>
+  Boolean(value && (MANGA_DETAIL_TAB_VALUES as readonly string[]).includes(value));
+
 const PreviewPageThumbnail = React.memo(({
   page,
   pageIndex,
@@ -301,6 +341,8 @@ const PreviewPageThumbnail = React.memo(({
 }) => {
   const cardRef = React.useRef<HTMLDivElement>(null);
   const [isNearViewport, setIsNearViewport] = useState(false);
+  const [measuredWidthBucket, setMeasuredWidthBucket] = useState<number | null>(null);
+  const [measuredCssWidth, setMeasuredCssWidth] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isChapterMounted || !cardRef.current) {
@@ -313,7 +355,7 @@ const PreviewPageThumbnail = React.memo(({
         const entry = entries[0];
         setIsNearViewport(Boolean(entry?.isIntersecting));
       },
-      { rootMargin: '320px 0px 320px 0px', threshold: 0.01 }
+      { rootMargin: '200px 0px 850px 0px', threshold: 0.01 }
     );
 
     observer.observe(cardRef.current);
@@ -321,7 +363,43 @@ const PreviewPageThumbnail = React.memo(({
     return () => observer.disconnect();
   }, [isChapterMounted]);
 
+  useLayoutEffect(() => {
+    const node = cardRef.current;
+    if (!node) return;
+
+    const syncSize = (width: number) => {
+      if (!width || width <= 0) return;
+      const roundedCss = Math.round(width);
+      const nextBucket = resolvePreviewImageBucket(width);
+      setMeasuredCssWidth((prev) => (prev === roundedCss ? prev : roundedCss));
+      setMeasuredWidthBucket((prev) => (prev === nextBucket ? prev : nextBucket));
+    };
+
+    const initialWidth = node.getBoundingClientRect().width || node.clientWidth;
+    if (initialWidth > 0) {
+      syncSize(initialWidth);
+    }
+
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect?.width;
+      if (width && width > 0) {
+        syncSize(width);
+      }
+    });
+
+    resizeObserver.observe(node);
+    return () => resizeObserver.disconnect();
+  }, [cardSize, isChapterMounted, isNearViewport]);
+
+  const fallbackBucket = resolvePreviewImageBucket(PREVIEW_FALLBACK_WIDTH_BY_SIZE[cardSize]);
+  const targetWidth = measuredWidthBucket ?? fallbackBucket;
+  const targetQuality = PREVIEW_QUALITY_BY_SIZE[cardSize];
   const shouldMountImage = isChapterMounted && isNearViewport;
+  const imgDisplayWidth = measuredCssWidth ?? targetWidth;
 
   return (
     <Link
@@ -333,7 +411,7 @@ const PreviewPageThumbnail = React.memo(({
         className="relative aspect-[3/4] overflow-hidden rounded-xl border border-border bg-secondary shadow-sm isolate"
         style={{
           contentVisibility: 'auto',
-          containIntrinsicSize: cardSize === 'small' ? '120px 160px' : cardSize === 'large' ? '280px 370px' : '180px 240px',
+          containIntrinsicSize: cardSize === 'small' ? 'auto 170px' : cardSize === 'large' ? 'auto 380px' : 'auto 260px',
         }}
       >
         <div className="absolute inset-0 overflow-hidden rounded-[inherit]">
@@ -343,21 +421,16 @@ const PreviewPageThumbnail = React.memo(({
               alt={`Bölüm ${chapterNumber} Sayfa ${pageIndex + 1}`}
               priority
               allowProxy
+              decoding="async"
               transform={{
-                width: cardSize === 'small' ? 240 : cardSize === 'large' ? 480 : 320,
-                quality: 84,
+                width: targetWidth,
+                quality: targetQuality,
                 format: 'webp',
                 fit: 'cover',
               }}
-              width={cardSize === 'small' ? 160 : cardSize === 'large' ? 420 : 240}
-              height={cardSize === 'small' ? 213 : cardSize === 'large' ? 560 : 320}
-              sizes={
-                cardSize === 'small'
-                  ? '(min-width: 1280px) 160px, (min-width: 1024px) 140px, (min-width: 640px) 20vw, 32vw'
-                  : cardSize === 'large'
-                    ? '(min-width: 1280px) 450px, (min-width: 1024px) 400px, (min-width: 640px) 45vw, 90vw'
-                    : '(min-width: 1280px) 240px, (min-width: 1024px) 22vw, (min-width: 640px) 30vw, 45vw'
-              }
+              width={targetWidth}
+              height={Math.round(targetWidth * (4 / 3))}
+              sizes={`${imgDisplayWidth}px`}
               draggable={false}
               containerClassName="h-full w-full"
               placeholderClassName="rounded-[inherit]"
@@ -395,52 +468,63 @@ const PreviewPageThumbnail = React.memo(({
 const PreviewChapter = React.memo(({ 
   chapter, 
   pages,
+  isPagesLoaded,
   index, 
   mangaId, 
-  isImageMounted, 
   cardSize = 'medium',
-  onInView,
   onNearBottom,
 }: { 
-  chapter: any; 
+  chapter: Chapter; 
   pages: string[];
+  isPagesLoaded: boolean;
   index: number; 
   mangaId: string; 
-  isImageMounted: boolean;
   cardSize?: PreviewCardSize;
-  onInView: (index: number) => void;
   onNearBottom: (index: number) => void;
 }) => {
   const containerRef = React.useRef<HTMLDivElement>(null);
-  
+  const bottomSentinelRef = React.useRef<HTMLDivElement>(null);
+  const [isChapterNearViewport, setIsChapterNearViewport] = useState(false);
+
   useEffect(() => {
-    if (!containerRef.current) return;
-    
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          onInView(index);
-        }
-      });
-    }, { rootMargin: '-40% 0px -40% 0px' });
-    
-    observer.observe(containerRef.current);
-    
-    const bottomObserver = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          onNearBottom(index);
-        }
-      });
-    }, { rootMargin: '0px 0px 800px 0px' });
-    
-    bottomObserver.observe(containerRef.current);
+    const node = containerRef.current;
+    if (!node) return;
+
+    const visibilityObserver = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        setIsChapterNearViewport(Boolean(entry?.isIntersecting));
+      },
+      { rootMargin: '250px 0px 180px 0px', threshold: 0 }
+    );
+
+    visibilityObserver.observe(node);
 
     return () => {
-      observer.disconnect();
-      bottomObserver.disconnect();
+      visibilityObserver.disconnect();
     };
-  }, [index, onInView, onNearBottom]);
+  }, []);
+
+  useEffect(() => {
+    if (!isPagesLoaded || !bottomSentinelRef.current) return;
+
+    const bottomObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            onNearBottom(index);
+          }
+        });
+      },
+      { rootMargin: '0px 0px 180px 0px', threshold: 0 }
+    );
+
+    bottomObserver.observe(bottomSentinelRef.current);
+
+    return () => bottomObserver.disconnect();
+  }, [index, isPagesLoaded, onNearBottom, pages.length]);
+
+  const isImageMounted = isChapterNearViewport;
 
   return (
     <div ref={containerRef} className="space-y-3 rounded-xl border border-border bg-card/50 p-4 shadow-sm sm:p-5">
@@ -475,12 +559,18 @@ const PreviewChapter = React.memo(({
               cardSize={cardSize}
             />
           ))
+        ) : isPagesLoaded ? (
+          <div className="col-span-full rounded-xl border border-dashed border-border/70 bg-secondary/20 p-6 text-sm text-muted-foreground">
+            Bu bölümde önizlenecek sayfa bulunamadı.
+          </div>
         ) : (
           <div className="col-span-full rounded-xl border border-dashed border-border/70 bg-secondary/20 p-6 text-sm text-muted-foreground">
             Önizleme sayfaları yükleniyor...
           </div>
         )}
       </div>
+
+      <div ref={bottomSentinelRef} className="h-px w-full pointer-events-none" aria-hidden="true" />
     </div>
   );
 });
@@ -557,6 +647,7 @@ const BookmarkPagePreview = React.memo(({
 const MangaDetail: React.FC = () => {
   const { mangaId } = useParams<{ mangaId: string }>();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { disableHeavyEffects, prefersReducedMotion, isMobile } = useDeviceProfile();
   const reduceMotion = prefersReducedMotion || disableHeavyEffects;
   const tabContentAnimationClass = prefersReducedMotion
@@ -589,10 +680,12 @@ const MangaDetail: React.FC = () => {
   const [chapterSearch, setChapterSearch] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState<string>('all');
   const deferredChapterSearch = useDeferredValue(chapterSearch);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState<MangaDetailTabValue>(() => {
+    const requestedTab = searchParams.get('tab');
+    return isValidMangaDetailTab(requestedTab) ? requestedTab : 'overview';
+  });
   const [minLoadedPreviewIndex, setMinLoadedPreviewIndex] = useState(0);
   const [maxLoadedIndex, setMaxLoadedIndex] = useState(0);
-  const [currentViewedIndex, setCurrentViewedIndex] = useState(0);
   const [previewStartIndex, setPreviewStartIndex] = useState(0);
   const [previewChapterPagesById, setPreviewChapterPagesById] = useState<Record<string, string[]>>({});
   const [previewCardSize, setPreviewCardSize] = useState<PreviewCardSize>(() => {
@@ -1021,6 +1114,7 @@ const MangaDetail: React.FC = () => {
   const isBookmarksTabActive = activeTab === 'bookmarks';
   const isReviewsTabActive = activeTab === 'reviews';
   const isGalleryTabActive = activeTab === 'gallery';
+  const isExternalTabActive = activeTab === 'external';
   const isCharactersTabActive = activeTab === 'characters';
   const isDiscoverTabActive = activeTab === 'discover';
   const targetCommentId = useMemo(
@@ -1151,10 +1245,6 @@ const MangaDetail: React.FC = () => {
     ));
   }, [mangaCharacters.length]);
 
-  const handlePreviewInView = React.useCallback((idx: number) => {
-    setCurrentViewedIndex(idx);
-  }, []);
-
   const handlePreviewNearBottom = React.useCallback((idx: number) => {
     setMaxLoadedIndex(prev => Math.max(prev, idx + 1));
   }, []);
@@ -1277,21 +1367,27 @@ const MangaDetail: React.FC = () => {
     if (!manga?.chapters?.length) {
       setPreviewStartIndex(0);
       setMinLoadedPreviewIndex(0);
-      setCurrentViewedIndex(0);
       setMaxLoadedIndex(0);
       return;
     }
 
-    const sortedChaptersAsc = [...manga.chapters].sort((a, b) => a.number - b.number);
-    const targetChapterId = latestProgress?.chapterId;
-    const targetIndex = targetChapterId
-      ? Math.max(0, sortedChaptersAsc.findIndex((chapter) => chapter.id === targetChapterId))
+    const uniqueAscChapters = Array.from(
+      new Map(
+        [...manga.chapters]
+          .sort((a, b) => a.number - b.number)
+          .map((chapter) => [chapter.number, chapter]),
+      ).values(),
+    );
+    const targetChapter = latestProgress?.chapterId
+      ? manga.chapters.find((chapter) => chapter.id === latestProgress.chapterId)
+      : undefined;
+    const targetIndex = targetChapter
+      ? Math.max(0, uniqueAscChapters.findIndex((chapter) => chapter.number === targetChapter.number))
       : 0;
 
     setPreviewStartIndex(targetIndex);
     setMinLoadedPreviewIndex(targetIndex);
-    setCurrentViewedIndex(targetIndex);
-    setMaxLoadedIndex(Math.min(sortedChaptersAsc.length - 1, targetIndex + 1));
+    setMaxLoadedIndex(targetIndex);
   }, [latestProgress?.chapterId, manga?.chapters]);
 
   useEffect(() => {
@@ -1425,31 +1521,57 @@ const MangaDetail: React.FC = () => {
     });
   }, [hasLoadedBookmarks, isOnline, manga?.chapters, manga?.cover, previewChapterPagesById, seriesBookmarks]);
 
-  const handleActiveTabChange = React.useCallback((nextTab: string) => {
-    setActiveTab(nextTab);
+  const urlTabParam = searchParams.get('tab');
 
-    if (nextTab === 'reviews' && !hasLoadedReviews) {
+  const handleActiveTabChange = React.useCallback((nextTab: string) => {
+    const safeNextTab: MangaDetailTabValue = isValidMangaDetailTab(nextTab) ? nextTab : 'overview';
+    setActiveTab(safeNextTab);
+
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (safeNextTab === 'overview') {
+          next.delete('tab');
+        } else {
+          next.set('tab', safeNextTab);
+        }
+        return next;
+      },
+      { replace: true },
+    );
+
+    if (safeNextTab === 'reviews' && !hasLoadedReviews) {
       setIsReviewsLoading(true);
     }
 
-    if (nextTab === 'characters' && !hasLoadedCharacters) {
+    if (safeNextTab === 'characters' && !hasLoadedCharacters) {
       setIsCharsLoading(true);
     }
 
-    if (nextTab === 'discover' && !hasLoadedSimilar) {
+    if (safeNextTab === 'discover' && !hasLoadedSimilar) {
       setLoadingSimilar(true);
     }
 
-    if (nextTab === 'bookmarks' && !hasLoadedBookmarks) {
+    if (safeNextTab === 'bookmarks' && !hasLoadedBookmarks) {
       setIsSeriesBookmarksLoading(true);
     }
-  }, [hasLoadedBookmarks, hasLoadedCharacters, hasLoadedReviews, hasLoadedSimilar]);
+  }, [hasLoadedBookmarks, hasLoadedCharacters, hasLoadedReviews, hasLoadedSimilar, setSearchParams]);
 
   useEffect(() => {
-    if (targetCommentId && activeTab !== 'overview') {
-      setActiveTab('overview');
+    if (targetCommentId) {
+      setActiveTab((current) => (current === 'overview' ? current : 'overview'));
+      return;
     }
-  }, [activeTab, targetCommentId]);
+
+    const nextTab: MangaDetailTabValue = isValidMangaDetailTab(urlTabParam) ? urlTabParam : 'overview';
+    setActiveTab((current) => (current === nextTab ? current : nextTab));
+  }, [targetCommentId, urlTabParam]);
+
+  useEffect(() => {
+    if (!isLoading && manga && activeTab === 'gallery' && seriesGalleryImages.length === 0) {
+      handleActiveTabChange('overview');
+    }
+  }, [activeTab, handleActiveTabChange, isLoading, manga, seriesGalleryImages.length]);
 
   useEffect(() => {
     setIsDescriptionExpanded(false);
@@ -2006,6 +2128,28 @@ const MangaDetail: React.FC = () => {
     }
 
     return response;
+  };
+
+  const handleRefreshExternalRatings = async () => {
+    if (!manga?.id || !isOnline || isRefreshingExternalRatings) {
+      return;
+    }
+
+    try {
+      setIsRefreshingExternalRatings(true);
+      const payload = await refreshMangaExternalRatings(manga.id);
+      if (payload?.details) {
+        setExternalRatings(getMangaExternalRatings({ details: payload.details }));
+        setManga((current) => current ? { ...current, details: payload.details } : current);
+      } else if (payload?.ratings) {
+        setExternalRatings(payload.ratings);
+      }
+      toast.success('Harici puanlar güncellendi');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Harici puanlar yenilenemedi');
+    } finally {
+      setIsRefreshingExternalRatings(false);
+    }
   };
 
   const handleManualExternalSync = async (provider: ExternalSyncProvider) => {
@@ -3020,14 +3164,17 @@ const MangaDetail: React.FC = () => {
 
     void getChapterPagesByIds(missingChapterIds)
       .then((pagesById) => {
-        if (isCancelled || Object.keys(pagesById).length === 0) {
+        if (isCancelled) {
           return;
         }
 
-        setPreviewChapterPagesById((current) => ({
-          ...current,
-          ...pagesById,
-        }));
+        setPreviewChapterPagesById((current) => {
+          const next = { ...current };
+          for (const missingId of missingChapterIds) {
+            next[missingId] = pagesById[missingId] || [];
+          }
+          return next;
+        });
       })
       .catch((error) => {
         if (!isCancelled) {
@@ -3242,6 +3389,9 @@ const MangaDetail: React.FC = () => {
                 </Link>
                 {variants.map((variant) => {
                   const langInfo = getChapterLanguageInfo(variant, fallbackSeriesLang);
+                  if (langInfo.language === 'tr') {
+                    return null;
+                  }
                   const isActiveVariant = variant.id === chapter.id;
                   return (
                     <Link
@@ -3307,11 +3457,6 @@ const MangaDetail: React.FC = () => {
                     </button>
                   );
                 })()}
-                {isAnyVariantRead && (
-                  <Badge variant="secondary" className="text-[10px] border-emerald-500/20 bg-emerald-500/15 text-emerald-300">
-                    Okundu
-                  </Badge>
-                )}
                 {offlineChapterMap[chapter.id] && (
                   <Badge variant="outline" className="text-[10px]">
                     {getOfflineDownloadStatusLabel(offlineChapterMap[chapter.id].downloadStatus)}
@@ -3955,6 +4100,13 @@ const MangaDetail: React.FC = () => {
                   </TabsTrigger>
                 )}
                 <TabsTrigger
+                  value="external"
+                  className="group flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                >
+                  <Link2 className="h-3.5 w-3.5 shrink-0" />
+                  <span>Harici Takip</span>
+                </TabsTrigger>
+                <TabsTrigger
                   value="discover"
                   className="shrink-0 whitespace-nowrap rounded-lg px-3.5 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
                 >
@@ -4162,7 +4314,7 @@ const MangaDetail: React.FC = () => {
                     <div className="min-w-0 space-y-4 sm:space-y-6">
                       <div 
                         className="group hidden cursor-pointer rounded-xl border border-border bg-card/50 p-3 transition-colors hover:bg-card/70 sm:block sm:p-6"
-                        onClick={() => setActiveTab('reviews')}
+                        onClick={() => handleActiveTabChange('reviews')}
                       >
                         <h2 className="mb-3 text-lg font-semibold text-center transition-colors group-hover:text-primary sm:mb-4">
                           {userRating ? 'Puanınız' : 'Puan Ver'}
@@ -4196,91 +4348,6 @@ const MangaDetail: React.FC = () => {
                               <span>Puanlamak için tıklayın</span>
                             )}
                           </div>
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl border border-border bg-card/50 p-3 sm:p-6">
-                        <div className="mb-4 flex items-center justify-between gap-3">
-                          <div>
-                            <h3 className="text-base font-semibold">Harici Takip</h3>
-                            
-                          </div>
-                          {isRefreshingExternalRatings ? (
-                            <RefreshCcw className="h-4 w-4 animate-spin text-muted-foreground" />
-                          ) : null}
-                        </div>
-
-                        <div className="space-y-3">
-                          {([
-                            {
-                              provider: 'myanimelist' as const,
-                              link: malLink,
-                              rating: externalRatings.myanimelist,
-                            },
-                            {
-                              provider: 'anilist' as const,
-                              link: aniListLink,
-                              rating: externalRatings.anilist,
-                            },
-                          ]).map(({ provider, link, rating }) => {
-                            const isSupported = isExternalProviderSupported(manga.sourceLinks, provider);
-                            const isConnected = externalProviderStatuses[provider]?.connected;
-                            const hasSyncError = Boolean(externalProviderStatuses[provider]?.lastError);
-                            const isProviderEnabled = userExternalSyncPreferences.providers[provider].enabled;
-
-                            return (
-                              <div key={provider} className="rounded-xl border border-border/60 bg-background/30 p-3">
-                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                  <div className="space-y-1">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <span className="font-medium">{externalProviderLabels[provider]}</span>
-                                      <Badge className={isSupported ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/15' : 'bg-secondary text-muted-foreground hover:bg-secondary'}>
-                                        {isSupported ? 'Destekleniyor' : 'Desteklenmiyor'}
-                                      </Badge>
-                                      {isConnected ? (
-                                        <Badge variant="outline">Bağlı</Badge>
-                                      ) : null}
-                                      {user && !isProviderEnabled ? (
-                                        <Badge variant="secondary">Senkron Kapalı</Badge>
-                                      ) : null}
-                                    </div>
-                                    <p className="text-sm text-muted-foreground">
-                                      Puan: <span className="font-medium text-foreground">{formatExternalScore(rating?.score)}</span>
-                                    </p>
-                                    {hasSyncError ? (
-                                      <p className="text-xs text-amber-300">{externalProviderStatuses[provider]?.lastError}</p>
-                                    ) : null}
-                                  </div>
-
-                                  <div className="flex flex-wrap gap-2">
-                                    {link?.url ? (
-                                      <Button asChild size="sm" variant="outline">
-                                        <a href={link.url} target="_blank" rel="noreferrer">
-                                          <Link2 className="h-4 w-4" />
-                                          Aç
-                                        </a>
-                                      </Button>
-                                    ) : null}
-                                    {user && isSupported && isConnected ? (
-                                      <Button
-                                        size="sm"
-                                        variant="glow"
-                                        onClick={() => void handleManualExternalSync(provider)}
-                                        disabled={syncingExternalProvider === provider || !isProviderEnabled}
-                                      >
-                                        {syncingExternalProvider === provider ? (
-                                          <RefreshCcw className="h-4 w-4 animate-spin" />
-                                        ) : (
-                                          <RefreshCcw className="h-4 w-4" />
-                                        )}
-                                        Şimdi Senkronla
-                                      </Button>
-                                    ) : null}
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
                         </div>
                       </div>
 
@@ -4399,18 +4466,16 @@ const MangaDetail: React.FC = () => {
 
                       {previewWindow.displayedPreviewChapters.map((chapter, localIndex) => {
                         const index = previewWindow.safeMinLoadedIndex + localIndex;
-                        const isImageMounted = Math.abs(index - currentViewedIndex) <= 1;
 
                         return (
                           <PreviewChapter
                             key={chapter.id}
                             chapter={chapter}
                             pages={previewChapterPagesById[chapter.id] || []}
+                            isPagesLoaded={chapter.id in previewChapterPagesById}
                             index={index}
                             mangaId={manga.id}
-                            isImageMounted={isImageMounted}
                             cardSize={previewCardSize}
-                            onInView={handlePreviewInView}
                             onNearBottom={handlePreviewNearBottom}
                           />
                         );
@@ -5070,6 +5135,136 @@ const MangaDetail: React.FC = () => {
                       </div>
                     )}
                   </div>
+                  </div>
+                )
+              ) : null}
+            </TabsContent>
+
+            <TabsContent value="external" className={tabContentAnimationClass}>
+              {isExternalTabActive ? (
+                !isOnline ? (
+                  <OfflineNotice
+                    description="Harici takip ve senkronizasyon internet bağlantısı gerektirir."
+                    actionHref={`/manga/${manga.id}`}
+                    actionLabel="Genel Bakışa Dön"
+                  />
+                ) : (
+                  <div className="mx-auto max-w-4xl">
+                    <div className="rounded-xl border border-border bg-card/50 p-4 shadow-sm sm:p-6">
+                      <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-4">
+                        <h2 className="flex items-center gap-2 text-xl font-bold">
+                          <Link2 className="h-5 w-5 text-primary" />
+                          <span>Harici Takip</span>
+                        </h2>
+
+                        {hasSupportedExternalProviders && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void handleRefreshExternalRatings()}
+                            disabled={isRefreshingExternalRatings}
+                            className="h-9 gap-1.5"
+                          >
+                            <RefreshCcw className={cn('h-4 w-4', isRefreshingExternalRatings && 'animate-spin')} />
+                            <span>Puanları Yenile</span>
+                          </Button>
+                        )}
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-2">
+                        {([
+                          {
+                            provider: 'myanimelist' as const,
+                            link: malLink,
+                            rating: externalRatings.myanimelist,
+                          },
+                          {
+                            provider: 'anilist' as const,
+                            link: aniListLink,
+                            rating: externalRatings.anilist,
+                          },
+                        ]).map(({ provider, link, rating }) => {
+                          const isSupported = isExternalProviderSupported(manga.sourceLinks, provider);
+                          const isConnected = externalProviderStatuses[provider]?.connected;
+                          const hasSyncError = Boolean(externalProviderStatuses[provider]?.lastError);
+                          const isProviderEnabled = userExternalSyncPreferences.providers[provider].enabled;
+
+                          return (
+                            <div
+                              key={provider}
+                              className="flex flex-col justify-between gap-4 rounded-xl border border-border/60 bg-background/40 p-4 sm:p-5"
+                            >
+                              <div className="space-y-2.5">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-base font-semibold">{externalProviderLabels[provider]}</span>
+                                  <Badge
+                                    className={
+                                      isSupported
+                                        ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/15'
+                                        : 'bg-secondary text-muted-foreground hover:bg-secondary'
+                                    }
+                                  >
+                                    {isSupported ? 'Destekleniyor' : 'Desteklenmiyor'}
+                                  </Badge>
+                                  {isConnected ? <Badge variant="outline">Bağlı</Badge> : null}
+                                  {user && !isProviderEnabled ? (
+                                    <Badge variant="secondary">Senkron Kapalı</Badge>
+                                  ) : null}
+                                </div>
+
+                                <p className="text-sm text-muted-foreground">
+                                  Puan:{' '}
+                                  <span className="font-semibold text-foreground">
+                                    {formatExternalScore(rating?.score)}
+                                  </span>
+                                </p>
+
+                                {hasSyncError ? (
+                                  <p className="text-xs text-amber-300">
+                                    {externalProviderStatuses[provider]?.lastError}
+                                  </p>
+                                ) : null}
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-2 border-t border-border/50 pt-3">
+                                {link?.url ? (
+                                  <Button asChild size="sm" variant="outline" className="gap-1.5">
+                                    <a href={link.url} target="_blank" rel="noreferrer">
+                                      <Link2 className="h-4 w-4" />
+                                      <span>Aç</span>
+                                    </a>
+                                  </Button>
+                                ) : null}
+                                {user && isSupported && isConnected ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="glow"
+                                    className="gap-1.5"
+                                    onClick={() => void handleManualExternalSync(provider)}
+                                    disabled={syncingExternalProvider === provider || !isProviderEnabled}
+                                  >
+                                    <RefreshCcw
+                                      className={cn(
+                                        'h-4 w-4',
+                                        syncingExternalProvider === provider && 'animate-spin',
+                                      )}
+                                    />
+                                    <span>Şimdi Senkronla</span>
+                                  </Button>
+                                ) : null}
+                                {user && isSupported && !isConnected ? (
+                                  <Button asChild size="sm" variant="outline">
+                                    <Link to="/settings?tab=sync">Hesap Bağla</Link>
+                                  </Button>
+                                ) : null}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 )
               ) : null}

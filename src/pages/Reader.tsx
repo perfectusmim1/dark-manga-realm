@@ -2239,6 +2239,8 @@ const Reader: React.FC = () => {
         pageOffsetRatio={currentPageOffsetRatio}
         visible={controlsVisible}
         translation={translation}
+        currentPageTranslationState={translation.pageStates[Math.max(0, currentPage - 1)]}
+        onTranslatePage={translation.translatePage}
         onQueueOfflineChapter={handleQueueCurrentChapterOffline}
         onPageChange={scrollToPage}
         onPercentChange={scrollToPercent}

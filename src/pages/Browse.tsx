@@ -1,5 +1,5 @@
 import useDocumentTitle from '@/hooks/useDocumentTitle';
-import React, { startTransition, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import React, { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Activity,
@@ -31,7 +31,6 @@ import AppPagination from '@/components/ui/AppPagination';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AnimatePresence, motion } from 'framer-motion';
 import { allGenres, formatGenreDisplayName, normalizeGenreName } from '@/lib/mockData';
 import { getAllTimeMangaRanks, getMangaSummaries, getMangasByMultipleTags } from '@/lib/database';
 import { Manga } from '@/lib/types';
@@ -541,6 +540,11 @@ const Browse: React.FC = () => {
     });
   };
 
+  const handleSelectedTagsChange = useCallback((tags: string[]) => {
+    setSelectedTagSlugs(tags);
+    setCurrentPage(1);
+  }, []);
+
   const clearFilters = () => {
     setSearchQuery('');
     setSelectedGenres([]);
@@ -863,10 +867,12 @@ const Browse: React.FC = () => {
 
             <div className="col-span-2 flex items-center gap-2 sm:contents">
               <Button
+                type="button"
                 variant={showFilters ? 'default' : 'outline'}
                 size="sm"
-                onClick={() => setShowFilters(!showFilters)}
-                className="h-9 flex-1 text-xs sm:w-auto sm:flex-initial"
+                aria-expanded={showFilters}
+                onClick={() => setShowFilters((prev) => !prev)}
+                className="h-9 flex-1 text-xs active:scale-100 sm:w-auto sm:flex-initial"
               >
                 <Filter className="mr-1.5 h-3.5 w-3.5" />
                 Türler
@@ -882,10 +888,11 @@ const Browse: React.FC = () => {
 
               {hasActiveFilters && (
                 <Button
+                  type="button"
                   variant="ghost"
                   size="sm"
                   onClick={clearFilters}
-                  className="h-9 shrink-0 text-xs text-muted-foreground hover:text-foreground sm:w-auto"
+                  className="h-9 shrink-0 text-xs text-muted-foreground active:scale-100 hover:text-foreground sm:w-auto"
                 >
                   <X className="mr-1.5 h-3.5 w-3.5" />
                   Temizle
@@ -896,26 +903,28 @@ const Browse: React.FC = () => {
         </div>
 
         {/* Genre Filters */}
-        <AnimatePresence initial={false}>
-          {showFilters && (
-            <motion.div
-              key="browse-genre-drawer"
-              initial={prefersReducedMotion ? false : { opacity: 0, y: disableHeavyEffects ? 0 : -6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={prefersReducedMotion ? undefined : { opacity: 0, y: disableHeavyEffects ? 0 : -6 }}
-              transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.16, ease: 'easeOut' }}
-              className="mb-5 flex flex-wrap gap-2 rounded-2xl border border-border/60 bg-card/50 p-3.5 sm:p-4"
-            >
+        <div
+          aria-hidden={!showFilters}
+          className={cn(
+            'grid transition-[grid-template-rows,opacity,visibility,margin] duration-200 ease-out motion-reduce:transition-none',
+            showFilters
+              ? 'visible mb-5 grid-rows-[1fr] opacity-100'
+              : 'pointer-events-none invisible mb-0 grid-rows-[0fr] opacity-0',
+          )}
+        >
+          <div className="overflow-hidden">
+            <div className="flex flex-wrap gap-2 rounded-2xl border border-border/60 bg-card/50 p-3.5 sm:p-4">
               {allGenres.map((genre) => {
                 const isSelected = selectedGenres.includes(genre);
                 return (
                   <button
                     key={genre}
                     type="button"
+                    tabIndex={showFilters ? 0 : -1}
                     onClick={() => toggleGenre(genre)}
                     aria-pressed={isSelected}
                     className={cn(
-                      "cursor-pointer px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                      "min-h-8 cursor-pointer select-none px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                       isSelected
                         ? "border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground hover:border-primary"
                         : "border-border/60 bg-background/50 text-foreground hover:border-primary/50 hover:bg-secondary/70"
@@ -925,18 +934,15 @@ const Browse: React.FC = () => {
                   </button>
                 );
               })}
-            </motion.div>
-          )}
-        </AnimatePresence>
+            </div>
+          </div>
+        </div>
 
         {/* Tag Filters */}
         <div className="mb-5">
           <TagFilterPanel
             selectedTags={selectedTagSlugs}
-            onSelectedTagsChange={(tags) => {
-              setSelectedTagSlugs(tags);
-              setCurrentPage(1);
-            }}
+            onSelectedTagsChange={handleSelectedTagsChange}
           />
         </div>
 

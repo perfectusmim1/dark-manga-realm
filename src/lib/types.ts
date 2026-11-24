@@ -21,6 +21,7 @@ export interface Manga {
   chapterCount?: number;
   characterCount?: number;
   lastUpdated: string;
+  latestChapterAt?: string;
   createdAt: string;
   type: 'manga' | 'manhwa' | 'manhua' | 'webtoon' | 'hentai' | 'webtoon_hentai';
   releaseYear?: number;
@@ -261,6 +262,7 @@ export interface Chapter {
   cardImageUrl?: string;
   cardImagePage?: number | null;
   releaseDate: string;
+  createdAt?: string;
   views: number;
   language?: string;
   groupName?: string;

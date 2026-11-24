@@ -3418,6 +3418,7 @@ class SmartCatalogStore {
         latest_chapters: sortedCh.slice(0, 2).map((ch) => ({
           id: ch.id,
           number: Number(ch.chapterNumber ?? ch.number ?? 0),
+          created_at: ch.createdAt || ch.created_at || ch.releaseDate || ch.release_date || null,
         })),
         last_updated: m.updatedAt || m.createdAt || now,
         created_at: m.createdAt || now,
