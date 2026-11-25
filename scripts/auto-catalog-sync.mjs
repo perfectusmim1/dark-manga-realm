@@ -121,12 +121,19 @@ const RUN_START_MS = Date.now();
 const SOFT_RUNTIME_LIMIT_MS = Math.max(3, MAX_RUNTIME_MINUTES - 10) * 60 * 1000;
 const isTimeBudgetExceeded = () => Date.now() - RUN_START_MS >= SOFT_RUNTIME_LIMIT_MS;
 
+const FRONT_PAGE_SOURCES = [
+  'webtoonhatti',
+  'okutoon',
+  'siyahmelek',
+  'mangadass',
+];
 const PRIMARY_SOURCES = [
   'webtoonhatti',
   'okutoon',
   'siyahmelek',
   'hattorimanga',
   'mangadass',
+  'dxdfansub',
 ];
 const SOURCE_PRIORITIES = {
   webtoonhatti: 100,
@@ -134,6 +141,7 @@ const SOURCE_PRIORITIES = {
   siyahmelek: 90,
   hattorimanga: 80,
   mangadass: 50,
+  dxdfansub: 40,
 };
 const CHAPTER_CONCURRENCY = 6;
 const DELTA_CONCURRENCY = Math.max(1, parseNonNegInt(getArgValue('--delta-concurrency', '5'), 5));
@@ -3670,7 +3678,13 @@ const ensureStaticR2Covers = async (store, touchedSlugs = new Set(), touchedMang
   }
 };
 
-const syncAllToR2AndSupabase = async (store, seriesQueue, touchedSlugs = new Set(), touchedMangaIds = new Set()) => {
+const syncAllToR2AndSupabase = async (
+  store,
+  seriesQueue,
+  touchedSlugs = new Set(),
+  touchedMangaIds = new Set(),
+  chaptersModifiedMangaIds = null
+) => {
   if (IS_DRY_RUN) {
     logInfo('[DryRun] R2 ve Supabase senkronizasyonu atlandı.');
     return true;
@@ -3882,15 +3896,22 @@ const syncAllToR2AndSupabase = async (store, seriesQueue, touchedSlugs = new Set
     // 1. AŞAMA: BÖLÜMLER & BAĞLI MANGALAR (BİRİNCİL VE İZOLASYONLU ÖNCELİK)
     // Sitenin kalbi burasıdır; yeni bölümler asla yan tablolardaki hatalara kurban edilemez!
     // ======================================================================
+    const effectiveChapterMangaIds = chaptersModifiedMangaIds || touchedMangaIds;
     const chaptersToSync = FULL_CHAPTERS_SYNC
       ? tablesPayload.chapters || []
-      : (tablesPayload.chapters || []).filter((ch) => touchedMangaIds.has(ch.manga_id));
+      : (tablesPayload.chapters || []).filter(
+          (ch) => effectiveChapterMangaIds.has(ch.manga_id) || store.pendingSupabaseSyncIds?.has(ch.manga_id)
+        );
 
     const chapterMangaIds = new Set(chaptersToSync.map((ch) => ch.manga_id));
-    const touchedMangaIdsSet = new Set(touchedMangaIds);
     const criticalMangasToSync = FULL_CHAPTERS_SYNC
       ? tablesPayload.mangas
-      : tablesPayload.mangas.filter((m) => chapterMangaIds.has(m.id) || touchedMangaIdsSet.has(m.id));
+      : tablesPayload.mangas.filter(
+          (m) =>
+            chapterMangaIds.has(m.id) ||
+            (m.slug && touchedSlugs.has(m.slug)) ||
+            store.pendingSupabaseSyncIds?.has(m.id)
+        );
 
     // 1.A: Önce bölümlerin bağlı olduğu mangaları Supabase'e yaz (Foreign Key & chapter_count güvenliği)
     if (criticalMangasToSync.length > 0) {
@@ -3935,24 +3956,8 @@ const syncAllToR2AndSupabase = async (store, seriesQueue, touchedSlugs = new Set
     }
     await saveR2AutomationState();
 
-    // 1.C: Manga bölüm istatistiklerini (chapter_count & latest_chapters) anında tazele
-    if (chaptersToSync.length > 0 || criticalMangasToSync.length > 0) {
-      try {
-        await fetch(`${SUPABASE_URL}/rest/v1/rpc/refresh_all_manga_chapter_stats`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            apikey: SUPABASE_ANON_KEY,
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          },
-          body: '{}',
-          signal: AbortSignal.timeout(45000),
-        });
-        logInfo('✅ Supabase manga bölüm istatistikleri (chapter_count & latest_chapters) güncellendi.');
-      } catch (err) {
-        logWarn(`Bölüm istatistikleri yenileme uyarısı: ${err.message}`);
-      }
-    }
+    // 1.C: Manga bölüm istatistikleri (chapter_count, latest_chapters & latest_chapter_at)
+    // artık sync_r2_catalog_to_supabase içinde dokunulan seriler için atomik olarak güncellenir.
 
     // ======================================================================
     // 2. AŞAMA: OTOMASYON DURUMU & AYRINTI YAMALARI (İKİNCİL ÖNCELİK)
@@ -4034,6 +4039,7 @@ const main = async () => {
   let seriesQueue = checkpoint.seriesQueue || {};
   const touchedSlugs = new Set();
   const touchedMangaIds = new Set();
+  const chaptersModifiedMangaIds = new Set();
 
   // 1. Hydrate from R2 Catalog Worker (fast snapshot + tables, lazy per-series pages)
   if (CATALOG_WORKER_URL && !SKIP_R2_HYDRATE) {
@@ -4163,8 +4169,8 @@ const main = async () => {
   // ==========================================================================
   const hotUpdatedMangaIds = new Set();
   if (MODE !== 'enrich-only' && (MAX_DELTA_CHECKS > 0 || BATCH_SIZE > 0)) {
-    logInfo(`--- FAZ 1: 4 Ana Kaynak Vitrin Taraması (${PRIMARY_SOURCES.join(', ')}) ---`);
-    const sourcesToScan = TARGET_SOURCE ? [TARGET_SOURCE] : PRIMARY_SOURCES;
+    logInfo(`--- FAZ 1: Ana Kaynak Vitrin Taraması (${FRONT_PAGE_SOURCES.join(', ')}) ---`);
+    const sourcesToScan = TARGET_SOURCE ? [TARGET_SOURCE] : FRONT_PAGE_SOURCES;
 
     let newQueuedFromFrontPage = 0;
     for (const src of sourcesToScan) {
@@ -4414,9 +4420,21 @@ const main = async () => {
       const detail = await fetchSeriesDetailFromSource(locked.source, locked.url, manga.title, manga.cover, manga.isAdult);
       if (!detail || !Array.isArray(detail.chapters)) {
         manga.details.lastRunStatus = 'error';
-        logProgress(myIdx, targetDeltaList.length, manga.title, `Kaynak okunamadı (${locked.source})`);
+        manga.details.consecutiveErrors = (Number(manga.details.consecutiveErrors) || 0) + 1;
+        const existingAutoForErr = store.existingAutomationsByMangaId.get(manga.id) || null;
+        const isAdminOwnedForErr = Boolean(existingAutoForErr && (existingAutoForErr.created_by || existingAutoForErr.updated_by));
+        if (manga.details.consecutiveErrors >= 3 && !isAdminOwnedForErr) {
+          delete manga.details.primarySource;
+          delete manga.details.primarySourceUrl;
+          delete manga.details.lastRescueAttemptAt;
+          if (manga.slug) touchedSlugs.add(manga.slug);
+          logProgress(myIdx, targetDeltaList.length, manga.title, `Kaynak 3 kez okunamadı (${locked.source}), otomatik kurtarmaya açıldı`);
+        } else {
+          logProgress(myIdx, targetDeltaList.length, manga.title, `Kaynak okunamadı (${locked.source})`);
+        }
         return;
       }
+      manga.details.consecutiveErrors = 0;
 
       if (detail.status === 'completed' || detail.status === 'cancelled' || detail.status === 'hiatus') {
         manga.status = detail.status;
@@ -4483,6 +4501,7 @@ const main = async () => {
         manga.details.lastAddedChapterCount = newValidChapters.length;
         touchedSlugs.add(manga.slug);
         touchedMangaIds.add(manga.id);
+        chaptersModifiedMangaIds.add(manga.id);
         await uploadSeriesFileToR2(manga);
         logProgress(myIdx, targetDeltaList.length, manga.title, `+${newValidChapters.length} yeni bölüm eklendi!`);
       } else {
@@ -4584,6 +4603,7 @@ const main = async () => {
           card.status = 'completed';
           card.updatedAt = new Date().toISOString();
           touchedMangaIds.add(existing.id);
+          chaptersModifiedMangaIds.add(existing.id);
           if (existing.slug) {
             touchedSlugs.add(existing.slug);
             await uploadSeriesFileToR2(existing);
@@ -4665,6 +4685,7 @@ const main = async () => {
           card.status = 'completed';
           card.updatedAt = new Date().toISOString();
           touchedMangaIds.add(existing.id);
+          chaptersModifiedMangaIds.add(existing.id);
           if (existing.slug) {
             touchedSlugs.add(existing.slug);
             await uploadSeriesFileToR2(existing);
@@ -4710,6 +4731,7 @@ const main = async () => {
           if (enrichedManga?.slug) {
             touchedSlugs.add(enrichedManga.slug);
             touchedMangaIds.add(enrichedManga.id);
+            chaptersModifiedMangaIds.add(enrichedManga.id);
             await uploadSeriesFileToR2(enrichedManga);
           }
 
@@ -4756,10 +4778,17 @@ const main = async () => {
         if (processedCount % 30 === 0 && touchedMangaIds.size > 0 && !SKIP_SUPABASE_SYNC) {
           try {
             logInfo(`[Checkpoint] ${processedCount}/${batchToProcess.length} seri tamamlandı, R2 ve Supabase ara kaydı yapılıyor...`);
-            const syncOk = await syncAllToR2AndSupabase(store, seriesQueue, touchedSlugs, touchedMangaIds);
+            const syncOk = await syncAllToR2AndSupabase(
+              store,
+              seriesQueue,
+              touchedSlugs,
+              touchedMangaIds,
+              chaptersModifiedMangaIds
+            );
             if (syncOk) {
               touchedMangaIds.clear();
               touchedSlugs.clear();
+              chaptersModifiedMangaIds.clear();
             }
           } catch (cpErr) {
             logWarn(`[Checkpoint] Ara kayıt sırasında hata (işlem devam ediyor): ${cpErr.message}`);
@@ -4808,7 +4837,7 @@ const main = async () => {
 
   // Save checkpoint & sync to R2 + Supabase
   saveLocalCheckpoint({ ...checkpoint, seriesQueue, ...store.toState() });
-  await syncAllToR2AndSupabase(store, seriesQueue, touchedSlugs, touchedMangaIds);
+  await syncAllToR2AndSupabase(store, seriesQueue, touchedSlugs, touchedMangaIds, chaptersModifiedMangaIds);
 
   console.log('='.repeat(76));
   logInfo(

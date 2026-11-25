@@ -31,7 +31,7 @@ on:
         default: '80'
         type: string
       source:
-        description: 'Sadece belirli bir kaynağı tara (boş bırakılırsa tüm ana kaynaklar: webtoonhatti, okutoon, siyahmelek, hattorimanga, mangadass)'
+        description: 'Sadece belirli bir kaynağı tara (boş bırakılırsa tüm aktif kaynaklar: webtoonhatti, okutoon, siyahmelek, mangadass, dxdfansub)'
         required: false
         default: ''
         type: string

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, Plus, X, Hash, Loader2 } from 'lucide-react';
+import { Search, Plus, X, Hash, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -48,6 +48,7 @@ const categoryLabels: Record<TagCategory, string> = {
 const SMART_TAG_ACCEPT_UPVOTES = 5;
 const SMART_TAG_REMOVE_DOWNVOTES = 5;
 const USER_SERIES_TAG_LIMIT = 5;
+const COLLAPSED_SMART_TAG_LIMIT = 6;
 
 const getTagErrorMessage = (error: unknown, fallback: string): string => {
   if (error instanceof Error && error.message?.trim()) {
@@ -112,8 +113,13 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
   const [newTagName, setNewTagName] = useState('');
   const [newTagCategory, setNewTagCategory] = useState<TagCategory>('general');
   const [showNewTagForm, setShowNewTagForm] = useState(false);
+  const [showAllTags, setShowAllTags] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const searchRequestSeqRef = useRef(0);
+
+  useEffect(() => {
+    setShowAllTags(false);
+  }, [entityId, entityType]);
 
   const entityTagsQuery = useQuery<EntityTagsQueryData>({
     queryKey,
@@ -414,13 +420,20 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
     });
   }, [tags, votes]);
 
+  const hasCollapsibleTags = visibleTags.length > COLLAPSED_SMART_TAG_LIMIT;
+  const displayedTags = useMemo(
+    () => (showAllTags || !hasCollapsibleTags ? visibleTags : visibleTags.slice(0, COLLAPSED_SMART_TAG_LIMIT)),
+    [visibleTags, showAllTags, hasCollapsibleTags],
+  );
+  const hiddenTagCount = Math.max(0, visibleTags.length - displayedTags.length);
+
   const groupedTags = useMemo(() => {
-    return visibleTags.reduce((acc, tag) => {
+    return displayedTags.reduce((acc, tag) => {
       if (!acc[tag.category]) acc[tag.category] = [];
       acc[tag.category].push(tag);
       return acc;
     }, {} as Record<string, Tag[]>);
-  }, [visibleTags]);
+  }, [displayedTags]);
 
   if (isLoading) {
     return (
@@ -507,6 +520,29 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
               </div>
             </div>
           ))}
+          {hasCollapsibleTags && (
+            <div className="pt-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowAllTags((prev) => !prev)}
+                className="h-8 px-2.5 text-xs font-medium text-primary hover:bg-primary/10 hover:text-primary"
+              >
+                {showAllTags ? (
+                  <>
+                    <ChevronUp className="mr-1 h-3.5 w-3.5" />
+                    Daha Az Göster
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="mr-1 h-3.5 w-3.5" />
+                    Tümünü Göster (+{hiddenTagCount})
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="rounded-lg border border-dashed border-border bg-secondary/20 p-4 text-center">
