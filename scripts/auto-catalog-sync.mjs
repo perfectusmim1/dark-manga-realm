@@ -3144,15 +3144,23 @@ class SmartCatalogStore {
         target.genres = Array.from(new Set([...(target.genres || []), ...mappedGenres]));
         this.syncScrapedTaxonomies(finalId, { genres: mappedGenres });
 
-        // Characters
+        // Characters (deduplicate by AniList character ID first so historical names like Musashi/Sasaki don't collide across series)
         for (const edge of anilistData.characters?.edges || []) {
           const node = edge?.node;
           if (!node?.name?.full) continue;
           const charName = node.name.full;
           const charKey = normalizeTitleKey(charName);
+          const alCharId = node.id ? String(node.id) : '';
           let charId = null;
           for (const [cId, cObj] of this.characters.entries()) {
-            if (normalizeTitleKey(cObj.name) === charKey) {
+            const existingAlCharId = cObj?.details?.extra?.anilistCharacterId
+              ? String(cObj.details.extra.anilistCharacterId)
+              : (cObj?.sourceLinks || []).find((l) => l?.source === 'anilist')?.url?.match(/\/character\/(\d+)/)?.[1] || '';
+            if (alCharId && existingAlCharId && alCharId === existingAlCharId) {
+              charId = cId;
+              break;
+            }
+            if (!existingAlCharId && (!alCharId || !cObj?.image || cObj.image === node.image?.large) && normalizeTitleKey(cObj.name) === charKey) {
               charId = cId;
               break;
             }
@@ -3168,6 +3176,8 @@ class SmartCatalogStore {
               role: edge.role === 'MAIN' ? 'main' : 'supporting',
               image: node.image?.large || undefined,
               description: trCharDesc || undefined,
+              details: alCharId ? { extra: { anilistCharacterId: Number(alCharId) } } : undefined,
+              sourceLinks: alCharId ? [{ sourceName: 'anilist', url: `https://anilist.co/character/${alCharId}` }] : undefined,
             });
           }
           if (!this.mangaCharacters.some((mc) => mc.manga_id === finalId && mc.character_id === charId)) {
