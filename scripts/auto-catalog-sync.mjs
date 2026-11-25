@@ -95,6 +95,10 @@ const parseNonNegInt = (val, fallback) => {
 const MODE = getArgValue('--mode', 'smart'); // 'smart' | 'delta-only' | 'enrich-only' | 'discover'
 const BATCH_SIZE = parseNonNegInt(getArgValue('--batch-size', '50'), 50);
 const MAX_DELTA_CHECKS = parseNonNegInt(getArgValue('--max-delta-checks', '800'), 800);
+const MAX_RESCUE_CHECKS = parseNonNegInt(
+  getArgValue('--max-rescue-checks', MODE === 'enrich-only' ? '0' : '40'),
+  MODE === 'enrich-only' ? 0 : 40
+);
 const MAX_ENRICH_CHECKS = parseNonNegInt(
   getArgValue('--max-enrich-checks', MODE === 'enrich-only' ? '120' : MODE === 'delta-only' ? '0' : '80'),
   MODE === 'enrich-only' ? 120 : MODE === 'delta-only' ? 0 : 80
@@ -106,6 +110,8 @@ const TARGET_SOURCE = getArgValue('--source', null);
 const ARCHIVE_MODE = hasFlag('--archive-mode') || hasFlag('--deep') || MODE === 'archive';
 const FORCE_ENRICH = hasFlag('--force-enrich');
 const FORCE_DELTA = hasFlag('--force-delta');
+const FORCE_RESCUE = hasFlag('--force-rescue');
+const POISONED_ACTIVITY_TIMESTAMPS = new Set(['2026-06-05T21:37:26.757Z']);
 const FULL_CHAPTERS_SYNC = hasFlag('--full-chapters-sync');
 const SKIP_SUPABASE_SYNC = hasFlag('--skip-supabase-sync');
 const SKIP_R2_HYDRATE = hasFlag('--skip-r2-hydrate');
@@ -994,11 +1000,18 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
         const link = `https://okutoon.com/${item.slug}`;
         const cover = item.cover_url || item.headline_url || '';
         const title = cleanSeriesTitle(item.title);
+        const altTitles = item.alt_title
+          ? String(item.alt_title)
+              .split(/[·,|;\n]+/)
+              .map((t) => cleanSeriesTitle(t))
+              .filter((t) => t.length > 1)
+          : [];
         if (link && title && !seen.has(link)) {
           seen.add(link);
           cards.push({
             source: 'okutoon',
             title,
+            altTitles,
             link,
             slug: item.slug,
             cover,
@@ -1203,7 +1216,7 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
 
   if (source === 'okutoon') {
     const slug = String(seriesUrl || '')
-      .replace(/^https?:\/\/(?:www\.)?okutoon\.com\/?/i, '')
+      .replace(/^https?:\/\/(?:www\.)?okutoon\.(?:com|net)\/?/i, '')
       .replace(/^seri\//i, '')
       .split('/')[0]
       ?.trim();
@@ -1267,7 +1280,10 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
     rawChapters.sort((a, b) => a.chapterNumber - b.chapterNumber);
 
     const altTitles = seriesMeta?.alt_title
-      ? String(seriesMeta.alt_title).split(',').map((t) => t.trim()).filter(Boolean)
+      ? String(seriesMeta.alt_title)
+          .split(/[·,|;\n]+/)
+          .map((t) => t.trim())
+          .filter(Boolean)
       : [];
     const genres = Array.isArray(seriesMeta?.categories)
       ? seriesMeta.categories.map((c) => normalizeGenreToTurkish(c.name)).filter(Boolean)
@@ -1631,6 +1647,104 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
         ...(descriptionEn ? { descriptionEn } : {}),
       },
     };
+  }
+
+  return null;
+};
+
+const searchSupportedSourceForSeries = async (manga) => {
+  if (!manga) return null;
+  const rawTerms = [manga.title, ...(Array.isArray(manga.alternativeTitles) ? manga.alternativeTitles : [])]
+    .map((t) => cleanSeriesTitle(String(t || '')))
+    .filter((t) => t.length >= 2);
+  // Prioritize Latin/Turkish titles for TR site search
+  const latinTerms = [];
+  const seenKeys = new Set();
+  for (const t of rawTerms) {
+    if (!/[a-zA-ZçğıöşüÇĞİÖŞÜ]/.test(t)) continue;
+    const k = normalizeTitleKey(t);
+    if (!k || seenKeys.has(k)) continue;
+    seenKeys.add(k);
+    latinTerms.push(t);
+    if (latinTerms.length >= 4) break;
+  }
+  if (latinTerms.length === 0) return null;
+  const allQueryTerms = rawTerms.slice(0, 12);
+  const isAdultSeries = Boolean(manga.isAdult);
+
+  // 1. Adult series: try SiyahMelek first
+  if (isAdultSeries) {
+    for (const term of latinTerms.slice(0, 2)) {
+      try {
+        const smUrl = `https://siyahmelek.my/?s=${encodeURIComponent(term)}`;
+        const res = await fetchUpstream(smUrl, { timeoutMs: 12000 });
+        if (res.ok && res.content) {
+          const matches = extractRegexMatches(
+            res.content,
+            /href="(https:\/\/siyahmelek\.my\/manga\/[^"/]+\/)"[^>]*>([\s\S]*?)<\/a>/gi
+          );
+          for (const m of matches) {
+            const url = m[1]?.trim();
+            const title = cleanSeriesTitle(stripTags(m[2] || ''));
+            if (url && title && isConfidentTitleMatch(allQueryTerms, [title])) {
+              return { source: 'siyahmelek', url, title };
+            }
+          }
+        }
+      } catch {}
+    }
+  }
+
+  // 2. OkuToon API search (fast, direct JSON, includes alt_title!)
+  for (const term of latinTerms.slice(0, 3)) {
+    try {
+      const apiUrl = `https://okutoon.com/api/v1/series?q=${encodeURIComponent(term)}&limit=10`;
+      const res = await fetchUpstream(apiUrl, { headers: { Accept: 'application/json' }, timeoutMs: 10000 });
+      if (res.ok && res.content) {
+        const json = JSON.parse(res.content);
+        const items = Array.isArray(json?.data) ? json.data : [];
+        for (const item of items) {
+          if (!item?.slug || !item?.title) continue;
+          const candTitles = [
+            cleanSeriesTitle(item.title),
+            ...(item.alt_title
+              ? String(item.alt_title)
+                  .split(/[·,|;\n]+/)
+                  .map((x) => cleanSeriesTitle(x))
+                  .filter(Boolean)
+              : []),
+          ];
+          if (isConfidentTitleMatch(allQueryTerms, candTitles)) {
+            return { source: 'okutoon', url: `https://okutoon.com/${item.slug}`, title: cleanSeriesTitle(item.title) };
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // 3. WebtoonHatti WP-Manga search (via proxy)
+  for (const term of latinTerms.slice(0, 3)) {
+    try {
+      const whUrl = `https://webtoonhatti.club/?s=${encodeURIComponent(term)}&post_type=wp-manga`;
+      const res = await fetchUpstream(whUrl, { timeoutMs: 12000 });
+      if (res.ok && res.content) {
+        const matches = extractRegexMatches(
+          res.content,
+          /href=["'](https:\/\/webtoonhatti\.club\/(?:webtoon|manga)\/[^"'\/]+\/)["'][^>]*>([\s\S]*?)<\/a>/gi
+        );
+        const seenUrls = new Set();
+        for (const m of matches) {
+          const url = m[1]?.trim();
+          if (!url || seenUrls.has(url)) continue;
+          const title = cleanSeriesTitle(stripTags(m[2] || ''));
+          if (!title || title.length < 2 || /b[öo]l[üu]m/i.test(title)) continue;
+          seenUrls.add(url);
+          if (isConfidentTitleMatch(allQueryTerms, [title])) {
+            return { source: 'webtoonhatti', url, title };
+          }
+        }
+      }
+    } catch {}
   }
 
   return null;
@@ -2320,6 +2434,10 @@ class SmartCatalogStore {
           title: cleanChapterTitle(ch.title, ch.chapterNumber ?? ch.number, m.title),
         }));
         const existing = this.mangas.get(m.id);
+        const mergedDetails = existing ? { ...(existing.details || {}), ...(m.details || {}) } : { ...(m.details || {}) };
+        if (mergedDetails.lastSourceActivityAt && POISONED_ACTIVITY_TIMESTAMPS.has(mergedDetails.lastSourceActivityAt)) {
+          delete mergedDetails.lastSourceActivityAt;
+        }
         if (!existing) {
           this.mangas.set(m.id, {
             ...m,
@@ -2327,7 +2445,7 @@ class SmartCatalogStore {
             releaseYear: m.releaseYear ?? m.release_year ?? undefined,
             alternativeTitles: m.alternativeTitles || m.alternative_titles || [],
             sourceLinks: m.sourceLinks || m.source_links || [],
-            details: m.details || {},
+            details: mergedDetails,
             chapters: cleanChs,
           });
         } else {
@@ -2353,7 +2471,7 @@ class SmartCatalogStore {
               new Set([...(existing.alternativeTitles || []), ...(m.alternativeTitles || m.alternative_titles || [])])
             ),
             sourceLinks: this.mergeSourceLinksList(existing.sourceLinks, m.sourceLinks || m.source_links),
-            details: { ...(existing.details || {}), ...(m.details || {}) },
+            details: mergedDetails,
             chapters: selectedChs,
           });
         }
@@ -2414,23 +2532,36 @@ class SmartCatalogStore {
 
   getLockedPrimarySource(manga) {
     if (!manga) return null;
-    const activeScraperSources = ['webtoonhatti', 'okutoon', 'siyahmelek', 'hattorimanga', 'mangadass', 'dxdfansub'];
+    const normalizeUrl = (src, url) => {
+      if (!url) return '';
+      const trimmed = String(url).trim();
+      if (src === 'okutoon') {
+        return trimmed.replace(/^https?:\/\/(?:www\.)?okutoon\.net\b/i, 'https://okutoon.com');
+      }
+      return trimmed;
+    };
     if (
       manga.details?.primarySource &&
       manga.details?.primarySourceUrl &&
-      activeScraperSources.includes(manga.details.primarySource)
+      PRIMARY_SOURCES.includes(manga.details.primarySource)
     ) {
+      const normalizedUrl = normalizeUrl(manga.details.primarySource, manga.details.primarySourceUrl);
+      manga.details.primarySourceUrl = normalizedUrl;
       return {
         source: manga.details.primarySource,
-        url: manga.details.primarySourceUrl,
+        url: normalizedUrl,
       };
     }
-    const found = (manga.sourceLinks || []).find((l) => l && activeScraperSources.includes(l.source) && l.url);
+    const candidates = (manga.sourceLinks || [])
+      .filter((l) => l && PRIMARY_SOURCES.includes(l.source) && l.url)
+      .sort((a, b) => (SOURCE_PRIORITIES[b.source] || 0) - (SOURCE_PRIORITIES[a.source] || 0));
+    const found = candidates[0] || null;
     if (found) {
+      const normalizedUrl = normalizeUrl(found.source, found.url);
       if (!manga.details) manga.details = {};
       manga.details.primarySource = found.source;
-      manga.details.primarySourceUrl = found.url;
-      return { source: found.source, url: found.url };
+      manga.details.primarySourceUrl = normalizedUrl;
+      return { source: found.source, url: normalizedUrl };
     }
     return null;
   }
@@ -3061,20 +3192,19 @@ class SmartCatalogStore {
   }
 
   getSeriesLastActivityTs(m, fallbackMs = Date.now()) {
-    const explicitDates = [
+    const rawSrcAct = m?.details?.lastSourceActivityAt || '';
+    const validSrcAct = POISONED_ACTIVITY_TIMESTAMPS.has(rawSrcAct) ? '' : rawSrcAct;
+    const allDates = [
       Date.parse(m?.details?.lastChapterAddedAt || ''),
-      Date.parse(m?.details?.lastSourceActivityAt || ''),
+      Date.parse(validSrcAct),
+      ...(m?.chapters || []).flatMap((c) => [
+        Date.parse(c.releaseDate || c.release_date || ''),
+        Date.parse(c.createdAt || c.created_at || ''),
+      ]),
     ].filter((ts) => Number.isFinite(ts) && ts > 0);
 
-    if (explicitDates.length > 0) {
-      return Math.max(...explicitDates);
-    }
-
-    const latestChapterDates = (m?.chapters || [])
-      .map((c) => Date.parse(c.releaseDate || c.release_date || ''))
-      .filter((ts) => Number.isFinite(ts) && ts > 0);
-    if (latestChapterDates.length > 0) {
-      return Math.max(...latestChapterDates);
+    if (allDates.length > 0) {
+      return Math.max(...allDates);
     }
 
     return Date.parse(m?.updatedAt || m?.createdAt || '') || fallbackMs;
@@ -4041,14 +4171,20 @@ const main = async () => {
       if (isTimeBudgetExceeded()) break;
       const frontCards = await scanFrontPageFeed(src, FRONT_PAGES_TO_SCAN);
       for (const card of frontCards) {
-        const matchedId = store.findMatchingMangaId(card.title);
+        const matchedId = store.findMatchingMangaId(card.title, card.altTitles);
         if (matchedId && store.mangas.has(matchedId)) {
           const existing = store.mangas.get(matchedId);
+          store.upsertSourceLink(existing, { source: card.source, url: card.link });
           const locked = store.getLockedPrimarySource(existing);
-          if (!locked || locked.source === card.source) {
+          if (!locked || !PRIMARY_SOURCES.includes(locked.source)) {
+            if (!existing.details) existing.details = {};
+            existing.details.primarySource = card.source;
+            existing.details.primarySourceUrl = card.link;
+            touchedMangaIds.add(existing.id);
+            if (existing.slug) touchedSlugs.add(existing.slug);
             hotUpdatedMangaIds.add(matchedId);
-          } else {
-            store.upsertSourceLink(existing, { source: card.source, url: card.link });
+          } else if (locked.source === card.source) {
+            hotUpdatedMangaIds.add(matchedId);
           }
           if ((!existing.cover || isJunkCoverUrl(existing.cover) || isLowResThumbnailUrl(existing.cover)) && card.cover && !isJunkCoverUrl(card.cover)) {
             existing.cover = upgradeSourceImageUrl(card.cover);
@@ -4077,6 +4213,70 @@ const main = async () => {
     logInfo(
       `Vitrin özeti: ${hotUpdatedMangaIds.size} mevcut seride sıcak güncelleme sinyali, +${newQueuedFromFrontPage} yeni seri kuyruğa eklendi.`
     );
+  }
+
+  // ==========================================================================
+  // FAZ 1.5: Desteklenmeyen / Eski Kaynaklı (golgebahcesi, dxdfansub, asurascans vb.) Serileri Otomatik Kurtarma
+  // ==========================================================================
+  if (MODE !== 'enrich-only' && MAX_RESCUE_CHECKS > 0 && !isTimeBudgetExceeded()) {
+    const rescueRetryMs = 14 * 24 * 3600 * 1000;
+    const nowRescueMs = Date.now();
+    const orphanedMangas = [];
+
+    for (const manga of store.mangas.values()) {
+      if (manga.status === 'completed' || manga.status === 'cancelled') continue;
+      if (
+        manga.details?.automationDisabled === true ||
+        manga.details?.automationPausedByAdmin === true ||
+        (store.deletedAutomationMangaIds && store.deletedAutomationMangaIds.has(manga.id))
+      ) {
+        continue;
+      }
+      const locked = store.getLockedPrimarySource(manga);
+      if (locked && PRIMARY_SOURCES.includes(locked.source)) continue;
+
+      const lastAttemptTs = Date.parse(manga.details?.lastRescueAttemptAt || '') || 0;
+      if (!FORCE_RESCUE && lastAttemptTs > 0 && nowRescueMs - lastAttemptTs < rescueRetryMs) {
+        continue;
+      }
+      orphanedMangas.push(manga);
+    }
+
+    const rescueBatch = orphanedMangas.slice(0, MAX_RESCUE_CHECKS);
+    if (rescueBatch.length > 0) {
+      logInfo(
+        `--- FAZ 1.5: Eski/Desteksiz Kaynaklı ${rescueBatch.length}/${orphanedMangas.length} seri desteklenen kaynaklara (OkuToon/WebtoonHattı) taşınıyor ---`
+      );
+      let rescuedCount = 0;
+      let rIdx = 0;
+      for (let i = 0; i < rescueBatch.length; i += DELTA_CONCURRENCY) {
+        if (isTimeBudgetExceeded()) break;
+        const chunk = rescueBatch.slice(i, i + DELTA_CONCURRENCY);
+        await Promise.all(
+          chunk.map(async (manga) => {
+            const myIdx = ++rIdx;
+            if (!manga.details) manga.details = {};
+            manga.details.lastRescueAttemptAt = new Date().toISOString();
+            const match = await searchSupportedSourceForSeries(manga);
+            if (match) {
+              store.upsertSourceLink(manga, { source: match.source, url: match.url });
+              manga.details.primarySource = match.source;
+              manga.details.primarySourceUrl = match.url;
+              manga.details.migratedFromLegacyAt = new Date().toISOString();
+              hotUpdatedMangaIds.add(manga.id);
+              touchedMangaIds.add(manga.id);
+              if (manga.slug) touchedSlugs.add(manga.slug);
+              rescuedCount++;
+              logProgress(myIdx, rescueBatch.length, manga.title, `Kurtarıldı -> ${match.source} (${match.url})`);
+            } else {
+              touchedMangaIds.add(manga.id);
+              logProgress(myIdx, rescueBatch.length, manga.title, `Desteklenen kaynakta bulunamadı`);
+            }
+          })
+        );
+      }
+      logInfo(`[Kaynak Kurtarma] ${rescuedCount}/${rescueBatch.length} seri desteklenen aktif kaynaklara bağlandı.`);
+    }
   }
 
   // ==========================================================================
