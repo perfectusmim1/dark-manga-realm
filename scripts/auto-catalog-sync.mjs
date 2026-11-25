@@ -325,24 +325,71 @@ const tokenizeComparableTitle = (title) =>
     .split(/\s+/)
     .filter((tok) => tok.length >= 2 && !/^\d+$/.test(tok));
 
-const isConfidentTitleMatch = (queryTerms = [], candidateTitles = []) => {
-  const cleanQueries = (queryTerms || []).filter((q) => q && !/^\d+$/.test(q.trim()));
+const GENERIC_SHORT_SEARCH_TERMS = new Set([
+  'sss', 'get', 'bug', '100', 'ex', 'rpg', 'gin', 'baba', 'serseri', 'return',
+  'reborn', 'hero', 'king', 'god', 'devil', 'demon', 'angel', 'sword', 'magic',
+  'system', 'level', 'world', 'life', 'love', 'death', 'blood', 'dark', 'shadow',
+  'dragon', 'princess', 'emperor', 'empress', 'villain', 'villainess', 'duke',
+  'knight', 'mage', 'hunter', 'player', 'ranker', 'master', 'saint', 'witch',
+  'bad guy', 'new', 'the', 'one', 'two', 'zero', 'pro', 'max', 'end', 'war',
+]);
+
+const extractCjkSignature = (value) => {
+  const cleaned = String(value || '').replace(/[\s\p{P}\p{S}]/gu, '');
+  return /[\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7af]/.test(cleaned) && cleaned.length >= 2 ? cleaned : '';
+};
+
+const isLikelyTurkishTitle = (title) =>
+  /[ğüşiöçĞÜŞİÖÇ]|\b(?:bir|ve|ile|için|olarak|kral|kahraman|dünya|hayat|prenses|imparator|ejderha|büyücü|şeytan|tanrı|kılıç|ölüm|intikam|aşk|kız|oğlu|kızı|torunu|dönüş|yeniden|başlangıç|yaşam|günlük|seviye|sistem|zindan|kule|canavar|cadı|soylu|dük|düşes|kont|kraliçe|efendi|usta|çırak|savaşçı|suikastçı|şövalye|gölge|karanlık|büyük|küçük|yeni|eski|son|ilk|ben|benim|sen|senin|oldum|olacağım|döndü|döndüm|doğdum|doğuş)\b/i.test(
+    String(title || '')
+  );
+
+const isConfidentTitleMatch = (queryTerms = [], candidateTitles = [], options = {}) => {
+  const { primaryTitle = '' } = options;
+  const primaryTokens = primaryTitle ? tokenizeComparableTitle(primaryTitle) : [];
+  const cleanQueries = (queryTerms || []).filter((q) => {
+    const t = String(q || '').trim();
+    if (!t || /^\d+$/.test(t)) return false;
+    const lower = t.toLowerCase();
+    if (GENERIC_SHORT_SEARCH_TERMS.has(lower) && primaryTokens.length >= 2) return false;
+    return true;
+  });
   const cleanCandidates = (candidateTitles || []).filter(Boolean);
   if (cleanQueries.length === 0 || cleanCandidates.length === 0) return false;
+
+  // 1. Direct CJK / Hangul / Kana native match (preserved before ASCII-stripping normalizeTitleKey)
+  const queryCjk = cleanQueries.map(extractCjkSignature).filter(Boolean);
+  const candCjk = cleanCandidates.map(extractCjkSignature).filter(Boolean);
+  for (const qc of queryCjk) {
+    for (const cc of candCjk) {
+      if (qc === cc) return true;
+      const minC = Math.min(qc.length, cc.length);
+      const maxC = Math.max(qc.length, cc.length);
+      if (minC >= 4 && (qc.includes(cc) || cc.includes(qc)) && minC / maxC >= 0.78) {
+        return true;
+      }
+    }
+  }
 
   for (const q of cleanQueries) {
     const qKey = normalizeTitleKey(q);
     if (!qKey || qKey.length < 3) continue;
     const qTokens = tokenizeComparableTitle(q);
 
+    // Never allow a single short token (<5 chars) from alt titles to match a multi-word primary series
+    if (primaryTokens.length >= 2 && qTokens.length <= 1 && qKey.length < 5) continue;
+
     for (const cand of cleanCandidates) {
       const cKey = normalizeTitleKey(cand);
       if (!cKey || cKey.length < 3) continue;
-      if (qKey === cKey) return true;
+      if (qKey === cKey) {
+        if (qKey.length <= 4 && primaryTokens.length >= 2 && !primaryTokens.includes(qKey)) continue;
+        return true;
+      }
 
       const minLen = Math.min(qKey.length, cKey.length);
       const maxLen = Math.max(qKey.length, cKey.length);
-      if (minLen >= 6 && (qKey.includes(cKey) || cKey.includes(qKey)) && minLen / maxLen >= 0.62) {
+      if (minLen >= 7 && (qKey.includes(cKey) || cKey.includes(qKey)) && minLen / maxLen >= 0.78) {
         return true;
       }
 
@@ -351,7 +398,7 @@ const isConfidentTitleMatch = (queryTerms = [], candidateTitles = []) => {
         const cSet = new Set(cTokens);
         const shared = qTokens.filter((t) => cSet.has(t)).length;
         const overlap = (2 * shared) / (qTokens.length + cTokens.length);
-        if (overlap >= 0.66) return true;
+        if (shared >= 2 && overlap >= 0.75) return true;
       }
     }
   }
@@ -366,6 +413,11 @@ const deriveMangaType = ({ countryOfOrigin = '', isAdult = false, primarySource 
   if (primarySource === 'hentaiturk') return 'hentai';
   if (primarySource === 'dxdfansub') return 'manga';
 
+  // Verified country of origin from AniList takes priority over noisy scraper genres
+  if (co === 'JP') return isAdult ? 'hentai' : 'manga';
+  if (co === 'KR') return isAdult ? 'webtoon_hentai' : 'manhwa';
+  if (co === 'CN' || co === 'TW') return isAdult ? 'webtoon_hentai' : 'manhua';
+
   if (gStr.includes('manhua') || tStr.includes('manhua') || tStr.includes('xiuxian') || gStr.includes('cultivation') || gStr.includes('kültivasyon')) {
     return 'manhua';
   }
@@ -377,12 +429,8 @@ const deriveMangaType = ({ countryOfOrigin = '', isAdult = false, primarySource 
   }
 
   if (isAdult) {
-    if (co === 'JP') return 'hentai';
     return 'webtoon_hentai';
   }
-  if (co === 'JP') return 'manga';
-  if (co === 'KR') return 'manhwa';
-  if (co === 'CN' || co === 'TW') return 'manhua';
   return fallbackType || 'manhwa';
 };
 
@@ -1915,16 +1963,15 @@ const fetchChapterPagesFromSource = async (source, chapterLink) => {
 // MULTI-SOURCE METADATA PROVIDERS (AniList, MAL, MangaDex, MangaUpdates, Anime-Planet, aniSearch)
 // ============================================================================
 const queryAniList = async (searchTerms = [], options = {}) => {
-  const { expectedAdult = null } = options;
-  const query = `
-    query ($search: String) {
-      Page(perPage: 5) {
-        media(search: $search, type: MANGA) {
+  const { expectedAdult = null, primaryTitle = '', chapterCount = 0, existingAnilistId = null } = options;
+  const mediaFields = `
           id
           idMal
+          format
           status
           chapters
           countryOfOrigin
+          popularity
           startDate { year }
           title {
             romaji
@@ -1962,6 +2009,50 @@ const queryAniList = async (searchTerms = [], options = {}) => {
               }
             }
           }
+  `;
+
+  // If the series already has a verified AniList ID (e.g. from cover or source_links), fetch it directly first!
+  if (existingAnilistId && Number(existingAnilistId) > 0) {
+    try {
+      const byIdRes = await fetch(ANILIST_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          query: `query ($id: Int) { Media(id: $id, type: MANGA) { ${mediaFields} } }`,
+          variables: { id: Number(existingAnilistId) },
+        }),
+        signal: AbortSignal.timeout(9000),
+      });
+      if (byIdRes.ok) {
+        const byIdJson = await byIdRes.json();
+        const existingMedia = byIdJson?.data?.Media;
+        if (
+          existingMedia &&
+          existingMedia.format !== 'NOVEL' &&
+          !(existingMedia.format === 'ONE_SHOT' && chapterCount >= 5) &&
+          !(expectedAdult === false && existingMedia.isAdult === true) &&
+          !(expectedAdult === true && existingMedia.isAdult !== true)
+        ) {
+          const candTitles = [
+            existingMedia.title?.romaji,
+            existingMedia.title?.english,
+            existingMedia.title?.native,
+            existingMedia.title?.userPreferred,
+            ...(existingMedia.synonyms || []),
+          ].filter(Boolean);
+          if (isConfidentTitleMatch(searchTerms, candTitles, { primaryTitle })) {
+            return existingMedia;
+          }
+        }
+      }
+    } catch {}
+  }
+
+  const query = `
+    query ($search: String) {
+      Page(perPage: 10) {
+        media(search: $search, type: MANGA, format_in: [MANGA, ONE_SHOT]) {
+          ${mediaFields}
         }
       }
     }
@@ -1985,8 +2076,12 @@ const queryAniList = async (searchTerms = [], options = {}) => {
         const data = await res.json();
         const mediaList = data?.data?.Page?.media;
         if (Array.isArray(mediaList) && mediaList.length > 0) {
+          const matches = [];
           for (const candidate of mediaList) {
+            if (candidate.format === 'NOVEL') continue;
+            if (candidate.format === 'ONE_SHOT' && chapterCount >= 5) continue;
             if (expectedAdult === true && candidate.isAdult !== true) continue;
+            if (expectedAdult === false && candidate.isAdult === true) continue;
             const candTitles = [
               candidate.title?.romaji,
               candidate.title?.english,
@@ -1994,9 +2089,18 @@ const queryAniList = async (searchTerms = [], options = {}) => {
               candidate.title?.userPreferred,
               ...(candidate.synonyms || []),
             ].filter(Boolean);
-            if (isConfidentTitleMatch(searchTerms, candTitles)) {
-              return candidate;
+            if (isConfidentTitleMatch(searchTerms, candTitles, { primaryTitle })) {
+              const exactPrimary = primaryTitle && isConfidentTitleMatch([primaryTitle], candTitles, { primaryTitle });
+              const score =
+                (candidate.format === 'MANGA' ? 1000 : 0) +
+                (exactPrimary ? 500 : 0) +
+                Math.min(200, Math.log10((candidate.popularity || 1) + 1) * 40);
+              matches.push({ candidate, score });
             }
+          }
+          if (matches.length > 0) {
+            matches.sort((a, b) => b.score - a.score);
+            return matches[0].candidate;
           }
         }
         break;
@@ -2889,37 +2993,72 @@ class SmartCatalogStore {
       ? locked.url.split('/').filter(Boolean).pop()?.replace(/-/g, ' ') || ''
       : (manga.slug || '').replace(/-/g, ' ');
     const slugTerm = /^\d+$/.test(rawSlugTail.trim()) ? '' : rawSlugTail;
-    const translatedTitle = await translateTextGtx(manga.title, 'tr', 'en');
+    const translatedTitle = isLikelyTurkishTitle(manga.title)
+      ? await translateTextGtx(manga.title, 'tr', 'en')
+      : '';
     const expectedAdult = Boolean(manga.isAdult);
+    const primaryTokens = tokenizeComparableTitle(manga.title);
+    const cleanAltTerms = (manga.alternativeTitles || [])
+      .map(cleanSearchTerm)
+      .filter((t) => {
+        if (!t || t.length < 3 || /^\d+$/.test(t.trim())) return false;
+        const lower = t.toLowerCase();
+        if (GENERIC_SHORT_SEARCH_TERMS.has(lower)) return false;
+        if (primaryTokens.length >= 2 && tokenizeComparableTitle(t).length <= 1 && !extractCjkSignature(t) && t.length < 6) {
+          return false;
+        }
+        return true;
+      });
 
+    // Always prioritize primary title & slug BEFORE translated/alternative titles so slice never drops the real title!
     const searchTerms = Array.from(
       new Set(
         [
-          ...(manga.alternativeTitles || []).map(cleanSearchTerm),
-          cleanSearchTerm(translatedTitle),
-          cleanSearchTerm(slugTerm),
           cleanSearchTerm(manga.title),
           manga.title,
+          cleanSearchTerm(slugTerm),
+          cleanSearchTerm(translatedTitle),
+          ...cleanAltTerms,
         ].filter((t) => t && t.length > 2 && !/^\d+$/.test(t.trim()))
       )
-    ).slice(0, 6);
+    ).slice(0, 8);
+
+    const existingCoverAlId = String(manga.cover || '').match(
+      /s4\.anilist\.co\/file\/anilistcdn\/media\/manga\/cover\/[^/]+\/[a-z]+(\d+)-/i
+    )?.[1];
+    const existingAnilistId = manga.anilistId || (existingCoverAlId ? Number(existingCoverAlId) : null);
 
     let finalId = manga.id;
     let englishSynopsisCandidate = '';
 
     // 1. AniList
-    const anilistData = await queryAniList(searchTerms, { expectedAdult });
+    const anilistData = await queryAniList(searchTerms, {
+      expectedAdult,
+      primaryTitle: manga.title,
+      chapterCount: (manga.chapters || []).length,
+      existingAnilistId,
+    });
     if (anilistData) {
       if (anilistData.id && this.anilistIdIndex.has(anilistData.id)) {
         const existingId = this.anilistIdIndex.get(anilistData.id);
-        if (existingId !== finalId && this.mangas.has(existingId)) {
+        const existingManga = existingId && existingId !== finalId ? this.mangas.get(existingId) : null;
+        if (
+          existingManga &&
+          isConfidentTitleMatch(
+            [manga.title, ...(manga.alternativeTitles || [])],
+            [existingManga.title, ...(existingManga.alternativeTitles || [])],
+            { primaryTitle: manga.title }
+          )
+        ) {
           this.mergeMangaRecords(existingId, finalId);
           finalId = existingId;
         }
       }
       const target = this.mangas.get(finalId);
       if (target) {
+        if (!target.details) target.details = {};
         target.anilistId = anilistData.id;
+        target.details.anilistId = anilistData.id;
         this.anilistIdIndex.set(anilistData.id, finalId);
         this.upsertSourceLink(target, {
           source: 'anilist',
@@ -2930,6 +3069,7 @@ class SmartCatalogStore {
 
         if (anilistData.idMal) {
           target.malId = anilistData.idMal;
+          target.details.malId = anilistData.idMal;
           this.malIdIndex.set(anilistData.idMal, finalId);
           this.upsertSourceLink(target, {
             source: 'myanimelist',
