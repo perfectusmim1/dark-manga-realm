@@ -69,6 +69,7 @@ const PROXY_ONLY_HOSTS = [
   'myanimelist.net',
   'media.kitsu.io',
   'kitsu.io',
+  'melek.mom',
 ] as const;
 
 const PROXY_SUPPORTED_HOSTS = [
@@ -145,6 +146,7 @@ const HOTLINK_OR_CUSTOM_REFERER_HOSTS = [
   'fastcontent12.site',
   'readlightnovel.site',
   'mangacix.net',
+  'melek.mom',
 ] as const;
 
 const PHOTON_PREFERRED_HOSTS = [

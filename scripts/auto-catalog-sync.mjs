@@ -827,6 +827,7 @@ const verifiedDomainCache = new Map([
   ['uploads.mangadex.org', true],
   ['cdn.okutoon.com', true],
   ['om-cdn.okutoon.com', true],
+  ['m.okutoonapi.net', true],
   ['cdn.madaradex.org', true],
 ]);
 const verifiedUrlCache = new Map();
@@ -3691,7 +3692,7 @@ const uploadSeriesFileToR2 = async (manga) => {
   }
 };
 
-const HOTLINK_BLOCKED_COVER_REGEX = /(?:webtoonhatti|workers\.dev|mangadex\.org|mangaupdates\.com|siyahmelek)/i;
+const HOTLINK_BLOCKED_COVER_REGEX = /(?:webtoonhatti|workers\.dev|mangadex\.org|mangaupdates\.com|siyahmelek|okutoonapi\.net)/i;
 const IMAGE_PROXY_FALLBACK_URL = 'https://toonparrot-offline-image-proxy.caganhuseyinerdil.workers.dev';
 
 const ensureStaticR2Covers = async (store, touchedSlugs = new Set(), touchedMangaIds = new Set()) => {
@@ -3707,7 +3708,10 @@ const ensureStaticR2Covers = async (store, touchedSlugs = new Set(), touchedMang
         ? `${IMAGE_PROXY_FALLBACK_URL}/?url=${encodeURIComponent(rawCover)}`
         : m.cover;
       try {
-        const imgRes = await fetch(fetchUrl, { signal: AbortSignal.timeout(10000) });
+        let imgRes = await fetch(fetchUrl, { signal: AbortSignal.timeout(10000) });
+        if (!imgRes.ok && rawCover.startsWith('http')) {
+          imgRes = await fetch(rawCover, { signal: AbortSignal.timeout(10000) });
+        }
         if (imgRes.ok) {
           const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
           const ext = contentType.includes('webp') ? 'webp' : contentType.includes('png') ? 'png' : 'jpg';

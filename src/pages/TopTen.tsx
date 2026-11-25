@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   ChevronLeft,
   ChevronRight,
@@ -328,10 +328,18 @@ const TopTenAudienceBlock: React.FC<{
 }) => {
   const audienceMeta = TOP_TEN_AUDIENCE_META[audience];
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [scrollerNode, setScrollerNode] = useState<HTMLDivElement | null>(null);
+  const [contentNode, setContentNode] = useState<HTMLDivElement | null>(null);
+  const lastResetKeyRef = useRef<string>('');
   const rafRef = useRef<number | null>(null);
   const arrowStateRef = useRef({ left: false, right: false });
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(false);
+
+  const handleScrollerRef = useCallback((node: HTMLDivElement | null) => {
+    scrollRef.current = node;
+    setScrollerNode(node);
+  }, []);
 
   const uniqueMangas = useMemo(() => {
     const seenIds = new Set<string>();
@@ -342,12 +350,28 @@ const TopTenAudienceBlock: React.FC<{
     });
   }, [manga]);
 
+  const mangaSignature = useMemo(
+    () => uniqueMangas.map((item) => item.id).join(','),
+    [uniqueMangas],
+  );
+
   const updateArrows = useCallback(() => {
     const scroller = scrollRef.current;
-    const nextLeft = scroller ? scroller.scrollLeft > 15 : false;
-    const nextRight = scroller
-      ? scroller.scrollWidth > scroller.clientWidth + 15 && scroller.scrollLeft < scroller.scrollWidth - scroller.clientWidth - 15
-      : false;
+    if (!scroller) {
+      if (arrowStateRef.current.left) {
+        arrowStateRef.current.left = false;
+        setShowLeftArrow(false);
+      }
+      if (arrowStateRef.current.right) {
+        arrowStateRef.current.right = false;
+        setShowRightArrow(false);
+      }
+      return;
+    }
+
+    const maxScrollLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+    const nextLeft = scroller.scrollLeft > 15;
+    const nextRight = maxScrollLeft > 15 && scroller.scrollLeft < maxScrollLeft - 15;
 
     if (arrowStateRef.current.left !== nextLeft) {
       arrowStateRef.current.left = nextLeft;
@@ -371,50 +395,68 @@ const TopTenAudienceBlock: React.FC<{
 
   const scroll = (direction: 'left' | 'right') => {
     const scroller = scrollRef.current;
-    if (scroller) {
-      const scrollAmount = Math.max(260, scroller.clientWidth * 0.78);
-      const maxScrollLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
-      const rawTarget = direction === 'left'
-        ? scroller.scrollLeft - scrollAmount
-        : scroller.scrollLeft + scrollAmount;
-      const target = direction === 'left'
-        ? (rawTarget <= 56 ? 0 : rawTarget)
-        : (maxScrollLeft - rawTarget <= 56 ? maxScrollLeft : Math.min(maxScrollLeft, rawTarget));
+    if (!scroller) return;
 
-      scroller.scrollTo({
-        left: target,
-        behavior: 'smooth',
-      });
-      window.setTimeout(requestArrowUpdate, 450);
-    }
+    const scrollAmount = Math.max(260, scroller.clientWidth * 0.78);
+    const maxScrollLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+    const rawTarget = direction === 'left'
+      ? scroller.scrollLeft - scrollAmount
+      : scroller.scrollLeft + scrollAmount;
+    const target = direction === 'left'
+      ? (rawTarget <= 56 ? 0 : rawTarget)
+      : (maxScrollLeft - rawTarget <= 56 ? maxScrollLeft : Math.min(maxScrollLeft, rawTarget));
+
+    scroller.scrollTo({
+      left: target,
+      behavior: prefersReducedMotion ? 'auto' : 'smooth',
+    });
+    requestArrowUpdate();
+    window.setTimeout(requestArrowUpdate, 220);
+    window.setTimeout(requestArrowUpdate, 480);
   };
 
   useEffect(() => {
-    const scroller = scrollRef.current;
-    if (!scroller) return;
+    if (!scrollerNode) {
+      updateArrows();
+      return;
+    }
 
-    scroller.scrollTo({ left: 0, behavior: 'auto' });
+    const resetKey = `${audience}:${timeframe}:${mangaSignature}`;
+    if (lastResetKeyRef.current !== resetKey) {
+      lastResetKeyRef.current = resetKey;
+      scrollerNode.scrollTo({ left: 0, behavior: 'auto' });
+    }
+
+    updateArrows();
     requestArrowUpdate();
 
     const handleResize = () => requestArrowUpdate();
+    const handleScrollEnd = () => requestArrowUpdate();
     window.addEventListener('resize', handleResize, { passive: true });
+    scrollerNode.addEventListener('scrollend', handleScrollEnd, { passive: true });
 
     let observer: ResizeObserver | null = null;
     if (typeof ResizeObserver !== 'undefined') {
       observer = new ResizeObserver(() => {
         requestArrowUpdate();
       });
-      observer.observe(scroller);
+      observer.observe(scrollerNode);
+      if (contentNode) {
+        observer.observe(contentNode);
+      }
     }
 
-    const timer = window.setTimeout(requestArrowUpdate, 200);
+    const timer1 = window.setTimeout(requestArrowUpdate, 120);
+    const timer2 = window.setTimeout(requestArrowUpdate, 360);
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      scrollerNode.removeEventListener('scrollend', handleScrollEnd);
       observer?.disconnect();
-      window.clearTimeout(timer);
+      window.clearTimeout(timer1);
+      window.clearTimeout(timer2);
     };
-  }, [timeframe, audience, isLoading, uniqueMangas.length, requestArrowUpdate]);
+  }, [scrollerNode, contentNode, timeframe, audience, isLoading, isSinglePanel, mangaSignature, updateArrows, requestArrowUpdate]);
 
   useEffect(() => () => {
     if (rafRef.current !== null) {
@@ -515,52 +557,49 @@ const TopTenAudienceBlock: React.FC<{
                   </div>
                 ))}
               </div>
-            ) : (
-              <AnimatePresence initial={false}>
-                {uniqueMangas.length > 0 ? (
-                  <motion.div
-                    key={`${audience}-${timeframe}-content`}
-                    initial={prefersReducedMotion ? false : { opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.16, ease: 'easeOut' }}
-                    className="min-w-0"
-                  >
+            ) : uniqueMangas.length > 0 ? (
+              <div
+                ref={handleScrollerRef}
+                onScroll={requestArrowUpdate}
+                className="w-full max-w-full min-w-0 overflow-x-auto overscroll-x-contain horizontal-scroll-smooth touch-pan-x touch-pan-y pb-1.5 scrollbar-hide sm:pb-2"
+                style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch' }}
+              >
+                <motion.div
+                  key={`${audience}-${timeframe}-content`}
+                  ref={setContentNode}
+                  initial={prefersReducedMotion ? false : { opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.16, ease: 'easeOut' }}
+                  className="flex w-max min-w-full gap-2.5 sm:gap-3.5"
+                >
+                  {uniqueMangas.map((item, index) => (
                     <div
-                      ref={scrollRef}
-                      onScroll={requestArrowUpdate}
-                      className="flex w-full max-w-full min-w-0 gap-2.5 overflow-x-auto overscroll-x-contain horizontal-scroll-smooth touch-pan-x touch-pan-y pb-1.5 scrollbar-hide sm:gap-3.5 sm:pb-2"
-                      style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch' }}
+                      key={`${audience}-${item.id}`}
+                      data-top-ten-card
+                      className={`shrink-0 ${TOP_TEN_CARD_WIDTH_CLASS}`}
                     >
-                      {uniqueMangas.map((item, index) => (
-                        <div
-                          key={`${audience}-${item.id}`}
-                          data-top-ten-card
-                          className={`shrink-0 ${TOP_TEN_CARD_WIDTH_CLASS}`}
-                        >
-                          <TopTenCard
-                            manga={item}
-                            index={index}
-                            audience={audience}
-                            disableHeavyEffects={disableHeavyEffects}
-                          />
-                        </div>
-                      ))}
+                      <TopTenCard
+                        manga={item}
+                        index={index}
+                        audience={audience}
+                        disableHeavyEffects={disableHeavyEffects}
+                      />
                     </div>
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key={`${audience}-${timeframe}-empty`}
-                    initial={prefersReducedMotion ? false : { opacity: 0, y: disableHeavyEffects ? 0 : 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={prefersReducedMotion ? { duration: 0 } : { duration: disableHeavyEffects ? 0.12 : 0.16 }}
-                    className="rounded-xl border border-dashed border-border/60 bg-background/40 p-6 text-center sm:p-8"
-                  >
-                    <p className="text-xs text-muted-foreground sm:text-sm">
-                      {audienceMeta.emptyText}
-                    </p>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                  ))}
+                </motion.div>
+              </div>
+            ) : (
+              <motion.div
+                key={`${audience}-${timeframe}-empty`}
+                initial={prefersReducedMotion ? false : { opacity: 0, y: disableHeavyEffects ? 0 : 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={prefersReducedMotion ? { duration: 0 } : { duration: disableHeavyEffects ? 0.12 : 0.16 }}
+                className="rounded-xl border border-dashed border-border/60 bg-background/40 p-6 text-center sm:p-8"
+              >
+                <p className="text-xs text-muted-foreground sm:text-sm">
+                  {audienceMeta.emptyText}
+                </p>
+              </motion.div>
             )}
           </div>
         </div>

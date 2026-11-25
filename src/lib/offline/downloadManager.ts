@@ -24,9 +24,12 @@ import { getOfflinePreferences } from '@/lib/offline/preferences';
 import { compressOfflineImage } from '@/lib/offline/imageCompression';
 import {
   getCandidateOfflineProxyUrls,
+  isOfflineProxyPostUnsupported,
   isSupabaseFunctionsProxyUrl,
+  markOfflineProxyPostUnsupported,
   markOfflineProxyRejectedForHost,
   offlineProxyConfig,
+  shouldPreferCorsRelayForUrl,
 } from '@/lib/offline/proxyConfig';
 import { buildProxiedImageUrl, isStoredMediaUrl, unwrapManagedMediaUrl } from '@/lib/mediaStorage';
 import { syncChapterTranslationsForOffline } from '@/lib/translation/translationCache';
@@ -260,8 +263,14 @@ export const inferRefererForImageUrl = (imageUrl: string, fallbackReferer?: stri
     const parsed = new URL(imageUrl);
     const host = parsed.hostname.toLowerCase();
 
+    if (host === 'okutoon.net' || host.endsWith('.okutoon.net') || host === 'okutoonapi.net' || host.endsWith('.okutoonapi.net')) {
+      return 'https://okutoon.net/';
+    }
     if (host === 'om-cdn.okutoon.com' || host === 'okutoon.com' || host.endsWith('.okutoon.com')) {
       return 'https://okutoon.com/';
+    }
+    if (host === 'melek.mom' || host.endsWith('.melek.mom')) {
+      return 'https://siyahmelek.mom/';
     }
     if (host === 'cdn.mangacix.net' || host === 'mangacix.net' || host.endsWith('.mangacix.net')) {
       return 'https://mangacix.net/';
@@ -354,23 +363,36 @@ const downloadImageViaProxy = async (
     return readStreamToBlob(response, signal, onChunk);
   }
 
-  let response = await fetch(proxyUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ url: sourceUrl, referer: inferredReferer }),
-    signal,
-  });
-
-  if (response.status === 405) {
+  const buildGetProxyRequestUrl = () => {
     const getUrl = new URL(proxyUrl);
     getUrl.searchParams.set('url', sourceUrl);
     if (inferredReferer) getUrl.searchParams.set('referer', inferredReferer);
-    response = await fetch(getUrl.toString(), {
+    return getUrl.toString();
+  };
+
+  let response: Response;
+  if (isOfflineProxyPostUnsupported(proxyUrl)) {
+    response = await fetch(buildGetProxyRequestUrl(), {
       method: 'GET',
       signal,
     });
+  } else {
+    response = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ url: sourceUrl, referer: inferredReferer }),
+      signal,
+    });
+
+    if (response.status === 405) {
+      markOfflineProxyPostUnsupported(proxyUrl);
+      response = await fetch(buildGetProxyRequestUrl(), {
+        method: 'GET',
+        signal,
+      });
+    }
   }
 
   return readStreamToBlob(response, signal, onChunk);
@@ -381,14 +403,39 @@ const downloadImageViaCorsRelay = async (
   signal: AbortSignal,
   onChunk: (delta: number) => void,
 ) => {
-  const relayUrl = `https://wsrv.nl/?url=${encodeURIComponent(sourceUrl)}&output=webp`;
-  const response = await fetch(relayUrl, {
-    method: 'GET',
-    mode: 'cors',
-    credentials: 'omit',
-    signal,
-  });
-  return readStreamToBlob(response, signal, onChunk);
+  const relayCandidates: string[] = [
+    `https://wsrv.nl/?url=${encodeURIComponent(sourceUrl)}`,
+  ];
+
+  try {
+    const parsed = new URL(sourceUrl);
+    if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && !parsed.search) {
+      relayCandidates.push(`https://i0.wp.com/${parsed.hostname}${parsed.pathname}`);
+    }
+  } catch {
+    // ignore
+  }
+
+  let lastRelayError: unknown = null;
+  for (const relayUrl of relayCandidates) {
+    if (signal.aborted) {
+      throw new DOMException('Iptal edildi', 'AbortError');
+    }
+    try {
+      const response = await fetch(relayUrl, {
+        method: 'GET',
+        mode: 'cors',
+        credentials: 'omit',
+        signal,
+      });
+      return await readStreamToBlob(response, signal, onChunk);
+    } catch (err) {
+      if (signal.aborted) throw err;
+      lastRelayError = err;
+    }
+  }
+
+  throw lastRelayError || new Error(`CORS relay failed: ${sourceUrl}`);
 };
 
 export const downloadPageBlob = async (
@@ -407,6 +454,8 @@ export const downloadPageBlob = async (
   }
   const targetUrl = unwrapManagedMediaUrl(pageUrl) || pageUrl;
   const inferredReferer = inferRefererForImageUrl(targetUrl, effectiveReferer);
+  const canUseCorsRelay = /^https?:\/\//i.test(targetUrl) && !isStoredMediaUrl(targetUrl);
+  const preferCorsRelay = canUseCorsRelay && shouldPreferCorsRelayForUrl(targetUrl);
   let lastError: unknown = null;
 
   for (let attempt = 0; attempt <= 1; attempt += 1) {
@@ -421,7 +470,17 @@ export const downloadPageBlob = async (
       }
     }
 
-    // 1. Cloudflare Offline Image Proxy POST (tüm aday havuzunu dener; 403 veren worker'ı o host için bellekte devre dışı bırakır)
+    // 0. Public CORS-friendly relays first for hosts known to lack ACAO and not require hotlink Referer
+    if (preferCorsRelay) {
+      try {
+        return await downloadImageViaCorsRelay(targetUrl, signal, onChunk);
+      } catch (relayError) {
+        if (signal.aborted) throw relayError;
+        lastError = relayError;
+      }
+    }
+
+    // 1. Cloudflare Offline Image Proxy (tüm aday havuzunu dener; 403 veren worker'ı o host için bellekte devre dışı bırakır)
     const candidateProxies = getCandidateOfflineProxyUrls(targetUrl);
     for (const candidateProxyUrl of candidateProxies) {
       if (signal.aborted) {
@@ -439,37 +498,22 @@ export const downloadPageBlob = async (
       }
     }
 
-    // 2. GET Proxy URL fallback (reddedilmeyen worker üzerinden)
-    try {
-      const getProxyUrl = buildProxiedImageUrl(targetUrl, inferredReferer);
-      if (getProxyUrl && getProxyUrl !== targetUrl) {
-        const response = await fetch(getProxyUrl, {
-          method: 'GET',
-          signal,
-        });
-        return await readStreamToBlob(response, signal, onChunk);
-      }
-    } catch (getProxyError) {
-      if (signal.aborted) throw getProxyError;
-      lastError = getProxyError;
-    }
-
-    // 3. Direct fetch fallback with CORS omit
-    try {
-      return await downloadImageDirect(targetUrl, signal, onChunk);
-    } catch (directError) {
-      if (signal.aborted) throw directError;
-      lastError = directError;
-    }
-
-    // 4. Harici yeni CDN domainleri için CORS uyumlu yedek görsel rölesi
-    if (/^https?:\/\//i.test(targetUrl) && !isStoredMediaUrl(targetUrl)) {
+    // 2. Harici yeni CDN domainleri için CORS uyumlu yedek görsel rölesi (doğrudan CORS hatasından önce)
+    if (canUseCorsRelay && !preferCorsRelay) {
       try {
         return await downloadImageViaCorsRelay(targetUrl, signal, onChunk);
       } catch (relayError) {
         if (signal.aborted) throw relayError;
         lastError = relayError;
       }
+    }
+
+    // 3. Direct fetch fallback with CORS omit (yalnızca aynı origin, R2 veya röle başarısız olursa)
+    try {
+      return await downloadImageDirect(targetUrl, signal, onChunk);
+    } catch (directError) {
+      if (signal.aborted) throw directError;
+      lastError = directError;
     }
   }
 

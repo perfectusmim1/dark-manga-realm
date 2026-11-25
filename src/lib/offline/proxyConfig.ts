@@ -39,6 +39,17 @@ export const configuredOfflineImageProxyUrls: string[] = buildConfiguredProxyPoo
 // Per-session memory of proxy origins that rejected (401/403) a specific upstream image hostname.
 const rejectedProxiesByHost = new Map<string, Set<string>>();
 
+// Per-session memory of proxy origins that rejected POST with 405 (older GET-only deployments).
+const postUnsupportedProxies = new Set<string>();
+
+// Hosts that serve images publicly without hotlink-Referer rejection and lack CORS headers;
+// routing their CORS blob fetches through wsrv.nl / Photon first avoids 403/405 console spam
+// across mirror workers that have not yet allowlisted newly rotated upstream CDN domains.
+const CORS_RELAY_PREFERRED_HOST_SUFFIXES: string[] = [
+  'okutoonapi.net',
+  'okutoon.net',
+];
+
 // Primary worker (`caganherdil.workers.dev`) has special mirror failover rules.
 const PRIMARY_WORKER_ONLY_HOST_SUFFIXES: string[] = [
   'kkplayer.wtf',
@@ -106,14 +117,57 @@ export const isOfflineProxyRejectedForHost = (proxyUrl: string, targetUrl: strin
 
 export const clearOfflineProxyRejections = (): void => {
   rejectedProxiesByHost.clear();
+  postUnsupportedProxies.clear();
 };
 
-const getNonRejectedPoolForTarget = (targetUrl: string, pool: readonly string[] = configuredOfflineImageProxyUrls): string[] => {
-  if (pool.length === 0) return [defaultOfflineImageProxyUrl];
+export const markOfflineProxyPostUnsupported = (proxyUrl: string): void => {
+  const proxyKey = extractProxyKey(proxyUrl);
+  if (proxyKey) {
+    postUnsupportedProxies.add(proxyKey);
+  }
+};
+
+export const isOfflineProxyPostUnsupported = (proxyUrl: string): boolean => {
+  const proxyKey = extractProxyKey(proxyUrl);
+  return proxyKey ? postUnsupportedProxies.has(proxyKey) : false;
+};
+
+export const shouldPreferCorsRelayForUrl = (targetUrl: string): boolean => {
+  const host = extractHostname(targetUrl);
+  if (!host) return false;
+  return CORS_RELAY_PREFERRED_HOST_SUFFIXES.some(
+    (suffix) => host === suffix || host.endsWith(`.${suffix}`),
+  );
+};
+
+export const areAllOfflineProxiesRejectedForHost = (
+  targetUrl: string,
+  pool: readonly string[] = configuredOfflineImageProxyUrls,
+): boolean => {
+  const host = extractHostname(targetUrl);
+  if (!host || pool.length === 0) return false;
+  const rejected = rejectedProxiesByHost.get(host);
+  if (!rejected || rejected.size === 0) return false;
+  if (isPrimaryWorkerOnlyTarget(targetUrl, host)) {
+    return rejected.has(extractProxyKey(defaultOfflineImageProxyUrl));
+  }
+  return pool.every((proxyUrl) => rejected.has(extractProxyKey(proxyUrl)));
+};
+
+const getNonRejectedPoolForTarget = (
+  targetUrl: string,
+  pool: readonly string[] = configuredOfflineImageProxyUrls,
+  options: { allowEmpty?: boolean } = {},
+): string[] => {
+  if (pool.length === 0) return options.allowEmpty ? [] : [defaultOfflineImageProxyUrl];
   const host = extractHostname(targetUrl);
   if (!host) return [...pool];
 
   if (isPrimaryWorkerOnlyTarget(targetUrl, host)) {
+    const rejected = rejectedProxiesByHost.get(host);
+    if (options.allowEmpty && rejected?.has(extractProxyKey(defaultOfflineImageProxyUrl))) {
+      return [];
+    }
     return [defaultOfflineImageProxyUrl];
   }
 
@@ -123,7 +177,7 @@ const getNonRejectedPoolForTarget = (targetUrl: string, pool: readonly string[] 
   const available = pool.filter((proxyUrl) => !rejected.has(extractProxyKey(proxyUrl)));
   if (available.length > 0) return available;
 
-  return [defaultOfflineImageProxyUrl];
+  return options.allowEmpty ? [] : [defaultOfflineImageProxyUrl];
 };
 
 let proxyIndex = 0;
@@ -139,7 +193,7 @@ export const getCandidateOfflineProxyUrls = (
   targetUrl: string,
   pool: readonly string[] = configuredOfflineImageProxyUrls,
 ): string[] => {
-  const available = getNonRejectedPoolForTarget(targetUrl, pool);
+  const available = getNonRejectedPoolForTarget(targetUrl, pool, { allowEmpty: true });
   if (available.length <= 1) return available;
 
   const primaryKey = extractProxyKey(defaultOfflineImageProxyUrl);

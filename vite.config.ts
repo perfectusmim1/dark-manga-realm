@@ -127,13 +127,14 @@ export default defineConfig(({ mode }) => ({
               },
             },
           },
-          // 1. Yalnızca gerçek görseller: R2 medyası, harici CDN görselleri ve
-          //    <img> (destination=image) üzerinden gelen proxied görseller.
-          //    ÖNEMLİ: Supabase REST/auth yanıtları ve worker JSON API'leri ASLA
-          //    cache'lenmez (eski kural tüm supabase.co/workers.dev isteklerini
-          //    30 gün cache'liyordu; bayat veri/hata tekrarına yol açıyordu).
+          // 1a. CORS / aynı-origin görseller (R2, wsrv, worker proxy, OCR/Upscale fetch):
+          //     Yalnızca HTTP 200 (opak olmayan) yanıtlar önbelleğe alınır; no-cors <img>
+          //     opak (status 0) yanıtlarının CORS fetch() isteklerini bozması engellenir.
           {
             urlPattern: ({ request, url }: any) => {
+              if (request.mode === "no-cors") {
+                return false;
+              }
               if (request.destination === "image") {
                 return true;
               }
@@ -145,12 +146,29 @@ export default defineConfig(({ mode }) => ({
             },
             handler: "StaleWhileRevalidate",
             options: {
-              cacheName: "toonparrot-media-v2",
+              cacheName: "toonparrot-media-cors-v1",
+              cacheableResponse: {
+                statuses: [200],
+              },
+              expiration: {
+                maxEntries: 2000,
+                maxAgeSeconds: 60 * 60 * 24 * 30, // 30 gün kalıcı önbellek
+                purgeOnQuotaError: true,
+              },
+            },
+          },
+          // 1b. no-cors <img> görselleri: opak yanıtlar (status 0) ayrı önbellekte tutulur.
+          {
+            urlPattern: ({ request }: any) =>
+              request.mode === "no-cors" && request.destination === "image",
+            handler: "StaleWhileRevalidate",
+            options: {
+              cacheName: "toonparrot-media-v3",
               cacheableResponse: {
                 statuses: [0, 200],
               },
               expiration: {
-                maxEntries: 3000,
+                maxEntries: 2000,
                 maxAgeSeconds: 60 * 60 * 24 * 30, // 30 gün kalıcı önbellek
                 purgeOnQuotaError: true,
               },

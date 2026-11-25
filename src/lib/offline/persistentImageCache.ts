@@ -1,6 +1,14 @@
-import { buildProxiedImageUrl, isStoredMediaUrl } from '@/lib/mediaStorage';
+import { isStoredMediaUrl } from '@/lib/mediaStorage';
 import { compressOfflineImage } from '@/lib/offline/imageCompression';
-import { getOfflineImageProxyUrl, offlineProxyConfig } from '@/lib/offline/proxyConfig';
+import {
+  getCandidateOfflineProxyUrls,
+  isOfflineProxyPostUnsupported,
+  isSupabaseFunctionsProxyUrl,
+  markOfflineProxyPostUnsupported,
+  markOfflineProxyRejectedForHost,
+  offlineProxyConfig,
+  shouldPreferCorsRelayForUrl,
+} from '@/lib/offline/proxyConfig';
 import { inferRefererForImageUrl } from '@/lib/offline/downloadManager';
 const DATA_URL_IMAGE_PREFIX = 'data:image';
 const IMAGE_FAILURE_CACHE_KEY = 'toonparrot_offline_image_failures_v1';
@@ -120,45 +128,99 @@ const blobToDataUrl = (blob: Blob) =>
     reader.readAsDataURL(blob);
   });
 
-const fetchImageViaProxy = async (sourceUrl: string): Promise<Blob> => {
-  const referer = inferRefererForImageUrl(sourceUrl);
+const fetchImageViaCorsRelay = async (sourceUrl: string): Promise<Blob> => {
+  const candidates: string[] = [
+    `https://wsrv.nl/?url=${encodeURIComponent(sourceUrl)}&output=webp`,
+  ];
 
-  // 1. GET Proxy (Cloudflare CDN Edge Cache enabled, fast <50ms, works on all 5 proxies)
   try {
-    const getUrl = buildProxiedImageUrl(sourceUrl, referer);
-    if (getUrl && getUrl !== sourceUrl) {
-      const getResponse = await fetch(getUrl);
-      if (getResponse.ok) {
-        return await getResponse.blob();
-      }
+    const parsed = new URL(sourceUrl);
+    if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && !parsed.search) {
+      candidates.push(`https://i0.wp.com/${parsed.hostname}${parsed.pathname}`);
     }
   } catch {
-    // Ignore and fallback to POST
+    // ignore
   }
 
-  // 2. POST Proxy fallback
-  const proxyUrl = getOfflineImageProxyUrl();
-  if (proxyUrl) {
+  for (const relayUrl of candidates) {
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (offlineProxyConfig.usesSupabaseAuth) {
+      const response = await fetch(relayUrl, {
+        method: 'GET',
+        mode: 'cors',
+        credentials: 'omit',
+      });
+      if (response.ok) {
+        return await response.blob();
+      }
+    } catch {
+      // try next relay
+    }
+  }
+
+  throw new PersistentImageRequestError('CORS relay fetch failed');
+};
+
+const fetchImageViaProxy = async (sourceUrl: string): Promise<Blob> => {
+  const referer = inferRefererForImageUrl(sourceUrl);
+  const candidateProxies = getCandidateOfflineProxyUrls(sourceUrl);
+
+  for (const proxyBaseUrl of candidateProxies) {
+    // 1. GET Proxy (Cloudflare CDN Edge Cache enabled, avoids 405 on GET-only workers)
+    try {
+      const getUrl = new URL(proxyBaseUrl);
+      getUrl.searchParams.set('url', sourceUrl);
+      if (referer) {
+        getUrl.searchParams.set('referer', referer);
+      }
+
+      const headers: Record<string, string> = {};
+      if (isSupabaseFunctionsProxyUrl(proxyBaseUrl)) {
         headers.apikey = offlineProxyConfig.supabaseAnonKey;
         headers.Authorization = `Bearer ${offlineProxyConfig.supabaseAnonKey}`;
       }
 
-      const postResponse = await fetch(proxyUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ url: sourceUrl, referer }),
-      });
+      const getResponse = await fetch(getUrl.toString(), { method: 'GET', headers });
+      if (getResponse.ok) {
+        return await getResponse.blob();
+      }
 
-      if (postResponse.ok) {
-        return await postResponse.blob();
+      if (getResponse.status === 401 || getResponse.status === 403) {
+        markOfflineProxyRejectedForHost(proxyBaseUrl, sourceUrl);
+        continue;
       }
     } catch {
-      // Ignore
+      // Fall through to POST fallback if supported
+    }
+
+    // 2. POST Proxy fallback only if worker supports POST and did not reject the host
+    if (!isOfflineProxyPostUnsupported(proxyBaseUrl)) {
+      try {
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (isSupabaseFunctionsProxyUrl(proxyBaseUrl)) {
+          headers.apikey = offlineProxyConfig.supabaseAnonKey;
+          headers.Authorization = `Bearer ${offlineProxyConfig.supabaseAnonKey}`;
+        }
+
+        const postResponse = await fetch(proxyBaseUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ url: sourceUrl, referer }),
+        });
+
+        if (postResponse.ok) {
+          return await postResponse.blob();
+        }
+
+        if (postResponse.status === 405) {
+          markOfflineProxyPostUnsupported(proxyBaseUrl);
+        } else if (postResponse.status === 401 || postResponse.status === 403) {
+          markOfflineProxyRejectedForHost(proxyBaseUrl, sourceUrl);
+        }
+      } catch {
+        // Try next proxy candidate
+      }
     }
   }
 
@@ -171,31 +233,47 @@ const fetchImageWithFallback = async (sourceUrl: string): Promise<Blob> => {
     sourceUrl.startsWith('http') &&
     !sourceUrl.startsWith(window.location.origin);
 
-  // 1. For cross-origin URLs, try Cloudflare Offline Image Proxy first to avoid noisy browser CORS errors
-  if (isCrossOrigin && getOfflineImageProxyUrl()) {
+  const canUseCorsRelay = isCrossOrigin && !isStoredMediaUrl(sourceUrl);
+  const preferCorsRelay = canUseCorsRelay && shouldPreferCorsRelayForUrl(sourceUrl);
+
+  // 0. Prefer CORS relay first for public CDNs without ACAO that mirror workers may not allowlist yet
+  if (preferCorsRelay) {
+    try {
+      return await fetchImageViaCorsRelay(sourceUrl);
+    } catch {
+      // Fall through to worker proxy
+    }
+  }
+
+  // 1. For cross-origin URLs, try Cloudflare Offline Image Proxy pool first
+  if (isCrossOrigin) {
     try {
       return await fetchImageViaProxy(sourceUrl);
     } catch {
-      // Fallback to direct fetch if proxy fails
+      // Fall through to CORS relay / direct fetch
     }
   }
 
-  // 2. Direct fetch
-  try {
-    const response = await fetch(sourceUrl, {
-      mode: 'cors',
-      credentials: 'omit',
-    });
-
-    if (response.ok) {
-      return await response.blob();
+  // 2. CORS relay fallback before raw cross-origin fetch (prevents browser CORS & SW opaque errors)
+  if (canUseCorsRelay && !preferCorsRelay) {
+    try {
+      return await fetchImageViaCorsRelay(sourceUrl);
+    } catch {
+      // Fall through to direct fetch
     }
-  } catch {
-    // Direct fetch failed (likely CORS or network), fallback to proxy
   }
 
-  // 3. Fallback to Cloudflare Offline Image Proxy
-  return await fetchImageViaProxy(sourceUrl);
+  // 3. Direct fetch (same-origin, R2, or final fallback)
+  const response = await fetch(sourceUrl, {
+    mode: 'cors',
+    credentials: 'omit',
+  });
+
+  if (response.ok) {
+    return await response.blob();
+  }
+
+  throw new PersistentImageRequestError(`Direct fetch failed (${response.status})`, response.status);
 };
 
 export const cachePersistentImageDataUrl = async (sourceUrl?: string | null) => {
