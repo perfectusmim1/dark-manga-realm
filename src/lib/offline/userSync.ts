@@ -439,6 +439,11 @@ export const queueBookmarkRemove = (userId: string, bookmark: Bookmark) => {
 
 export const getCachedPreferencesForUser = (userId: string) => readUserCache(userId).preferences;
 
+export const hasPendingPreferencesUpdate = (userId: string) =>
+  getStore().operations.some(
+    (operation) => operation.userId === userId && operation.type === 'preferences-update',
+  );
+
 export const setCachedPreferencesForUser = (userId: string, preferences: AppUser['preferences']) => {
   updateUserCache(userId, (cache) => ({
     ...cache,

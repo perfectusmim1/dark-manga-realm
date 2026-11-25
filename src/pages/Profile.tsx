@@ -236,7 +236,7 @@ const Profile: React.FC = () => {
   useEffect(() => {
     setHeroBannerLoadFailed(false);
     setRevealedCommentSpoilers({});
-  }, [userId]);
+  }, [userId, profileData?.bannerUrl]);
 
   if (!isOnline) {
     return (
@@ -420,6 +420,7 @@ const Profile: React.FC = () => {
           {heroBackdropImage ? (
             <>
               <img
+                key={heroBackdropImage}
                 src={heroBackdropImage}
                 alt={`${profileData.username} profil bannerı`}
                 fetchPriority="high"

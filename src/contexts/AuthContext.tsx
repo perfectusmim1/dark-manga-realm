@@ -8,6 +8,7 @@ import { getDeviceIdentity } from '@/lib/security/deviceFingerprint';
 import { syncLocalChapterReadFallbackToRemote } from '@/lib/storage';
 import {
   getCachedPreferencesForUser,
+  hasPendingPreferencesUpdate,
   isEffectivelyOnline,
   queuePreferencesUpdate,
   setCachedPreferencesForUser,
@@ -381,11 +382,19 @@ const extractTotpFactors = (factors: TotpFactorRecord[] | undefined): TotpFactor
 // Convert Supabase user + Profile data to our User type
 const mapSupabaseUserToUser = (supabaseUser: SupabaseUser, profile: UserProfileRow | null): User => {
   const cachedPreferences = getCachedPreferencesForUser(supabaseUser.id);
+  const hasPendingPrefSync = hasPendingPreferencesUpdate(supabaseUser.id);
   const profilePreferences = profile?.preferences
     ? normalizeUserPreferences(profile.preferences)
     : undefined;
 
-  if (!cachedPreferences && profilePreferences) {
+  // Prefer server preferences unless an offline preferences update is still queued locally.
+  const resolvedPreferences = hasPendingPrefSync && cachedPreferences
+    ? normalizeUserPreferences(cachedPreferences)
+    : normalizeUserPreferences(profilePreferences || cachedPreferences);
+
+  if (profilePreferences && !hasPendingPrefSync) {
+    setCachedPreferencesForUser(supabaseUser.id, profilePreferences);
+  } else if (!cachedPreferences && profilePreferences) {
     setCachedPreferencesForUser(supabaseUser.id, profilePreferences);
   }
 
@@ -405,7 +414,7 @@ const mapSupabaseUserToUser = (supabaseUser: SupabaseUser, profile: UserProfileR
     warningCount: profile?.warning_count || 0,
     unreadWarningCount: profile?.unread_warning_count || 0,
     twoFactorEnabled: profile?.two_factor_enabled || false,
-    preferences: normalizeUserPreferences(cachedPreferences || profilePreferences),
+    preferences: resolvedPreferences,
   };
 };
 
@@ -1628,7 +1637,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updatePreferences = async (newPreferences: User['preferences']): Promise<{ success: boolean; error?: string }> => {
     if (!user) return { success: false, error: 'Oturum açılmamış' };
 
-    const normalizedPreferences = normalizeUserPreferences(newPreferences);
+    const normalizedPreferences = normalizeUserPreferences({
+      ...user.preferences,
+      ...newPreferences,
+      notifications: newPreferences?.notifications ?? user.preferences?.notifications,
+      content: newPreferences?.content ?? user.preferences?.content,
+      comments: newPreferences?.comments ?? user.preferences?.comments,
+      appearance: newPreferences?.appearance ?? user.preferences?.appearance,
+      profile: newPreferences?.profile ?? user.preferences?.profile,
+      privacy: newPreferences?.privacy ?? user.preferences?.privacy,
+      externalSync: newPreferences?.externalSync ?? user.preferences?.externalSync,
+    });
     const previousAdultModeEnabled = user.preferences?.content?.adult_mode === true;
     const nextAdultModeEnabled = normalizedPreferences.content?.adult_mode === true;
     const adultModeChanged = previousAdultModeEnabled !== nextAdultModeEnabled;

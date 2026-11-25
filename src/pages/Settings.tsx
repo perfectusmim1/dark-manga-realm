@@ -65,6 +65,8 @@ import {
     normalizeExternalSyncPreferences,
     syncLibraryToExternalProviders,
 } from '@/lib/externalSync';
+import { useQueryClient } from '@tanstack/react-query';
+import { hasPendingPreferencesUpdate } from '@/lib/offline/userSync';
 import { useLocation } from 'react-router-dom';
 
 type PreferenceState = {
@@ -238,6 +240,7 @@ const getNextUsernameChangeDate = (usernameChangedAt?: string) => {
 const Settings: React.FC = () => {
   useDocumentTitle('Ayarlar');
     const location = useLocation();
+    const queryClient = useQueryClient();
     const {
         user,
         supabaseUser,
@@ -453,8 +456,11 @@ const Settings: React.FC = () => {
             const trimmedBannerUrl = bannerUrl.trim().slice(0, 1000);
             const prevBio = user?.preferences?.profile?.bio || '';
             const prevBannerUrl = user?.preferences?.profile?.banner_url || '';
+            const needsProfilePrefSync = trimmedBio !== prevBio
+                || trimmedBannerUrl !== prevBannerUrl
+                || (user?.id ? hasPendingPreferencesUpdate(user.id) : false);
 
-            if (trimmedBio !== prevBio || trimmedBannerUrl !== prevBannerUrl) {
+            if (needsProfilePrefSync) {
                 const prefResult = await updatePreferences({
                     ...(user?.preferences || {}),
                     profile: {
@@ -466,6 +472,12 @@ const Settings: React.FC = () => {
                     toast.error(prefResult.error || 'Banner ve biyografi kaydedilemedi');
                     return;
                 }
+            }
+
+            if (user?.id) {
+                await queryClient.invalidateQueries({
+                    queryKey: ['site', 'user-profile', user.id],
+                });
             }
 
             toast.success('Profil güncellendi');
@@ -632,7 +644,11 @@ const Settings: React.FC = () => {
         try {
             setPrefs(newPrefs);
             setIsUpdatingPrefs(true);
-            const { success, error } = await updatePreferences(newPrefs);
+            const { success, error } = await updatePreferences({
+                ...(user?.preferences || {}),
+                ...newPrefs,
+                profile: user?.preferences?.profile,
+            });
             if (success) {
                 toast.success(getPreferenceSuccessMessage(successMessage));
             } else {
