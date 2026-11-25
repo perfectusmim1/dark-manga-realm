@@ -45,6 +45,7 @@ const HIDDEN_EXTRA_FIELD_KEYS = new Set([
   'externalRatings',
   'raw',
   'seriesGallery',
+  'anilistCharacterId',
 ]);
 
 const stripHiddenExtraFields = (extra?: EntityMetadata['extra']) => {
@@ -333,6 +334,8 @@ export const buildEntityMetadataEntries = (metadata?: EntityMetadata | null) => 
     const extraFieldLabels: Record<string, string> = {
       hairColor: 'Saç Rengi',
       eyeColor: 'Göz Rengi',
+      height: 'Boy',
+      weight: 'Kilo',
       malMembers: 'MAL Üye Sayısı',
       malRank: 'MAL Sırası',
       serializations: 'Yayıncı / Dergi',

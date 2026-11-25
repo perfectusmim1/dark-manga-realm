@@ -4390,6 +4390,12 @@ interface AniListMedia {
         } | null;
         image?: { large?: string | null } | null;
         description?: string | null;
+        gender?: string | null;
+        age?: string | null;
+        bloodType?: string | null;
+        dateOfBirth?: { year?: number | null; month?: number | null; day?: number | null } | null;
+        favourites?: number | null;
+        siteUrl?: string | null;
       } | null;
     }> | null;
   } | null;
@@ -4552,6 +4558,12 @@ const loadAniListPreview = async (
               name { full native alternative }
               image { large }
               description
+              gender
+              age
+              bloodType
+              dateOfBirth { year month day }
+              favourites
+              siteUrl
             }
           }
         }
@@ -4629,16 +4641,25 @@ const loadAniListPreview = async (
     if (!node || !node.name?.full) continue;
     const roleType: CharacterListingRole = edge.role === 'MAIN' ? 'main' : edge.role === 'SUPPORTING' ? 'supporting' : 'background';
     const roleLabel = getCharacterListingRoleLabel(roleType);
+    const dob = node.dateOfBirth;
+    const birthday = dob?.day && dob?.month ? `${dob.day} ${['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'][dob.month - 1] || dob.month}` : undefined;
 
     characters.push({
       name: node.name.full,
       imageUrl: node.image?.large || undefined,
       description: sanitizeCharacterDescription(node.description ? node.description.replace(/<[^>]+>/g, ' ').trim() : undefined),
       alternativeNames: uniqueStrings([node.name.native, ...(node.name.alternative || [])]),
-      details: { extra: { anilistCharacterId: node.id } },
+      details: {
+        ...(node.age?.trim() ? { age: node.age.trim() } : {}),
+        ...(node.gender?.trim() ? { gender: node.gender.trim() } : {}),
+        ...(birthday ? { birthday } : {}),
+        ...(node.bloodType?.trim() ? { bloodType: node.bloodType.trim() } : {}),
+        ...(typeof node.favourites === 'number' && node.favourites > 0 ? { favorites: node.favourites } : {}),
+        extra: { anilistCharacterId: node.id },
+      },
       gallery: [],
-      sourceLinks: [{ sourceName: 'anilist', url: `https://anilist.co/character/${node.id}` }],
-      sourceUrl: `https://anilist.co/character/${node.id}`,
+      sourceLinks: [{ sourceName: 'anilist', url: node.siteUrl || `https://anilist.co/character/${node.id}` }],
+      sourceUrl: node.siteUrl || `https://anilist.co/character/${node.id}`,
       roleType,
       roleLabel,
     });

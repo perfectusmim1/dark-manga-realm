@@ -2001,11 +2001,18 @@ const queryAniList = async (searchTerms = [], options = {}) => {
                 name {
                   full
                   native
+                  alternative
                 }
                 image {
                   large
                 }
                 description
+                gender
+                age
+                bloodType
+                dateOfBirth { year month day }
+                favourites
+                siteUrl
               }
             }
           }
@@ -3144,7 +3151,68 @@ class SmartCatalogStore {
         target.genres = Array.from(new Set([...(target.genres || []), ...mappedGenres]));
         this.syncScrapedTaxonomies(finalId, { genres: mappedGenres });
 
-        // Characters (deduplicate by AniList character ID first so historical names like Musashi/Sasaki don't collide across series)
+const TR_MONTHS = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+
+const computeZodiacFromMonthDay = (month, day) => {
+  if (!month || !day) return '';
+  if ((month === 3 && day >= 21) || (month === 4 && day <= 19)) return 'Koç';
+  if ((month === 4 && day >= 20) || (month === 5 && day <= 20)) return 'Boğa';
+  if ((month === 5 && day >= 21) || (month === 6 && day <= 20)) return 'İkizler';
+  if ((month === 6 && day >= 21) || (month === 7 && day <= 22)) return 'Yengeç';
+  if ((month === 7 && day >= 23) || (month === 8 && day <= 22)) return 'Aslan';
+  if ((month === 8 && day >= 23) || (month === 9 && day <= 22)) return 'Başak';
+  if ((month === 9 && day >= 23) || (month === 10 && day <= 22)) return 'Terazi';
+  if ((month === 10 && day >= 23) || (month === 11 && day <= 21)) return 'Akrep';
+  if ((month === 11 && day >= 22) || (month === 12 && day <= 21)) return 'Yay';
+  if ((month === 12 && day >= 22) || (month === 1 && day <= 19)) return 'Oğlak';
+  if ((month === 1 && day >= 20) || (month === 2 && day <= 18)) return 'Kova';
+  return 'Balık';
+};
+
+const extractStructuredCharacterDetails = (node, rawDescription = '') => {
+  const details = {};
+  if (node?.age && String(node.age).trim()) details.age = String(node.age).trim();
+  if (node?.gender && String(node.gender).trim()) details.gender = String(node.gender).trim();
+  if (node?.bloodType && String(node.bloodType).trim()) details.bloodType = String(node.bloodType).trim();
+  const dob = node?.dateOfBirth;
+  if (dob?.month && dob?.day) {
+    const monthName = TR_MONTHS[dob.month - 1];
+    if (monthName) {
+      details.birthday = dob.year ? `${dob.day} ${monthName} ${dob.year}` : `${dob.day} ${monthName}`;
+      details.zodiac = computeZodiacFromMonthDay(dob.month, dob.day);
+    }
+  }
+
+  // Extract inline key: value lines from AniList bio when structured fields are empty
+  const lines = String(rawDescription || '')
+    .replace(/\*\*|__/g, '')
+    .split(/[\r\n]+/);
+  for (const rawLine of lines) {
+    const m = rawLine.match(/^\s*([A-Za-z][A-Za-z /\-]{1,24})\s*:\s*(.{1,100})$/);
+    if (!m) continue;
+    const key = m[1].trim().toLowerCase();
+    const val = m[2].replace(/~!|!~/g, '').replace(/\s+/g, ' ').trim();
+    if (!val || /^(?:unknown|n\/a|\?|-+)$/i.test(val)) continue;
+    if ((key === 'age' || key === 'yaş') && !details.age) details.age = val;
+    else if ((key === 'gender' || key === 'sex' || key === 'cinsiyet') && !details.gender) details.gender = val;
+    else if ((key === 'blood type' || key === 'blood' || key === 'kan grubu') && !details.bloodType) details.bloodType = val;
+    else if ((key === 'height' || key === 'boy') && !details.extra?.height) details.extra = { ...(details.extra || {}), height: val };
+    else if ((key === 'weight' || key === 'kilo') && !details.extra?.weight) details.extra = { ...(details.extra || {}), weight: val };
+    else if ((key === 'hair' || key === 'hair color') && !details.extra?.hairColor) details.extra = { ...(details.extra || {}), hairColor: val };
+    else if ((key === 'eyes' || key === 'eye color') && !details.extra?.eyeColor) details.extra = { ...(details.extra || {}), eyeColor: val };
+    else if ((key === 'occupation' || key === 'position' || key === 'meslek') && !details.occupation) details.occupation = val;
+    else if ((key === 'affiliation' || key === 'team' || key === 'faction') && !details.affiliation) {
+      details.affiliation = val.split(/[,;]+/).map((s) => s.trim()).filter(Boolean).slice(0, 5);
+    }
+  }
+
+  if (node?.id) {
+    details.extra = { ...(details.extra || {}), anilistCharacterId: Number(node.id) };
+  }
+  return details;
+};
+
+// Characters (deduplicate by AniList character ID first so historical names like Musashi/Sasaki don't collide across series)
         for (const edge of anilistData.characters?.edges || []) {
           const node = edge?.node;
           if (!node?.name?.full) continue;
@@ -3169,15 +3237,17 @@ class SmartCatalogStore {
             charId = randomUUID();
             const rawDesc = cleanSynopsisFooters(node.description || '').slice(0, 600);
             const trCharDesc = rawDesc ? await translateTextGtx(rawDesc, 'auto', 'tr') : '';
+            const altNames = Array.from(new Set([node.name.native, ...(node.name.alternative || [])].filter((x) => x && x !== charName)));
+            const charDetails = extractStructuredCharacterDetails(node, node.description || '');
             this.characters.set(charId, {
               id: charId,
               name: charName,
-              alternativeName: node.name.native || undefined,
+              alternative_names: altNames,
               role: edge.role === 'MAIN' ? 'main' : 'supporting',
               image: node.image?.large || undefined,
               description: trCharDesc || undefined,
-              details: alCharId ? { extra: { anilistCharacterId: Number(alCharId) } } : undefined,
-              sourceLinks: alCharId ? [{ sourceName: 'anilist', url: `https://anilist.co/character/${alCharId}` }] : undefined,
+              details: charDetails,
+              sourceLinks: alCharId ? [{ sourceName: 'anilist', url: node.siteUrl || `https://anilist.co/character/${alCharId}` }] : undefined,
             });
           }
           if (!this.mangaCharacters.some((mc) => mc.manga_id === finalId && mc.character_id === charId)) {
@@ -3601,10 +3671,19 @@ class SmartCatalogStore {
       description: entity.description || '',
       likes_count: 0,
       is_public: true,
-      alternative_names: entity.alternativeName ? [entity.alternativeName] : entity.alternative_names || [],
+      alternative_names: Array.from(
+        new Set([
+          ...(entity.alternativeName ? [entity.alternativeName] : []),
+          ...(entity.alternative_names || []),
+        ].filter(Boolean))
+      ),
       details: entity.details || {},
-      gallery: [],
-      source_links: [],
+      gallery: Array.isArray(entity.gallery) ? entity.gallery : [],
+      source_links: Array.isArray(entity.sourceLinks)
+        ? entity.sourceLinks
+        : Array.isArray(entity.source_links)
+        ? entity.source_links
+        : [],
       created_at: now,
     }));
 
